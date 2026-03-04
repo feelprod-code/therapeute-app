@@ -4,6 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { AudioRecorder } from "@/components/AudioRecorder";
+import BilingualRecorder from '@/components/BilingualRecorder';
 import { db, Consultation } from "@/lib/db";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,9 +23,11 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { useState } from "react";
 
 export default function Home() {
   const { toast } = useToast();
+  const [recorderMode, setRecorderMode] = useState('standard');
   // On récupère les consultations triées par date (la plus récente d'abord)
   const consultations = useLiveQuery(() => db.consultations.orderBy("createdAt").reverse().toArray());
 
@@ -81,6 +84,27 @@ export default function Home() {
         variant: "destructive",
       });
     }
+  };
+
+  const handleBilingualComplete = async (audioBlob: Blob, result: Record<string, string>) => {
+    const defaultName = result.patientName && result.patientName.trim() !== "" ? result.patientName : "Patient(e) Anglophone";
+
+    // On passe un Blob vide car l'audio est découpé dans l'historique
+    await db.consultations.add({
+      date: new Date(),
+      patientName: defaultName,
+      audioBlob: audioBlob,
+      synthese: result.synthese,
+      transcription: result.transcription,
+      resume: result.resume,
+      isProcessing: false,
+      createdAt: new Date(),
+    });
+
+    toast({
+      title: "Bilan terminé",
+      description: "Le bilan bilingue a été généré avec succès.",
+    });
   };
 
   const handleDelete = async (id: number) => {
@@ -175,7 +199,22 @@ export default function Home() {
         </div>
 
         {/* Composant principal d'enregistrement */}
-        <AudioRecorder onRecordingComplete={handleRecordingComplete} />
+        {/* <AudioRecorder onRecordingComplete={handleRecordingComplete} /> */} {/* Original */}
+        {/* Sélection du Mode d'Enregistrement */} {/* Added */}
+        <Tabs value={recorderMode} onValueChange={setRecorderMode} className="w-full"> {/* Added */}
+          <TabsList className="grid w-full grid-cols-2 mb-6"> {/* Added */}
+            <TabsTrigger value="standard">Mode Standard</TabsTrigger> {/* Added */}
+            <TabsTrigger value="bilingual">Mode Bilingue (Interprète)</TabsTrigger> {/* Added */}
+          </TabsList>
+
+          <TabsContent value="standard"> {/* Added */}
+            <AudioRecorder onRecordingComplete={handleRecordingComplete} /> {/* Added */}
+          </TabsContent>
+
+          <TabsContent value="bilingual"> {/* Added */}
+            <BilingualRecorder onRecordingComplete={handleBilingualComplete} /> {/* Added */}
+          </TabsContent>
+        </Tabs> {/* Added */}
 
         {/* Historique des consultations */}
         <div className="space-y-6 pt-8">
