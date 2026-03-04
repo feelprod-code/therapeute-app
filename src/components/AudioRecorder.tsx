@@ -21,9 +21,90 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
     const audioChunksRef = useRef<Blob[]>([]);
     const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+    // Audio Visualizer Refs
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const analyserRef = useRef<AnalyserNode | null>(null);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const animationFrameRef = useRef<number | null>(null);
+
+    const cleanupAudioContext = () => {
+        if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current);
+            animationFrameRef.current = null;
+        }
+        if (audioContextRef.current) {
+            audioContextRef.current.close().catch(console.error);
+            audioContextRef.current = null;
+        }
+        analyserRef.current = null;
+    };
+
+    const drawWaveform = () => {
+        if (!canvasRef.current || !analyserRef.current) return;
+
+        const canvas = canvasRef.current;
+        const canvasCtx = canvas.getContext('2d');
+        if (!canvasCtx) return;
+
+        const analyser = analyserRef.current;
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+
+        const draw = () => {
+            animationFrameRef.current = requestAnimationFrame(draw);
+
+            analyser.getByteFrequencyData(dataArray);
+
+            canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Rendu minimaliste : lignes fines et espacées
+            const barWidth = 2.5;
+            const gap = 3.5;
+            const totalBars = Math.floor(canvas.width / (barWidth + gap));
+            let x = (canvas.width - (totalBars * (barWidth + gap))) / 2;
+
+            for (let i = 0; i < totalBars; i++) {
+                // Focus sur les fréquences basses/moyennes (0 à 60% du buffer)
+                const dataIndex = Math.floor((i / totalBars) * bufferLength * 0.6);
+                const value = dataArray[dataIndex] || 0;
+
+                // Application d'une courbe en cloche mathématique (Sine Window)
+                // Pour que les bords soient à zéro progressif et le centre rebondisse
+                const progress = i / totalBars;
+                const windowMultiplier = Math.sin(progress * Math.PI);
+
+                // Calcul de la hauteur avec attenuation sur les bords (padding de 4px)
+                const maxBarHeight = canvas.height - 4;
+                let barHeight = (value / 255) * maxBarHeight * windowMultiplier;
+
+                // Léger "frétillement" même quand c'est silencieux, plus fort au centre
+                const idleWobble = Math.random() * 2 * windowMultiplier;
+                barHeight = Math.max(barHeight, 2 + idleWobble);
+
+                const y = (canvas.height - barHeight) / 2;
+
+                canvasCtx.fillStyle = '#bd613c'; // Couleur TDT
+
+                // Utilisation de coins arrondis si le navigateur le supporte
+                if (typeof canvasCtx.roundRect === 'function') {
+                    canvasCtx.beginPath();
+                    canvasCtx.roundRect(x, y, barWidth, barHeight, barWidth / 2);
+                    canvasCtx.fill();
+                } else {
+                    canvasCtx.fillRect(x, y, barWidth, barHeight);
+                }
+
+                x += barWidth + gap;
+            }
+        };
+
+        draw();
+    };
+
     useEffect(() => {
         return () => {
             stopTimer();
+            cleanupAudioContext();
             if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
                 mediaRecorderRef.current.stop();
             }
@@ -45,8 +126,27 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
 
     const startRecording = async () => {
         try {
+            // ⚠️ INITIALISATION SYNCHRONE IMPÉRATIVE SUR SAFARI : 
+            // L'AudioContext doit être créé et "resumé" dans le même cycle d'événement que le clic utilisateur,
+            // AVANT toute requête asynchrone comme getUserMedia, sinon Safari bloque le son/l'analyse.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            const audioContext = new AudioContextClass();
+            audioContextRef.current = audioContext;
+
+            // Safari / iOS fallback: ensure context is resumed immediately
+            if (audioContext.state === 'suspended') {
+                audioContext.resume().catch(console.error);
+            }
+
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+
+            // Safari iOS fallback logic
+            let options = { mimeType: 'audio/webm' };
+            if (!MediaRecorder.isTypeSupported('audio/webm')) {
+                options = { mimeType: 'audio/mp4' };
+            }
+            const mediaRecorder = new MediaRecorder(stream, options);
             mediaRecorderRef.current = mediaRecorder;
             audioChunksRef.current = [];
 
@@ -57,10 +157,32 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
             };
 
             mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+                // Ensure blob type matches what was supported
+                const finalMimeType = options.mimeType;
+                const audioBlob = new Blob(audioChunksRef.current, { type: finalMimeType });
+
+                if (audioBlob.size === 0) {
+                    toast({
+                        title: "Erreur audio",
+                        description: "L'enregistrement a retourné un fichier vide. Vérifiez les accès micro Safari.",
+                        variant: "destructive",
+                    });
+                    stream.getTracks().forEach((track) => track.stop());
+                    return;
+                }
+
                 onRecordingComplete(audioBlob);
                 stream.getTracks().forEach((track) => track.stop());
             };
+
+            const analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            analyserRef.current = analyser;
+
+            const source = audioContext.createMediaStreamSource(stream);
+            source.connect(analyser);
+
+            drawWaveform();
 
             // Collect data every 1 second to safeguard against memory loss
             mediaRecorder.start(1000);
@@ -68,11 +190,15 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
             setIsPaused(false);
             setRecordingTime(0);
             startTimer();
-        } catch (error) {
+        } catch (error: unknown) {
             console.error("Error accessing microphone:", error);
+
+            let errorMessage = "Impossible d'accéder au microphone.";
+            if (error instanceof Error && error.name === 'NotAllowedError') errorMessage += " Veuillez autoriser l'accès dans les réglages iOS/Safari.";
+
             toast({
                 title: "Erreur Microphone",
-                description: "Impossible d'accéder au microphone. Vérifiez vos permissions.",
+                description: errorMessage,
                 variant: "destructive",
             });
         }
@@ -83,6 +209,9 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
             mediaRecorderRef.current.pause();
             setIsPaused(true);
             stopTimer();
+            if (audioContextRef.current) {
+                audioContextRef.current.suspend();
+            }
         }
     };
 
@@ -91,6 +220,9 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
             mediaRecorderRef.current.resume();
             setIsPaused(false);
             startTimer();
+            if (audioContextRef.current) {
+                audioContextRef.current.resume();
+            }
         }
     };
 
@@ -100,6 +232,16 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
             setIsRecording(false);
             setIsPaused(false);
             stopTimer();
+            cleanupAudioContext();
+
+            // Feedback visuel (Toast) uniquement
+
+            toast({
+                title: "✅ Fin de l'enregistrement",
+                description: "L'enregistrement est terminé, l'IA génère le bilan en ce moment...",
+                className: "bg-[#bd613c] text-white border-none font-inter",
+                duration: 5000,
+            });
         }
     };
 
@@ -162,10 +304,20 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                     )}
                 </div>
 
+                {/* Animated wave spectrum */}
+                <div className={`w-full overflow-hidden transition-opacity duration-300 ${isRecording && !isPaused ? 'opacity-100 h-16' : 'opacity-20 h-16'}`}>
+                    <canvas ref={canvasRef} width={250} height={60} className={`mx-auto ${isRecording ? 'block' : 'hidden'}`} />
+                    {!isRecording && (
+                        <div className="h-full flex items-center justify-center">
+                            <span className="text-slate-300 text-sm font-inter">Micro prêt</span>
+                        </div>
+                    )}
+                </div>
+
                 {isProcessing && (
-                    <div className="flex items-center gap-2 text-sm text-[#e25822] mt-2">
+                    <div className="flex items-center gap-2 text-sm text-[#e25822] mt-2 font-medium">
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Génération du bilan en cours...</span>
+                        <span>Enregistrement bien effectué. Analyse en cours...</span>
                     </div>
                 )}
             </CardContent>

@@ -1,0 +1,12 @@
+
+> therapeute-app@0.1.0 dev
+> next dev -p 3001 -p 3001
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3001
+  - Environments: .env.local
+
+ ✓ Starting...
+> [PWA] PWA support is disabled
+> [PWA] PWA support is disabled
+ ✓ Ready in 1690ms

@@ -5,6 +5,7 @@ export interface Consultation {
     date: Date;
     audioBlob?: Blob; // Stocke l'audio original (optionnel après transcription)
     transcription?: string; // Le texte brut transcrit
+    resume?: string; // Un court résumé textuel
     synthese?: string; // Le bilan structuré généré par l'IA
     patientName?: string;
     isProcessing: boolean;

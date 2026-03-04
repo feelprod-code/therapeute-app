@@ -10,15 +10,14 @@ import generatePDF from "react-to-pdf";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Copy, Download, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function ConsultationPage() {
     const params = useParams();
     const router = useRouter();
     const { toast } = useToast();
     const [consultation, setConsultation] = useState<Consultation | null>(null);
-    const [includeTranscript, setIncludeTranscript] = useState(false);
+    const [viewMode, setViewMode] = useState<"bilan" | "resume" | "transcript">("bilan");
 
     const targetRef = useRef<HTMLDivElement>(null);
     const id = Number(params.id);
@@ -38,14 +37,26 @@ export default function ConsultationPage() {
     }, [id, router]);
 
     const handleCopyText = async () => {
-        if (consultation?.synthese) {
-            const textToCopy = includeTranscript && consultation.transcription
-                ? `${consultation.synthese}\n\n---\n\nRetranscription brute :\n${consultation.transcription}`
-                : consultation.synthese;
+        let textToCopy = "";
+
+        switch (viewMode) {
+            case "resume":
+                textToCopy = consultation?.resume || "";
+                break;
+            case "transcript":
+                textToCopy = consultation?.transcription || "";
+                break;
+            case "bilan":
+            default:
+                textToCopy = consultation?.synthese || "";
+                break;
+        }
+
+        if (textToCopy) {
             await navigator.clipboard.writeText(textToCopy);
             toast({
                 title: "Texte copié",
-                description: "Le bilan a été copié dans le presse-papiers.",
+                description: "Le texte a été copié dans le presse-papiers.",
             });
         }
     };
@@ -73,39 +84,104 @@ export default function ConsultationPage() {
         }
     };
 
+    const handleExportArchive = async () => {
+        if (!consultation || !consultation.audioBlob || !targetRef.current) return;
+
+        try {
+            toast({
+                title: "Création de l'archive...",
+                description: "Le téléchargement va commencer (Audio + Bilan)",
+            });
+
+            // 1. Charger JSZip dynamiquement pour éviter les soucis de SSR
+            const JSZip = (await import('jszip')).default;
+            const { saveAs } = (await import('file-saver')).default;
+
+            const zip = new JSZip();
+            const dateStr = format(new Date(consultation.date), "dd-MM-yyyy");
+            const folderName = `Bilan_TDT_${consultation.patientName?.replace(/\s+/g, '_') || 'Anonyme'}_${dateStr}`;
+
+            // 2. Ajouter l'audio original
+            // On sauvegarde en .webm (le format de capture natif Safari/Chrome pour l'espace). S'il y a un type spécifique, on l'utilise.
+            const audioExt = consultation.audioBlob.type.includes('mp4') ? 'mp4' : 'webm';
+            zip.file(`${folderName}/audio_consultation.${audioExt}`, consultation.audioBlob);
+
+            // 3. Ajouter les notes textuelles Markdown
+            let textContent = `# Bilan : ${consultation.patientName || 'Anonyme'}\nDate: ${dateStr}\n\n`;
+            textContent += `## Résumé Narrative\n${consultation.resume || 'Non généré'}\n\n`;
+            textContent += `## Synthèse Structurée\n${consultation.synthese || 'Non généré'}\n\n`;
+            textContent += `## Transcription Brute\n${consultation.transcription || 'Non généré'}`;
+            zip.file(`${folderName}/notes_cliniques.md`, textContent);
+
+            // 4. Générer le PDF (on force le mode bilan le temps de la capture)
+            if (viewMode !== 'bilan') {
+                setViewMode('bilan');
+                // Petit délai pour laisser React faire le rendu du Dom
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+
+            const html2pdf = (await import('html2pdf.js')).default;
+            const element = targetRef.current;
+            const opt = {
+                margin: 0,
+                filename: `${folderName}/TDT_${viewMode}.pdf`,
+                image: { type: 'jpeg' as const, quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true },
+                jsPDF: { unit: 'mm' as const, format: 'a4', orientation: 'portrait' as const }
+            };
+
+            // html2pdf peut sortit un Blob directement via `output`
+            const pdfBlob = await html2pdf().from(element).set(opt).output('blob');
+            zip.file(`${folderName}/TDT_${viewMode}.pdf`, pdfBlob);
+
+            // 5. Mettre tout en paquet et télécharger
+            const zipBlob = await zip.generateAsync({ type: "blob" });
+            saveAs(zipBlob, `${folderName}.zip`);
+
+            toast({
+                title: "Archive téléchargée !",
+                description: "Vérifiez votre dossier de téléchargements.",
+            });
+
+        } catch (err) {
+            console.error(err);
+            toast({
+                title: "Erreur",
+                description: "Impossible de créer l'archive.",
+                variant: 'destructive'
+            });
+        }
+    };
+
     if (!consultation) {
         return <div className="p-8 text-center font-inter">Chargement...</div>;
     }
 
     return (
         <main className="min-h-screen py-8 px-4 sm:px-6">
-            <div className="max-w-4xl mx-auto space-y-6">
+            <div className="max-w-4xl mx-auto space-y-6 mt-12 mb-12">
 
-                {/* Navigation et Actions */}
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <Button variant="outline" onClick={() => router.push("/")} className="gap-2">
-                        <ArrowLeft className="w-4 h-4" />
-                        Retour au tableau de bord
-                    </Button>
+                {/* Navigation et Actions (Export/Vue) */}
+                <div className="flex flex-col sm:flex-row justify-end items-start sm:items-center gap-4">
 
                     <div className="flex flex-wrap items-center gap-4">
-                        <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-md border shadow-sm">
-                            <Switch
-                                id="include-transcript"
-                                checked={includeTranscript}
-                                onCheckedChange={setIncludeTranscript}
-                            />
-                            <Label htmlFor="include-transcript" className="text-sm text-slate-600 cursor-pointer">
-                                Inclure la retranscription littérale
-                            </Label>
-                        </div>
+                        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "bilan" | "resume" | "transcript")} className="w-[300px]">
+                            <TabsList className="grid w-full grid-cols-3">
+                                <TabsTrigger value="bilan">Bilan</TabsTrigger>
+                                <TabsTrigger value="resume">Résumé</TabsTrigger>
+                                <TabsTrigger value="transcript">Brut</TabsTrigger>
+                            </TabsList>
+                        </Tabs>
                         <Button variant="secondary" onClick={handleCopyText} className="gap-2">
                             <Copy className="w-4 h-4" />
                             Copier
                         </Button>
                         <Button onClick={handleExportPDF} className="gap-2 bg-[#bd613c] hover:bg-[#a05232]">
                             <Download className="w-4 h-4" />
-                            Export A4
+                            Exporter
+                        </Button>
+                        <Button variant="outline" onClick={handleExportArchive} className="gap-2 border-[#bd613c] text-[#bd613c] hover:bg-[#bd613c] hover:text-white transition-colors" title="Télécharger l'Audio + PDF + Texte">
+                            💾 Archiver
                         </Button>
                         <Button variant="destructive" onClick={handleDelete} className="gap-2">
                             <Trash2 className="w-4 h-4" />
@@ -113,9 +189,9 @@ export default function ConsultationPage() {
                     </div>
                 </div>
 
-                {/* Cible pour le PDF (Format A4 simulé) */}
-                <div className="bg-white mx-auto shadow-sm border border-slate-200" style={{ width: '210mm', minHeight: '297mm' }}>
-                    <div ref={targetRef} className="p-12 text-[#4a3f35] font-inter">
+                {/* Cible pour le PDF */}
+                <div className="bg-white mx-auto shadow-sm border border-slate-200 max-w-full overflow-hidden md:overflow-visible w-full md:max-w-3xl min-h-[50vh]">
+                    <div ref={targetRef} className="p-6 md:p-12 text-[#4a3f35] font-inter">
 
                         {/* En-tête TDT pour le PDF */}
                         <div className="flex justify-between items-start border-b-[3px] border-[#bd613c] pb-6 mb-8 mt-4">
@@ -143,24 +219,26 @@ export default function ConsultationPage() {
                             </div>
                         </div>
 
-                        {/* Contenu IA en Markdown */}
-                        <div className="prose max-w-none prose-headings:text-[#1a2f4c] prose-h3:text-xl prose-h3:font-bold prose-h3:border-b prose-h3:pb-2 prose-h3:mb-4 prose-p:text-[#4a3f35] prose-li:text-[#4a3f35]">
-                            {consultation.synthese ? (
-                                <ReactMarkdown>{consultation.synthese}</ReactMarkdown>
-                            ) : (
-                                <p className="italic text-slate-400">Le bilan n'a pas pu être généré ou est en cours...</p>
-                            )}
-                        </div>
+                        {/* Contenu dynamique en fonction du choix utilisateur */}
+                        {viewMode === "resume" && (
+                            <div className="text-[#4a3f35] leading-relaxed text-lg whitespace-pre-wrap font-inter">
+                                {consultation.resume ? consultation.resume : <span className="italic text-slate-400">Aucun résumé généré.</span>}
+                            </div>
+                        )}
 
-                        {/* Retranscription brute (Optionnelle) */}
-                        {includeTranscript && consultation.transcription && (
-                            <div className="mt-12 pt-8 border-t-2 border-dashed border-slate-200">
-                                <h3 className="text-lg font-bold text-slate-400 mb-4 bg-slate-50 p-2 rounded inline-block">
-                                    Retranscription littérale (Brouillon)
-                                </h3>
-                                <p className="text-[11px] leading-relaxed text-slate-500 font-normal whitespace-pre-wrap">
-                                    {consultation.transcription}
-                                </p>
+                        {viewMode === "bilan" && (
+                            <div className="prose max-w-none prose-headings:text-[#1a2f4c] prose-h3:text-xl prose-h3:font-bold prose-h3:border-b prose-h3:pb-2 prose-h3:mb-4 prose-p:text-[#4a3f35] prose-li:text-[#4a3f35]">
+                                {consultation.synthese ? (
+                                    <ReactMarkdown>{consultation.synthese}</ReactMarkdown>
+                                ) : (
+                                    <p className="italic text-slate-400">Le bilan n&apos;a pas pu être généré ou est en cours...</p>
+                                )}
+                            </div>
+                        )}
+
+                        {viewMode === "transcript" && (
+                            <div className="text-[#4a3f35] whitespace-pre-wrap font-mono text-sm leading-relaxed p-4 bg-slate-50 border border-slate-200 rounded-md">
+                                {consultation.transcription ? consultation.transcription : <span className="italic text-slate-400">Aucune retranscription disponible.</span>}
                             </div>
                         )}
 
@@ -170,6 +248,14 @@ export default function ConsultationPage() {
                         </div>
 
                     </div>
+                </div>
+
+                {/* Bouton retour en bas (Esthétique Marron TDT) */}
+                <div className="flex justify-center mt-8 pb-8">
+                    <Button onClick={() => router.push("/")} className="gap-2 bg-[#bd613c] hover:bg-[#a05232] text-white px-8 py-6 text-lg rounded-full shadow-md transition-all hover:scale-105 active:scale-95">
+                        <ArrowLeft className="w-5 h-5" />
+                        Retour à l&apos;accueil
+                    </Button>
                 </div>
 
             </div>
