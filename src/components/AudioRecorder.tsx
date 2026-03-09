@@ -5,6 +5,7 @@ import { Mic, Square, Pause, Play, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
+import { db } from "@/lib/db";
 
 interface AudioRecorderProps {
     onRecordingComplete: (audioBlob: Blob) => void;
@@ -12,6 +13,7 @@ interface AudioRecorderProps {
 }
 
 export function AudioRecorder({ onRecordingComplete, isProcessing = false }: AudioRecorderProps) {
+    const [draftExists, setDraftExists] = useState(false);
     const [isRecording, setIsRecording] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
     const [recordingTime, setRecordingTime] = useState(0);
@@ -20,6 +22,8 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const recordStartTimeRef = useRef<Date | null>(null);
+    const mimeTypeRef = useRef<string>('audio/webm');
 
     // Audio Visualizer Refs
     const audioContextRef = useRef<AudioContext | null>(null);
@@ -102,6 +106,15 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
     };
 
     useEffect(() => {
+        // Verify if a draft exists on mount
+        const checkDraft = async () => {
+            const draft = await db.drafts.get('standard');
+            if (draft && draft.audioChunks.length > 0) {
+                setDraftExists(true);
+            }
+        };
+        checkDraft();
+
         return () => {
             stopTimer();
             cleanupAudioContext();
@@ -110,6 +123,29 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
             }
         };
     }, []);
+
+    const recoverDraft = async () => {
+        const draft = await db.drafts.get('standard');
+        if (draft && draft.audioChunks.length > 0) {
+            const audioBlob = new Blob(draft.audioChunks, { type: draft.mimeType || 'audio/webm' });
+            onRecordingComplete(audioBlob);
+            await db.drafts.delete('standard');
+            setDraftExists(false);
+            toast({
+                title: "Brouillon récupéré",
+                description: "L'enregistrement précédent a été repris et est en cours d'analyse.",
+            });
+        }
+    };
+
+    const discardDraft = async () => {
+        await db.drafts.delete('standard');
+        setDraftExists(false);
+        toast({
+            title: "Brouillon supprimé",
+            description: "L'enregistrement inachevé a été effacé.",
+        });
+    };
 
     const startTimer = () => {
         timerIntervalRef.current = setInterval(() => {
@@ -146,13 +182,29 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
             if (!MediaRecorder.isTypeSupported('audio/webm')) {
                 options = { mimeType: 'audio/mp4' };
             }
+            mimeTypeRef.current = options.mimeType;
+
             const mediaRecorder = new MediaRecorder(stream, options);
             mediaRecorderRef.current = mediaRecorder;
             audioChunksRef.current = [];
+            recordStartTimeRef.current = new Date();
 
-            mediaRecorder.ondataavailable = (event) => {
+            // Clear any previous draft when starting a new recording
+            await db.drafts.delete('standard');
+            setDraftExists(false);
+
+            mediaRecorder.ondataavailable = async (event) => {
                 if (event.data.size > 0) {
                     audioChunksRef.current.push(event.data);
+                    // Sauvegarde continue
+                    await db.drafts.put({
+                        id: 'standard',
+                        mode: 'standard',
+                        audioChunks: audioChunksRef.current,
+                        mimeType: mimeTypeRef.current,
+                        startedAt: recordStartTimeRef.current || new Date(),
+                        lastUpdatedAt: new Date()
+                    });
                 }
             };
 
@@ -226,7 +278,7 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
         }
     };
 
-    const stopRecording = () => {
+    const stopRecording = async () => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
             mediaRecorderRef.current.stop();
             setIsRecording(false);
@@ -234,8 +286,10 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
             stopTimer();
             cleanupAudioContext();
 
-            // Feedback visuel (Toast) uniquement
+            // Delete draft as the recording is successfully finished
+            await db.drafts.delete('standard');
 
+            // Feedback visuel (Toast) uniquement
             toast({
                 title: "✅ Fin de l'enregistrement",
                 description: "L'enregistrement est terminé, l'IA génère le bilan en ce moment...",
@@ -257,6 +311,20 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                 <CardTitle className="text-center font-bebas tracking-wide text-2xl text-[#bd613c]">Enregistrement</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col items-center justify-center pt-8 pb-6 gap-6">
+                {draftExists && !isRecording && (
+                    <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-center w-full mb-2">
+                        <p className="text-sm font-medium mb-3">⚠️ Oups ! Un morceau d&apos;enregistrement (suite à une fermeture) n&apos;a pas été traduit.</p>
+                        <div className="flex justify-center gap-3">
+                            <Button variant="outline" size="sm" onClick={discardDraft} className="text-amber-700 border-amber-300 hover:bg-amber-100">
+                                L&apos;ignorer
+                            </Button>
+                            <Button size="sm" onClick={recoverDraft} className="bg-amber-600 hover:bg-amber-700 text-white">
+                                Le traduire & l&apos;ajouter
+                            </Button>
+                        </div>
+                    </div>
+                )}
+
                 <div className="text-5xl font-mono text-[#4a3f35] tracking-wider">
                     {formatTime(recordingTime)}
                 </div>

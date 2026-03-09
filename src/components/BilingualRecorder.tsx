@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
+import { db } from "@/lib/db";
 
 type ChatMessage = {
     id: string;
@@ -31,10 +32,14 @@ export default function BilingualRecorder({ onRecordingComplete }: { onRecording
     const [recordingRole, setRecordingRole] = useState<'therapeut' | 'patient' | null>(null);
     const [isTranslating, setIsTranslating] = useState(false);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [draftExists, setDraftExists] = useState(false);
+    const [draftRole, setDraftRole] = useState<'therapeut' | 'patient' | null>(null);
 
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<BlobPart[]>([]);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const recordStartTimeRef = useRef<Date | null>(null);
+    const mimeTypeRef = useRef<string>('audio/webm');
     const { toast } = useToast();
 
     // Pre-load voices on mount to ensure premium voices are available
@@ -48,11 +53,48 @@ export default function BilingualRecorder({ onRecordingComplete }: { onRecording
     }, []);
 
     useEffect(() => {
+        // Verify if a draft exists on mount
+        const checkDraft = async () => {
+            const draft = await db.drafts.get('bilingual');
+            if (draft && draft.audioChunks.length > 0) {
+                setDraftExists(true);
+                if (draft.bilingualRole) setDraftRole(draft.bilingualRole);
+            }
+        };
+        checkDraft();
+    }, []);
+
+    useEffect(() => {
         // Auto-scroll to bottom of chat
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
     }, [messages]);
+
+    const recoverDraft = async () => {
+        const draft = await db.drafts.get('bilingual');
+        if (draft && draft.audioChunks.length > 0 && draft.bilingualRole) {
+            const audioBlob = new Blob(draft.audioChunks, { type: draft.mimeType || 'audio/webm' });
+            await handleTranslation(audioBlob, draft.bilingualRole);
+            await db.drafts.delete('bilingual');
+            setDraftExists(false);
+            setDraftRole(null);
+            toast({
+                title: "Brouillon récupéré",
+                description: "Le segment audio interrompu a été traduit.",
+            });
+        }
+    };
+
+    const discardDraft = async () => {
+        await db.drafts.delete('bilingual');
+        setDraftExists(false);
+        setDraftRole(null);
+        toast({
+            title: "Brouillon supprimé",
+            description: "Le segment audio inachevé a été effacé.",
+        });
+    };
 
     const startRecording = async (role: 'therapeut' | 'patient') => {
         // Unlock iOS Audio: Siri/Web Speech API blocks audio after async fetches
@@ -65,25 +107,58 @@ export default function BilingualRecorder({ onRecordingComplete }: { onRecording
 
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const mediaRecorder = new MediaRecorder(stream);
+
+            // Safari iOS fallback logic
+            let options = { mimeType: 'audio/webm' };
+            if (!MediaRecorder.isTypeSupported('audio/webm')) {
+                options = { mimeType: 'audio/mp4' };
+            }
+            mimeTypeRef.current = options.mimeType;
+
+            const mediaRecorder = new MediaRecorder(stream, options);
             mediaRecorderRef.current = mediaRecorder;
             audioChunksRef.current = [];
+            recordStartTimeRef.current = new Date();
 
-            mediaRecorder.ondataavailable = (event) => {
+            // Clear any previous draft
+            await db.drafts.delete('bilingual');
+            setDraftExists(false);
+            setDraftRole(null);
+
+            mediaRecorder.ondataavailable = async (event) => {
                 if (event.data.size > 0) {
                     audioChunksRef.current.push(event.data);
+
+                    // Sauvegarde continue
+                    await db.drafts.put({
+                        id: 'bilingual',
+                        mode: 'bilingual',
+                        audioChunks: audioChunksRef.current as Blob[],
+                        mimeType: mimeTypeRef.current,
+                        startedAt: recordStartTimeRef.current || new Date(),
+                        lastUpdatedAt: new Date(),
+                        bilingualRole: role
+                    });
                 }
             };
 
             mediaRecorder.onstop = async () => {
-                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-                await handleTranslation(audioBlob, role);
+                const finalMimeType = options.mimeType;
+                const audioBlob = new Blob(audioChunksRef.current, { type: finalMimeType });
+
+                if (audioBlob.size > 0) {
+                    await handleTranslation(audioBlob, role);
+                }
 
                 // Stop all tracks to release microphone
                 stream.getTracks().forEach(track => track.stop());
+
+                // Clear draft on successful stop
+                await db.drafts.delete('bilingual');
             };
 
-            mediaRecorder.start();
+            // Collect data every 1 second to safeguard against memory loss
+            mediaRecorder.start(1000);
             setRecordingRole(role);
             setIsRecording(true);
         } catch (error) {
@@ -96,11 +171,12 @@ export default function BilingualRecorder({ onRecordingComplete }: { onRecording
         }
     };
 
-    const stopRecording = () => {
+    const stopRecording = async () => {
         if (mediaRecorderRef.current && isRecording) {
             mediaRecorderRef.current.stop();
             setIsRecording(false);
             setRecordingRole(null);
+            // Draft deletion happens in mediaRecorder.onstop to ensure translation starts correctly
         }
     };
 
@@ -245,6 +321,20 @@ export default function BilingualRecorder({ onRecordingComplete }: { onRecording
 
     return (
         <div className="flex flex-col space-y-6">
+
+            {draftExists && !isRecording && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-center w-full mb-0 shadow-sm">
+                    <p className="text-sm font-medium mb-3">⚠️ Oups ! Un morceau d&apos;enregistrement de {draftRole === 'therapeut' ? 'votre discours' : 'discours du patient'} (suite à une fermeture) n&apos;a pas été traduit.</p>
+                    <div className="flex justify-center gap-3">
+                        <Button variant="outline" size="sm" onClick={discardDraft} className="text-amber-700 border-amber-300 hover:bg-amber-100">
+                            L&apos;ignorer
+                        </Button>
+                        <Button size="sm" onClick={recoverDraft} className="bg-amber-600 hover:bg-amber-700 text-white">
+                            Le traduire & l&apos;ajouter
+                        </Button>
+                    </div>
+                </div>
+            )}
 
             {/* Chat Area */}
             <Card className="bg-white/80 backdrop-blur-sm border-[#e8dfd5] shadow-lg flex-1 min-h-[300px] flex flex-col relative">

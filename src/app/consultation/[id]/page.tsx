@@ -194,26 +194,26 @@ export default function ConsultationPage() {
                     <div ref={targetRef} className="p-6 md:p-12 text-[#4a3f35] font-inter">
 
                         {/* En-tête TDT pour le PDF */}
-                        <div className="flex justify-between items-start border-b-[3px] border-[#bd613c] pb-6 mb-8 mt-4">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b-[3px] border-[#bd613c] pb-6 mb-8 mt-4 gap-4">
                             <div>
-                                <h1 className="font-bebas text-4xl text-[#bd613c] tracking-widest uppercase leading-none">
+                                <h1 className="font-bebas text-2xl sm:text-3xl md:text-4xl text-[#bd613c] tracking-widest uppercase leading-none">
                                     Techniques Douces
                                 </h1>
                                 <div className="flex items-center gap-2 mt-1 mb-2">
-                                    <span className="h-[2px] w-6 bg-[#bd613c]"></span>
-                                    <h2 className="font-bebas text-3xl text-[#bd613c] tracking-widest uppercase leading-none">
+                                    <span className="h-[2px] w-4 sm:w-6 bg-[#bd613c]"></span>
+                                    <h2 className="font-bebas text-xl sm:text-2xl md:text-3xl text-[#bd613c] tracking-widest uppercase leading-none">
                                         Tissulaires
                                     </h2>
-                                    <span className="h-[2px] w-6 bg-[#bd613c]"></span>
+                                    <span className="h-[2px] w-4 sm:w-6 bg-[#bd613c]"></span>
                                 </div>
-                                <p className="text-sm font-semibold tracking-wider text-slate-500 uppercase mt-2">
+                                <p className="text-xs sm:text-sm font-semibold tracking-wider text-slate-500 uppercase mt-2">
                                     Guillaume Philippe<br />
-                                    <span className="text-xs font-normal">Kinésithérapeute</span>
+                                    <span className="text-[10px] sm:text-xs font-normal">Kinésithérapeute</span>
                                 </p>
                             </div>
-                            <div className="text-right">
-                                <p className="text-xl font-bold">Bilan de Consultation</p>
-                                <p className="text-sm text-slate-500 mt-1">
+                            <div className="self-start sm:text-right mt-2 sm:mt-0">
+                                <p className="text-lg sm:text-xl font-bold">Bilan de Consultation</p>
+                                <p className="text-xs sm:text-sm text-slate-500 mt-1">
                                     {format(new Date(consultation.date), "EEEE d MMMM yyyy", { locale: fr })}
                                 </p>
                             </div>
