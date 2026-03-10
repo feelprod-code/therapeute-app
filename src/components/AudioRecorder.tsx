@@ -178,11 +178,15 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
             // Safari iOS fallback logic
-            let options = { mimeType: 'audio/webm' };
-            if (!MediaRecorder.isTypeSupported('audio/webm')) {
-                options = { mimeType: 'audio/mp4' };
+            let options: MediaRecorderOptions = {};
+            if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+                options = { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 24000 };
+            } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+                options = { mimeType: 'audio/webm', audioBitsPerSecond: 24000 };
+            } else {
+                options = { mimeType: 'audio/mp4', audioBitsPerSecond: 24000 };
             }
-            mimeTypeRef.current = options.mimeType;
+            mimeTypeRef.current = options.mimeType || 'audio/webm';
 
             const mediaRecorder = new MediaRecorder(stream, options);
             mediaRecorderRef.current = mediaRecorder;
@@ -208,10 +212,14 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                 }
             };
 
-            mediaRecorder.onstop = () => {
+            mediaRecorder.onstop = async () => {
                 // Ensure blob type matches what was supported
-                const finalMimeType = options.mimeType;
+                const finalMimeType = options.mimeType || 'audio/webm';
                 const audioBlob = new Blob(audioChunksRef.current, { type: finalMimeType });
+
+                // Supprimer le brouillon une fois l'enregistrement terminé avec succès
+                await db.drafts.delete('standard');
+                setDraftExists(false);
 
                 if (audioBlob.size === 0) {
                     toast({
