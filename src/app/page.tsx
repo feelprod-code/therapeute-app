@@ -132,6 +132,76 @@ export default function Home() {
     });
   };
 
+  const recoverStuckConsultation = async (id: number) => {
+    await db.consultations.update(id, { isProcessing: false });
+    toast({
+      title: "Statut réinitialisé",
+      description: "Vous pouvez retenter l'analyse ou télécharger l'audio brut.",
+    });
+  };
+
+  const downloadRawAudio = (blob: Blob, name: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.href = url;
+    a.download = `audio_${name.replace(/\s+/g, '_')}_brut.webm`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const retryAnalysis = async (consult: Consultation) => {
+    if (!consult.id || !consult.audioBlob) return;
+
+    await db.consultations.update(consult.id, { isProcessing: true });
+
+    try {
+      const formData = new FormData();
+      formData.append("audio", consult.audioBlob, "recording.webm");
+
+      toast({
+        title: "Analyse relancée...",
+        description: "Traitement de l'audio en cours.",
+      });
+
+      const analyzeRes = await fetch("/api/analyze", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!analyzeRes.ok) {
+        const errText = await analyzeRes.text();
+        throw new Error(`Erreur API (${analyzeRes.status}): ${errText}`);
+      }
+
+      const analyzeData = await analyzeRes.json();
+
+      await db.consultations.update(consult.id, {
+        patientName: analyzeData.patientName || consult.patientName,
+        resume: analyzeData.resume || "",
+        synthese: analyzeData.synthese,
+        transcription: "Analyse re-tentée (locale)",
+        isProcessing: false,
+      });
+
+      toast({
+        title: "Bilan récupéré !",
+        description: "La consultation a été traitée avec succès.",
+      });
+
+    } catch (error: unknown) {
+      console.error(error);
+      const errorMessage = error instanceof Error ? error.message : "Erreur.";
+      await db.consultations.update(consult.id, { isProcessing: false });
+      toast({
+        title: "Échec de l'analyse",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    }
+  };
+
   const sortByDate = [...(consultations || [])].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   const sortByName = [...(consultations || [])].sort((a, b) => {
     const nameA = a.patientName || `Patient #${a.id}`;
@@ -161,14 +231,45 @@ export default function Home() {
               <div className="flex items-center gap-2 text-sm text-[#e25822]">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span className="hidden sm:inline">Traitement...</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs ml-2 text-red-500 border-red-200 hover:bg-red-50"
+                  onClick={() => consult.id && recoverStuckConsultation(consult.id)}
+                >
+                  Débloquer
+                </Button>
               </div>
             ) : (
-              <Button asChild variant="ghost" className="bg-[#ebd9c8]/30 hover:bg-[#ebd9c8]/70 text-[#4a3f35] hover:text-[#bd613c] h-9 px-3" size="sm">
-                <Link href={`/consultation/${consult.id}`}>
-                  Voir
-                  <ArrowRight className="hidden sm:inline-block w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
-                </Link>
-              </Button>
+              <>
+                {!consult.synthese && consult.audioBlob && (
+                  <>
+                    <Button
+                      variant="outline"
+                      className="text-xs h-9"
+                      onClick={() => retryAnalysis(consult)}
+                    >
+                      Relancer l'IA
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="text-xs h-9 text-blue-600 hover:bg-blue-50"
+                      onClick={() => consult.audioBlob && downloadRawAudio(consult.audioBlob, consult.patientName || 'Patient')}
+                      title="Télécharger l'audio brut"
+                    >
+                      Sauver Audio
+                    </Button>
+                  </>
+                )}
+                {consult.synthese && (
+                  <Button asChild variant="ghost" className="bg-[#ebd9c8]/30 hover:bg-[#ebd9c8]/70 text-[#4a3f35] hover:text-[#bd613c] h-9 px-3" size="sm">
+                    <Link href={`/consultation/${consult.id}`}>
+                      Voir
+                      <ArrowRight className="hidden sm:inline-block w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
+                    </Link>
+                  </Button>
+                )}
+              </>
             )}
             <AlertDialog>
               <AlertDialogTrigger asChild>
