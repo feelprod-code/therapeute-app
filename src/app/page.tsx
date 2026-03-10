@@ -8,7 +8,7 @@ import BilingualRecorder from '@/components/BilingualRecorder';
 import { db, Consultation } from "@/lib/db";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, ArrowRight, Trash2 } from "lucide-react";
+import { Loader2, ArrowRight, Trash2, Paperclip, X, FileText, Image as ImageIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,13 +23,26 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 export default function Home() {
   const { toast } = useToast();
   const [recorderMode, setRecorderMode] = useState('standard');
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // On récupère les consultations triées par date (la plus récente d'abord)
   const consultations = useLiveQuery(() => db.consultations.orderBy("createdAt").reverse().toArray());
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setAttachedFiles(prev => [...prev, ...Array.from(e.target.files!)]);
+    }
+  };
+
+  const removeFile = (index: number) => {
+    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
+  };
 
   const handleRecordingComplete = async (audioBlob: Blob) => {
     // 1. Créer une nouvelle entrée dans IndexedDB
@@ -44,6 +57,7 @@ export default function Home() {
       // Analyse globale avec Gemini (Transcription + Synthèse structurée)
       const formData = new FormData();
       formData.append("audio", audioBlob, "recording.webm");
+      attachedFiles.forEach(file => formData.append("files", file));
 
       const analyzeRes = await fetch("/api/analyze", {
         method: "POST",
@@ -62,9 +76,11 @@ export default function Home() {
         patientName: analyzeData.patientName && analyzeData.patientName.trim() !== "" ? analyzeData.patientName : "Patient Anonyme",
         resume: analyzeData.resume || "",
         synthese: analyzeData.synthese,
-        transcription: "Analyse multimodale unique (cf. Synthese)",
+        transcription: "Analyse multimodale unique (cf. Synthese).",
         isProcessing: false,
       });
+
+      setAttachedFiles([]); // On vide les fichiers après succès
 
       toast({
         title: "Bilan terminé",
@@ -100,6 +116,8 @@ export default function Home() {
       isProcessing: false,
       createdAt: new Date(),
     });
+
+    setAttachedFiles([]); // On vide les fichiers après succès
 
     toast({
       title: "Bilan terminé",
@@ -198,23 +216,58 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Composant principal d'enregistrement */}
-        {/* <AudioRecorder onRecordingComplete={handleRecordingComplete} /> */} {/* Original */}
-        {/* Sélection du Mode d'Enregistrement */} {/* Added */}
-        <Tabs value={recorderMode} onValueChange={setRecorderMode} className="w-full"> {/* Added */}
-          <TabsList className="grid w-full grid-cols-2 mb-6"> {/* Added */}
-            <TabsTrigger value="standard">Mode Standard</TabsTrigger> {/* Added */}
-            <TabsTrigger value="bilingual">Mode Bilingue (Interprète)</TabsTrigger> {/* Added */}
+        {/* Upload de documents locaux (IRM, Radio, etc.) */}
+        <div className="bg-white/60 p-4 rounded-xl border border-[#bd613c]/20 shadow-sm mb-6 max-w-2xl mx-auto flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-[#4a3f35] font-semibold text-sm flex items-center gap-2">
+              <Paperclip className="w-4 h-4 text-[#bd613c]" />
+              Ajouter des documents au bilan
+            </h3>
+            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => fileInputRef.current?.click()}>
+              Parcourir...
+            </Button>
+            <input
+              type="file"
+              className="hidden"
+              multiple
+              onChange={handleFileChange}
+              ref={fileInputRef}
+              accept=".pdf,image/*"
+            />
+          </div>
+          {attachedFiles.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-2">
+              {attachedFiles.map((f, i) => (
+                <div key={i} className="flex items-center gap-2 bg-[#ebd9c8]/40 border border-[#bd613c]/30 rounded-full px-3 py-1.5 text-xs text-[#4a3f35] max-w-full">
+                  {f.type.includes('pdf') ? <FileText className="w-3 h-3 text-red-500 shrink-0" /> : <ImageIcon className="w-3 h-3 text-blue-500 shrink-0" />}
+                  <span className="truncate max-w-[150px]">{f.name}</span>
+                  <button onClick={() => removeFile(i)} className="text-slate-400 hover:text-red-500 ml-1 shrink-0">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-[11px] text-slate-500 leading-tight">
+            Les documents importés seront analysés conjointement avec la transcription audio afin de générer un compte-rendu enrichi (ex: inclure les résultats de l&apos;IRM ou de la radio).
+          </p>
+        </div>
+
+        {/* Sélection du Mode d'Enregistrement */}
+        <Tabs value={recorderMode} onValueChange={setRecorderMode} className="w-full">
+          <TabsList className="grid w-full grid-cols-2 mb-6">
+            <TabsTrigger value="standard">Mode Standard</TabsTrigger>
+            <TabsTrigger value="bilingual">Mode Bilingue (Interprète)</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="standard"> {/* Added */}
-            <AudioRecorder onRecordingComplete={handleRecordingComplete} /> {/* Added */}
+          <TabsContent value="standard">
+            <AudioRecorder onRecordingComplete={handleRecordingComplete} />
           </TabsContent>
 
-          <TabsContent value="bilingual"> {/* Added */}
-            <BilingualRecorder onRecordingComplete={handleBilingualComplete} /> {/* Added */}
+          <TabsContent value="bilingual">
+            <BilingualRecorder onRecordingComplete={handleBilingualComplete} attachedFiles={attachedFiles} />
           </TabsContent>
-        </Tabs> {/* Added */}
+        </Tabs>
 
         {/* Historique des consultations */}
         <div className="space-y-6 pt-8">
@@ -262,3 +315,4 @@ export default function Home() {
     </main>
   );
 }
+

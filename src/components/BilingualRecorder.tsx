@@ -25,7 +25,13 @@ const LANGUAGES = [
     { code: 'Chinois', label: 'Chinois (ZH)', tts: 'zh-CN' },
 ];
 
-export default function BilingualRecorder({ onRecordingComplete }: { onRecordingComplete: (audioBlob: Blob, data: Record<string, string>) => void }) {
+export default function BilingualRecorder({
+    onRecordingComplete,
+    attachedFiles = []
+}: {
+    onRecordingComplete: (audioBlob: Blob, data: Record<string, string>) => void;
+    attachedFiles?: File[];
+}) {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [patientLang, setPatientLang] = useState(LANGUAGES[0]);
     const [isRecording, setIsRecording] = useState(false);
@@ -162,7 +168,7 @@ export default function BilingualRecorder({ onRecordingComplete }: { onRecording
             setRecordingRole(role);
             setIsRecording(true);
         } catch (error) {
-            console.error('Erreur d\'accès au microphone:', error);
+            console.error("Erreur d'accès au microphone: ", error);
             toast({
                 title: "Erreur Microphone",
                 description: "Veuillez autoriser l'accès au microphone.",
@@ -284,7 +290,7 @@ export default function BilingualRecorder({ onRecordingComplete }: { onRecording
         setIsAnalyzing(true);
         toast({
             title: "Génération en cours...",
-            description: "L'IA analyse votre conversation bilingue.",
+            description: "L'IA analyse votre conversation bilingue" + (attachedFiles.length > 0 ? " et les documents fournis." : "."),
         });
 
         try {
@@ -293,10 +299,15 @@ export default function BilingualRecorder({ onRecordingComplete }: { onRecording
                 `${m.sender === 'therapeut' ? 'Thérapeute' : 'Patient'}: ${m.transcription}\n(Traduit: ${m.translation})`
             ).join('\n\n');
 
+            const formData = new FormData();
+            formData.append("transcript", fullTranscript);
+            attachedFiles.forEach(file => {
+                formData.append("files", file);
+            });
+
             const response = await fetch('/api/analyze-transcript', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ transcript: fullTranscript })
+                body: formData
             });
 
             if (!response.ok) throw new Error("Erreur d'analyse");
