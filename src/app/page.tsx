@@ -59,10 +59,17 @@ export default function Home() {
       formData.append("audio", audioBlob, "recording.webm");
       attachedFiles.forEach(file => formData.append("files", file));
 
+      // Timeout manual of 120 seconds to prevent silent local hangs
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
+
       const analyzeRes = await fetch("/api/analyze", {
         method: "POST",
         body: formData,
+        signal: controller.signal
       });
+
+      clearTimeout(timeoutId);
 
       if (!analyzeRes.ok) {
         const errText = await analyzeRes.text();
