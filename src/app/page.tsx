@@ -162,13 +162,20 @@ export default function Home() {
 
       toast({
         title: "Analyse relancée...",
-        description: "Traitement de l'audio en cours.",
+        description: "Traitement de l'audio en cours. Ne quittez pas la page.",
       });
+
+      // Timeout manual of 120 seconds to prevent silent local hangs
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
 
       const analyzeRes = await fetch("/api/analyze", {
         method: "POST",
         body: formData,
+        signal: controller.signal
       });
+
+      clearTimeout(timeoutId);
 
       if (!analyzeRes.ok) {
         const errText = await analyzeRes.text();
@@ -192,7 +199,15 @@ export default function Home() {
 
     } catch (error: unknown) {
       console.error(error);
-      const errorMessage = error instanceof Error ? error.message : "Erreur.";
+      let errorMessage = "Erreur inattendue.";
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          errorMessage = "Temps d'attente dépassé (2 min). Le fichier est peut-être trop gros ou Gemini surchargé.";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+
       await db.consultations.update(consult.id, { isProcessing: false });
       toast({
         title: "Échec de l'analyse",
