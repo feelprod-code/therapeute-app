@@ -217,7 +217,24 @@ export default function Home() {
         </div>
 
         {/* Upload de documents locaux (IRM, Radio, etc.) */}
-        <div className="bg-white/60 p-4 rounded-xl border border-[#bd613c]/20 shadow-sm mb-6 max-w-2xl mx-auto flex flex-col gap-3">
+        <div
+          className="bg-white/60 p-4 rounded-xl border border-[#bd613c]/20 shadow-sm mb-6 max-w-2xl mx-auto flex flex-col gap-3 transition-colors duration-200"
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.currentTarget.classList.add('bg-[#ebd9c8]/20', 'border-[#bd613c]');
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            e.currentTarget.classList.remove('bg-[#ebd9c8]/20', 'border-[#bd613c]');
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.currentTarget.classList.remove('bg-[#ebd9c8]/20', 'border-[#bd613c]');
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+              setAttachedFiles(prev => [...prev, ...Array.from(e.dataTransfer.files)]);
+            }
+          }}
+        >
           <div className="flex items-center justify-between">
             <h3 className="text-[#4a3f35] font-semibold text-sm flex items-center gap-2">
               <Paperclip className="w-4 h-4 text-[#bd613c]" />
@@ -249,7 +266,7 @@ export default function Home() {
             </div>
           )}
           <p className="text-[11px] text-slate-500 leading-tight">
-            Les documents importés seront analysés conjointement avec la transcription audio afin de générer un compte-rendu enrichi (ex: inclure les résultats de l&apos;IRM ou de la radio).
+            Les documents importés seront analysés conjointement avec la transcription audio afin de générer un compte-rendu enrichi (ex: inclure les résultats de l&apos;IRM ou de la radio). Vous pouvez déposer vos fichiers ici.
           </p>
         </div>
 
