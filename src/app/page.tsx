@@ -427,14 +427,14 @@ export default function Home() {
                 <input
                   id="audio-import"
                   type="file"
-                  accept="audio/*,video/mp4"
+                  accept="audio/*,video/mp4,video/webm"
                   className="hidden"
                   onChange={(e) => {
                     const files = e.target.files;
                     if (files && files.length > 0) {
                       toast({
                         title: "Importation...",
-                        description: "L'audio va être analysé.",
+                        description: "L'audio va être analysé. Patientez...",
                       });
                       handleRecordingComplete(files[0]);
                     }
