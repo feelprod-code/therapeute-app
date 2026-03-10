@@ -172,13 +172,34 @@ export default function ConsultationPage() {
                                 <TabsTrigger value="transcript">Brut</TabsTrigger>
                             </TabsList>
                         </Tabs>
+
+                        {consultation.audioBlob && (
+                            <Button
+                                variant="outline"
+                                className="gap-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
+                                onClick={() => {
+                                    const url = URL.createObjectURL(consultation.audioBlob!);
+                                    const a = document.createElement('a');
+                                    a.style.display = 'none';
+                                    a.href = url;
+                                    a.download = `audio_${consultation.patientName?.replace(/\s+/g, '_') || 'brut'}.webm`;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    window.URL.revokeObjectURL(url);
+                                }}
+                            >
+                                <Download className="w-4 h-4" />
+                                Audio Brut
+                            </Button>
+                        )}
+
                         <Button variant="secondary" onClick={handleCopyText} className="gap-2">
                             <Copy className="w-4 h-4" />
                             Copier
                         </Button>
                         <Button onClick={handleExportPDF} className="gap-2 bg-[#bd613c] hover:bg-[#a05232]">
                             <Download className="w-4 h-4" />
-                            Exporter
+                            PDF
                         </Button>
                         <Button variant="outline" onClick={handleExportArchive} className="gap-2 border-[#bd613c] text-[#bd613c] hover:bg-[#bd613c] hover:text-white transition-colors" title="Télécharger l'Audio + PDF + Texte">
                             💾 Archiver
@@ -188,6 +209,20 @@ export default function ConsultationPage() {
                         </Button>
                     </div>
                 </div>
+
+                {/* Lecteur Audio */}
+                {consultation.audioBlob && (
+                    <div className="bg-white rounded-lg p-4 shadow-sm border border-slate-200 w-full md:max-w-3xl mx-auto flex flex-col gap-2">
+                        <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-widest">Enregistrement</h4>
+                        <audio
+                            controls
+                            className="w-full h-10 outline-none"
+                            src={URL.createObjectURL(consultation.audioBlob)}
+                        >
+                            Votre navigateur ne supporte pas l'élément audio.
+                        </audio>
+                    </div>
+                )}
 
                 {/* Cible pour le PDF */}
                 <div className="bg-white mx-auto shadow-sm border border-slate-200 max-w-full overflow-hidden md:overflow-visible w-full md:max-w-3xl min-h-[50vh]">
