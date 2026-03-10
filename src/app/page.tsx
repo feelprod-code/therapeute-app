@@ -8,7 +8,7 @@ import BilingualRecorder from '@/components/BilingualRecorder';
 import { db, Consultation } from "@/lib/db";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, ArrowRight, Trash2, Paperclip, X, FileText, Image as ImageIcon } from "lucide-react";
+import { Loader2, ArrowRight, Trash2, Paperclip, X, FileText, Image as ImageIcon, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -249,7 +249,7 @@ export default function Home() {
                       className="text-xs h-9"
                       onClick={() => retryAnalysis(consult)}
                     >
-                      Relancer l'IA
+                      Relancer l&apos;IA
                     </Button>
                     <Button
                       variant="ghost"
@@ -373,9 +373,10 @@ export default function Home() {
 
         {/* Sélection du Mode d'Enregistrement */}
         <Tabs value={recorderMode} onValueChange={setRecorderMode} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-6">
-            <TabsTrigger value="standard">Mode Standard</TabsTrigger>
-            <TabsTrigger value="bilingual">Mode Bilingue (Interprète)</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-3 mb-6">
+            <TabsTrigger value="standard" className="text-xs sm:text-sm">Mode Standard</TabsTrigger>
+            <TabsTrigger value="bilingual" className="text-xs sm:text-sm">Mode Bilingue</TabsTrigger>
+            <TabsTrigger value="import" className="text-xs sm:text-sm">Importer Audio</TabsTrigger>
           </TabsList>
 
           <TabsContent value="standard">
@@ -384,6 +385,48 @@ export default function Home() {
 
           <TabsContent value="bilingual">
             <BilingualRecorder onRecordingComplete={handleBilingualComplete} attachedFiles={attachedFiles} />
+          </TabsContent>
+
+          <TabsContent value="import">
+            <Card className="border-[#bd613c]/30 shadow-none bg-white/50">
+              <div className="flex flex-col items-center justify-center p-8 sm:p-12 text-center">
+                <div className="w-16 h-16 bg-[#ebd9c8]/50 rounded-full flex items-center justify-center mb-4 text-[#bd613c]">
+                  <Download className="w-8 h-8" />
+                </div>
+                <h3 className="font-bebas text-2xl tracking-widest text-[#bd613c] mb-2 uppercase">
+                  Importer un vieil Enregistrement
+                </h3>
+                <p className="text-slate-500 mb-6 max-w-md mx-auto">
+                  Si un enregistrement a échoué sur mobile, récupérez-le et importez le fichier audio brut (.webm, .mp3, .m4a) ici pour lancer l&apos;analyse manuellement.
+                </p>
+                <Button
+                  onClick={() => {
+                    const el = document.getElementById('audio-import') as HTMLInputElement;
+                    if (el) el.click();
+                  }}
+                  className="bg-[#bd613c] hover:bg-[#a05232] text-white px-8 py-6 rounded-full text-lg shadow-md transition-transform hover:scale-105"
+                >
+                  <Paperclip className="w-5 h-5 mr-2" />
+                  Sélectionner l&apos;Audio
+                </Button>
+                <input
+                  id="audio-import"
+                  type="file"
+                  accept="audio/*,video/mp4"
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = e.target.files;
+                    if (files && files.length > 0) {
+                      toast({
+                        title: "Importation...",
+                        description: "L'audio va être analysé.",
+                      });
+                      handleRecordingComplete(files[0]);
+                    }
+                  }}
+                />
+              </div>
+            </Card>
           </TabsContent>
         </Tabs>
 

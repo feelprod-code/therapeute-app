@@ -201,7 +201,7 @@ export default function ConsultationPage() {
                             <Download className="w-4 h-4" />
                             PDF
                         </Button>
-                        <Button variant="outline" onClick={handleExportArchive} className="gap-2 border-[#bd613c] text-[#bd613c] hover:bg-[#bd613c] hover:text-white transition-colors" title="Télécharger l'Audio + PDF + Texte">
+                        <Button variant="outline" onClick={handleExportArchive} className="gap-2 border-[#bd613c] text-[#bd613c] hover:bg-[#bd613c] hover:text-white transition-colors" title="Télécharger l&apos;Audio + PDF + Texte">
                             💾 Archiver
                         </Button>
                         <Button variant="destructive" onClick={handleDelete} className="gap-2">
@@ -219,7 +219,7 @@ export default function ConsultationPage() {
                             className="w-full h-10 outline-none"
                             src={URL.createObjectURL(consultation.audioBlob)}
                         >
-                            Votre navigateur ne supporte pas l'élément audio.
+                            Votre navigateur ne supporte pas l&apos;élément audio.
                         </audio>
                     </div>
                 )}
