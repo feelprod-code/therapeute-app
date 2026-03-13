@@ -8,7 +8,7 @@ import { fr } from "date-fns/locale";
 import ReactMarkdown from "react-markdown";
 import generatePDF from "react-to-pdf";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Copy, Download, Trash2 } from "lucide-react";
+import { ArrowLeft, Copy, Download, Trash2, Mic, Square, Paperclip, X, Headphones, FileText, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -21,6 +21,17 @@ export default function ConsultationPage() {
 
     const targetRef = useRef<HTMLDivElement>(null);
     const id = Number(params.id);
+
+    // Update States
+    const [isUpdating, setIsUpdating] = useState(false);
+    const [isRecordingUpdate, setIsRecordingUpdate] = useState(false);
+    const [recordingTime, setRecordingTime] = useState(0);
+    const [updateAudioBlob, setUpdateAudioBlob] = useState<Blob | null>(null);
+    const [updateFiles, setUpdateFiles] = useState<File[]>([]);
+
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioChunksRef = useRef<Blob[]>([]);
+    const timerRef = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
         async function fetchConsultation() {
@@ -58,6 +69,120 @@ export default function ConsultationPage() {
                 title: "Texte copié",
                 description: "Le texte a été copié dans le presse-papiers.",
             });
+        }
+    };
+
+    const startUpdateRecording = async () => {
+        setUpdateAudioBlob(null);
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream, {
+                mimeType: MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4'
+            });
+            mediaRecorderRef.current = mediaRecorder;
+            audioChunksRef.current = [];
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    audioChunksRef.current.push(event.data);
+                }
+            };
+
+            mediaRecorder.onstop = () => {
+                const mimeType = mediaRecorder.mimeType || 'audio/webm';
+                const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+                setUpdateAudioBlob(audioBlob);
+                stream.getTracks().forEach(track => track.stop());
+            };
+
+            mediaRecorder.start();
+            setIsRecordingUpdate(true);
+            setRecordingTime(0);
+
+            timerRef.current = setInterval(() => {
+                setRecordingTime((prev) => prev + 1);
+            }, 1000);
+        } catch {
+            toast({
+                title: "Erreur microphone",
+                description: "Impossible d'accéder au microphone.",
+                variant: "destructive"
+            });
+        }
+    };
+
+    const stopUpdateRecording = () => {
+        if (mediaRecorderRef.current && isRecordingUpdate) {
+            mediaRecorderRef.current.stop();
+            setIsRecordingUpdate(false);
+            if (timerRef.current) clearInterval(timerRef.current);
+        }
+    };
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files) {
+            setUpdateFiles(Array.from(e.target.files));
+        }
+    };
+
+    const handleUpdateSubmit = async () => {
+        if (!consultation) return;
+        setIsUpdating(true);
+        toast({
+            title: "Mise à jour en cours...",
+            description: "Analyse des nouveaux éléments pour reformer le bilan.",
+        });
+
+        try {
+            const formData = new FormData();
+            formData.append("oldTranscription", consultation.transcription || "");
+            formData.append("oldSynthese", consultation.synthese || "");
+            formData.append("oldPatientName", consultation.patientName || "");
+
+            if (updateAudioBlob) {
+                formData.append("audio", updateAudioBlob, "update.webm");
+            }
+
+            updateFiles.forEach(file => {
+                formData.append("files", file);
+            });
+
+            const res = await fetch("/api/update-analyze", {
+                method: "POST",
+                body: formData
+            });
+
+            if (!res.ok) throw new Error("Erreur lors de la mise à jour");
+
+            const data = await res.json();
+
+            const updatedConsultation = {
+                ...consultation,
+                patientName: data.patientName || consultation.patientName,
+                synthese: data.synthese,
+                transcription: data.transcription
+            };
+
+            await db.consultations.put(updatedConsultation);
+            setConsultation(updatedConsultation);
+
+            // Clean up states
+            setUpdateAudioBlob(null);
+            setUpdateFiles([]);
+
+            toast({
+                title: "Bilan mis à jour !",
+                description: "Les nouveaux éléments ont été intégrés au bilan.",
+            });
+        } catch (e: unknown) {
+            console.error(e);
+            toast({
+                title: "Erreur",
+                description: e instanceof Error ? e.message : "Une erreur est survenue.",
+                variant: 'destructive'
+            });
+        } finally {
+            setIsUpdating(false);
         }
     };
 
@@ -161,59 +286,118 @@ export default function ConsultationPage() {
         <main className="min-h-screen py-8 px-4 sm:px-6">
             <div className="max-w-4xl mx-auto space-y-6 mt-12 mb-12">
 
-                {/* Navigation et Actions (Export/Vue) */}
-                <div className="flex flex-col sm:flex-row justify-end items-start sm:items-center gap-4">
+                {/* En-tête TDT Minimaliste (Actions globales + Update) */}
+                <div className="flex flex-col sm:flex-row justify-between items-center bg-white rounded-2xl p-2 sm:p-3 shadow-sm border border-slate-200 gap-4 sticky top-4 z-10">
+                    <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "bilan" | "resume" | "transcript")} className="w-full sm:w-auto shrink-0">
+                        <TabsList className="grid w-full grid-cols-3 bg-slate-50 p-1">
+                            <TabsTrigger value="bilan" className="text-xs sm:text-sm">Bilan</TabsTrigger>
+                            <TabsTrigger value="resume" className="text-xs sm:text-sm">Résumé</TabsTrigger>
+                            <TabsTrigger value="transcript" className="text-xs sm:text-sm">Brut</TabsTrigger>
+                        </TabsList>
+                    </Tabs>
 
-                    <div className="flex flex-wrap items-center gap-4">
-                        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "bilan" | "resume" | "transcript")} className="w-[300px]">
-                            <TabsList className="grid w-full grid-cols-3">
-                                <TabsTrigger value="bilan">Bilan</TabsTrigger>
-                                <TabsTrigger value="resume">Résumé</TabsTrigger>
-                                <TabsTrigger value="transcript">Brut</TabsTrigger>
-                            </TabsList>
-                        </Tabs>
+                    <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2 w-full sm:w-auto">
 
-                        {consultation.audioBlob && (
-                            <Button
-                                variant="outline"
-                                className="gap-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
-                                onClick={() => {
-                                    const url = URL.createObjectURL(consultation.audioBlob!);
-                                    const a = document.createElement('a');
-                                    a.style.display = 'none';
-                                    a.href = url;
-                                    a.download = `audio_${consultation.patientName?.replace(/\s+/g, '_') || 'brut'}.webm`;
-                                    document.body.appendChild(a);
-                                    a.click();
-                                    window.URL.revokeObjectURL(url);
-                                }}
-                            >
-                                <Download className="w-4 h-4" />
-                                Audio Brut
+                        {/* Actions d'ajout express */}
+                        <div className="flex items-center gap-1 bg-red-50/80 rounded-full border border-red-100 p-1 px-2 shrink-0">
+                            <span className="text-[10px] text-red-800 font-semibold tracking-wide mr-1 hidden sm:inline uppercase">Mise à jour</span>
+                            {!isRecordingUpdate ? (
+                                <Button size="icon" variant="ghost" onClick={startUpdateRecording} className="h-7 w-7 rounded-full text-red-500 hover:bg-red-100 hover:text-red-700" title="Dicter un complément vocal">
+                                    <Mic className="w-3.5 h-3.5" />
+                                </Button>
+                            ) : (
+                                <Button size="sm" variant="destructive" onClick={stopUpdateRecording} className="h-7 rounded-full animate-pulse px-3 text-xs" title="Arrêter l'enregistrement">
+                                    <Square className="w-3 h-3 mr-1" />
+                                    {recordingTime}s
+                                </Button>
+                            )}
+                            <div className="relative">
+                                <input
+                                    type="file"
+                                    multiple
+                                    accept="application/pdf,image/jpeg,image/png"
+                                    onChange={handleFileChange}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                    title="Joindre un document"
+                                />
+                                <Button size="icon" variant="ghost" className="h-7 w-7 rounded-full text-[#bd613c] hover:bg-[#ebd9c8]" title="Joindre un document">
+                                    <Paperclip className="w-3.5 h-3.5" />
+                                </Button>
+                            </div>
+                        </div>
+
+                        <div className="w-px h-5 bg-slate-200 mx-1 hidden sm:block shrink-0"></div>
+
+                        {/* Actions consultation */}
+                        <div className="flex items-center gap-1 shrink-0">
+                            {consultation.audioBlob && (
+                                <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-blue-600 hover:bg-blue-50 focus:ring-0"
+                                    onClick={() => {
+                                        const url = URL.createObjectURL(consultation.audioBlob!);
+                                        const a = document.createElement('a');
+                                        a.style.display = 'none';
+                                        a.href = url;
+                                        a.download = `audio_${consultation.patientName?.replace(/\s+/g, '_') || 'brut'}.webm`;
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        window.URL.revokeObjectURL(url);
+                                    }} title="Audio brut">
+                                    <Headphones className="w-4 h-4" />
+                                </Button>
+                            )}
+                            <Button size="icon" variant="ghost" onClick={handleCopyText} className="h-8 w-8 text-slate-400 hover:text-slate-700 hover:bg-slate-100" title="Copier le texte affiché">
+                                <Copy className="w-4 h-4" />
                             </Button>
-                        )}
-
-                        <Button variant="secondary" onClick={handleCopyText} className="gap-2">
-                            <Copy className="w-4 h-4" />
-                            Copier
-                        </Button>
-                        <Button onClick={handleExportPDF} className="gap-2 bg-[#bd613c] hover:bg-[#a05232]">
-                            <Download className="w-4 h-4" />
-                            PDF
-                        </Button>
-                        <Button variant="outline" onClick={handleExportArchive} className="gap-2 border-[#bd613c] text-[#bd613c] hover:bg-[#bd613c] hover:text-white transition-colors" title="Télécharger l&apos;Audio + PDF + Texte">
-                            💾 Archiver
-                        </Button>
-                        <Button variant="destructive" onClick={handleDelete} className="gap-2">
-                            <Trash2 className="w-4 h-4" />
-                        </Button>
+                            <Button size="icon" variant="ghost" onClick={handleExportPDF} className="h-8 w-8 text-slate-400 hover:text-[#bd613c] hover:bg-orange-50" title="Exporter le PDF en cours">
+                                <FileText className="w-4 h-4" />
+                            </Button>
+                            <Button size="icon" variant="ghost" onClick={handleExportArchive} className="h-8 w-8 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50" title="Archiver (ZIP Data)">
+                                <Download className="w-4 h-4" />
+                            </Button>
+                            <Button size="icon" variant="ghost" onClick={handleDelete} className="h-8 w-8 text-slate-400 hover:text-red-600 hover:bg-red-50" title="Supprimer la consultation">
+                                <Trash2 className="w-4 h-4" />
+                            </Button>
+                        </div>
                     </div>
                 </div>
+
+                {/* Bulle d'état si des ajouts sont en attente d'être compilés */}
+                {(updateAudioBlob || updateFiles.length > 0 || isUpdating) && (
+                    <div className="bg-[#fdfaf8] border border-[#bd613c]/30 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-inner text-sm animate-in fade-in slide-in-from-top-2">
+                        {isUpdating ? (
+                            <div className="flex items-center text-[#bd613c] font-medium w-full justify-center sm:justify-start">
+                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                Fusion des informations en cours...
+                            </div>
+                        ) : (
+                            <>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-[#4a3f35] font-medium mr-2">À intégrer :</span>
+                                    {updateAudioBlob && (
+                                        <span className="flex items-center bg-white border border-[#bd613c]/20 px-2 py-1 rounded-full text-[11px] text-[#bd613c]">
+                                            <Mic className="w-3 h-3 mr-1" /> Note vocale
+                                            <X className="w-3 h-3 ml-1 cursor-pointer hover:text-red-500" onClick={() => setUpdateAudioBlob(null)} />
+                                        </span>
+                                    )}
+                                    {updateFiles.map((f, i) => (
+                                        <span key={i} className="flex items-center bg-white border border-[#bd613c]/20 px-2 py-1 rounded-full text-[11px] text-[#bd613c] max-w-[150px]">
+                                            <Paperclip className="w-3 h-3 mr-1 shrink-0" /> <span className="truncate">{f.name}</span>
+                                            <X className="w-3 h-3 ml-1 shrink-0 cursor-pointer hover:text-red-500" onClick={() => setUpdateFiles(prev => prev.filter((_, idx) => idx !== i))} />
+                                        </span>
+                                    ))}
+                                </div>
+                                <Button onClick={handleUpdateSubmit} className="bg-[#bd613c] hover:bg-[#a05232] text-white shrink-0 h-8 text-xs rounded-full shadow-sm">
+                                    Regénérer le Bilan
+                                </Button>
+                            </>
+                        )}
+                    </div>
+                )}
 
                 {/* Lecteur Audio */}
                 {consultation.audioBlob && (
                     <div className="bg-white rounded-lg p-4 shadow-sm border border-slate-200 w-full md:max-w-3xl mx-auto flex flex-col gap-2">
-                        <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-widest">Enregistrement</h4>
+                        <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Enregistrement initial</h4>
                         <audio
                             controls
                             className="w-full h-10 outline-none"
@@ -285,15 +469,16 @@ export default function ConsultationPage() {
                     </div>
                 </div>
 
-                {/* Bouton retour en bas (Esthétique Marron TDT) */}
-                <div className="flex justify-center mt-8 pb-8">
-                    <Button onClick={() => router.push("/")} className="gap-2 bg-[#bd613c] hover:bg-[#a05232] text-white px-8 py-6 text-lg rounded-full shadow-md transition-all hover:scale-105 active:scale-95">
-                        <ArrowLeft className="w-5 h-5" />
-                        Retour à l&apos;accueil
-                    </Button>
-                </div>
-
             </div>
+
+            {/* Bouton retour en bas (Esthétique Marron TDT) */}
+            <div className="flex justify-center mt-8 pb-8">
+                <Button onClick={() => router.push("/")} className="gap-2 bg-[#bd613c] hover:bg-[#a05232] text-white px-8 py-6 text-lg rounded-full shadow-md transition-all hover:scale-105 active:scale-95">
+                    <ArrowLeft className="w-5 h-5" />
+                    Retour à l&apos;accueil
+                </Button>
+            </div>
+
         </main>
     );
 }

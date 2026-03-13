@@ -44,25 +44,34 @@ export default function Home() {
     setAttachedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleRecordingComplete = async (audioBlob: Blob) => {
-    // 1. Créer une nouvelle entrée dans IndexedDB
-    const newConsultationId = await db.consultations.add({
-      date: new Date(),
-      audioBlob,
-      isProcessing: true,
-      createdAt: new Date(),
-    });
+  const handleRecordingComplete = async (inputBlob: Blob) => {
+    let newConsultationId: number | undefined = undefined;
 
     try {
+      console.log("Début du traitement audio. Taille:", inputBlob.size);
+
+      // On s'assure que c'est un pur Blob (Safari peut planter si on essaie de stocker un objet `File` direct dans IndexedDB)
+      const buffer = await inputBlob.arrayBuffer();
+      const audioBlob = new Blob([buffer], { type: inputBlob.type });
+
+      // 1. Créer une nouvelle entrée dans IndexedDB
+      newConsultationId = await db.consultations.add({
+        date: new Date(),
+        audioBlob,
+        isProcessing: true,
+        createdAt: new Date(),
+      });
+
       // Analyse globale avec Gemini (Transcription + Synthèse structurée)
       const formData = new FormData();
       formData.append("audio", audioBlob, "recording.webm");
       attachedFiles.forEach(file => formData.append("files", file));
 
-      // Timeout manual of 120 seconds to prevent silent local hangs
+      // Timeout manual of 10 minutes (600s) to prevent silent local hangs for very large files like 17Mo
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000);
+      const timeoutId = setTimeout(() => controller.abort(), 600000);
 
+      console.log("Envoi à l'API...");
       const analyzeRes = await fetch("/api/analyze", {
         method: "POST",
         body: formData,
@@ -76,6 +85,7 @@ export default function Home() {
         throw new Error(`Erreur API (${analyzeRes.status}): ${errText}`);
       }
 
+      console.log("Réponse de l'API reçue");
       const analyzeData = await analyzeRes.json();
 
       // Mettre à jour avec le compte-rendu brut et la synthèse (Gemini renvoie un texte structuré)
@@ -95,14 +105,17 @@ export default function Home() {
       });
 
     } catch (error: unknown) {
-      console.error(error);
+      console.error("Erreur gérée dans handleRecordingComplete:", error);
       const errorMessage = error instanceof Error ? error.message : "Une erreur est survenue lors du traitement audio.";
 
-      await db.consultations.update(newConsultationId, {
-        isProcessing: false,
-      });
+      if (newConsultationId !== undefined) {
+        await db.consultations.update(newConsultationId, {
+          isProcessing: false,
+        });
+      }
+
       toast({
-        title: "Erreur Génération",
+        title: "Erreur Traitement",
         description: errorMessage,
         variant: "destructive",
       });
@@ -164,15 +177,25 @@ export default function Home() {
     await db.consultations.update(consult.id, { isProcessing: true });
 
     try {
+      console.log("Tentative de relance pour la consultation", consult.id);
+
+      // On recrée un pur Blob propre pour éviter les erreurs de clonage / FormData (Safari/Chrome local)
+      const buffer = await consult.audioBlob.arrayBuffer();
+      const cleanBlob = new Blob([buffer], { type: consult.audioBlob.type });
+
       const formData = new FormData();
-      formData.append("audio", consult.audioBlob, "recording.webm");
+      let ext = "webm";
+      if (cleanBlob.type.includes("mp4") || cleanBlob.type.includes("m4a")) ext = "m4a";
+      if (cleanBlob.type.includes("mpeg") || cleanBlob.type.includes("mp3")) ext = "mp3";
+
+      formData.append("audio", cleanBlob, `recording.${ext}`);
 
       toast({
         title: "Analyse relancée...",
         description: "Traitement de l'audio en cours. Ne quittez pas la page.",
       });
 
-      // Timeout manual of 120 seconds to prevent silent local hangs
+      // Timeout manual of 2 minutes (120s) because Whisper is fast
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 120000);
 
@@ -189,6 +212,7 @@ export default function Home() {
         throw new Error(`Erreur API (${analyzeRes.status}): ${errText}`);
       }
 
+      console.log("Relance réussie, parsing réponse");
       const analyzeData = await analyzeRes.json();
 
       await db.consultations.update(consult.id, {
@@ -205,11 +229,11 @@ export default function Home() {
       });
 
     } catch (error: unknown) {
-      console.error(error);
+      console.error("Erreur lors de tryAnalysis:", error);
       let errorMessage = "Erreur inattendue.";
       if (error instanceof Error) {
         if (error.name === 'AbortError') {
-          errorMessage = "Temps d'attente dépassé (2 min). Le fichier est peut-être trop gros ou Gemini surchargé.";
+          errorMessage = "Temps d'attente dépassé. Le fichier est très gros ou l'API est surchargée.";
         } else {
           errorMessage = error.message;
         }
@@ -340,8 +364,9 @@ export default function Home() {
         </div>
 
         {/* Upload de documents locaux (IRM, Radio, etc.) */}
+        {/* Upload de documents externes */}
         <div
-          className="bg-white/60 p-4 rounded-xl border border-[#bd613c]/20 shadow-sm mb-6 max-w-2xl mx-auto flex flex-col gap-3 transition-colors duration-200"
+          className="bg-white/40 p-2 sm:p-3 rounded-lg border border-[#bd613c]/10 shadow-sm mb-4 max-w-2xl mx-auto flex flex-col sm:flex-row items-center gap-3 transition-colors duration-200 hover:border-[#bd613c]/30"
           onDragOver={(e) => {
             e.preventDefault();
             e.currentTarget.classList.add('bg-[#ebd9c8]/20', 'border-[#bd613c]');
@@ -358,14 +383,12 @@ export default function Home() {
             }
           }}
         >
-          <div className="flex items-center justify-between">
-            <h3 className="text-[#4a3f35] font-semibold text-sm flex items-center gap-2">
-              <Paperclip className="w-4 h-4 text-[#bd613c]" />
-              Ajouter des documents au bilan
-            </h3>
-            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => fileInputRef.current?.click()}>
-              Parcourir...
-            </Button>
+          <div className="flex-1 flex items-center gap-2">
+            <Paperclip className="w-4 h-4 text-[#bd613c]" />
+            <span className="text-[#4a3f35] text-xs font-medium">Joindre documents (IRM, Bilans...)</span>
+          </div>
+
+          <div className="flex items-center gap-2">
             <input
               type="file"
               className="hidden"
@@ -374,24 +397,26 @@ export default function Home() {
               ref={fileInputRef}
               accept=".pdf,image/*"
             />
+            <Button variant="secondary" size="sm" className="h-7 text-xs px-3" onClick={() => fileInputRef.current?.click()}>
+              Parcourir
+            </Button>
           </div>
-          {attachedFiles.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-2">
-              {attachedFiles.map((f, i) => (
-                <div key={i} className="flex items-center gap-2 bg-[#ebd9c8]/40 border border-[#bd613c]/30 rounded-full px-3 py-1.5 text-xs text-[#4a3f35] max-w-full">
-                  {f.type.includes('pdf') ? <FileText className="w-3 h-3 text-red-500 shrink-0" /> : <ImageIcon className="w-3 h-3 text-blue-500 shrink-0" />}
-                  <span className="truncate max-w-[150px]">{f.name}</span>
-                  <button onClick={() => removeFile(i)} className="text-slate-400 hover:text-red-500 ml-1 shrink-0">
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <p className="text-[11px] text-slate-500 leading-tight">
-            Les documents importés seront analysés conjointement avec la transcription audio afin de générer un compte-rendu enrichi (ex: inclure les résultats de l&apos;IRM ou de la radio). Vous pouvez déposer vos fichiers ici.
-          </p>
         </div>
+
+        {/* Fichiers attachés (Affichés dynamiquement) */}
+        {attachedFiles.length > 0 && (
+          <div className="max-w-2xl mx-auto flex flex-wrap justify-center gap-2 mb-6">
+            {attachedFiles.map((f, i) => (
+              <div key={i} className="flex items-center gap-1.5 bg-[#ebd9c8]/30 border border-[#bd613c]/20 rounded-full px-2.5 py-1 text-[11px] text-[#4a3f35]">
+                {f.type.includes('pdf') ? <FileText className="w-3 h-3 text-red-500" /> : <ImageIcon className="w-3 h-3 text-blue-500" />}
+                <span className="truncate max-w-[120px]">{f.name}</span>
+                <button onClick={() => removeFile(i)} className="text-slate-400 hover:text-red-500 ml-1">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Sélection du Mode d'Enregistrement */}
         <Tabs value={recorderMode} onValueChange={setRecorderMode} className="w-full">
@@ -423,16 +448,17 @@ export default function Home() {
                 </p>
                 <Button
                   onClick={() => {
-                    const el = document.getElementById('audio-import') as HTMLInputElement;
-                    if (el) el.click();
+                    if (fileInputRef.current) {
+                      fileInputRef.current.click();
+                    }
                   }}
-                  className="bg-[#bd613c] hover:bg-[#a05232] text-white px-8 py-6 rounded-full text-lg shadow-md transition-transform hover:scale-105"
+                  className="bg-[#bd613c] hover:bg-[#a05232] text-white px-8 py-6 rounded-full text-lg shadow-md transition-transform hover:scale-105 cursor-pointer"
                 >
                   <Paperclip className="w-5 h-5 mr-2" />
                   Sélectionner l&apos;Audio
                 </Button>
                 <input
-                  id="audio-import"
+                  ref={fileInputRef}
                   type="file"
                   accept="audio/*,video/mp4,video/webm"
                   className="hidden"
@@ -445,6 +471,8 @@ export default function Home() {
                       });
                       handleRecordingComplete(files[0]);
                     }
+                    // Reset value so we can re-import the exact same file
+                    e.target.value = '';
                   }}
                 />
               </div>

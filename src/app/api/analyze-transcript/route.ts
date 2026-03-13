@@ -1,11 +1,18 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
+import os from 'os';
+import path from 'path';
+import fs from 'fs/promises';
+
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
     console.log("[API analyze-transcript] Requête reçue.");
 
     try {
-        const { transcript } = await req.json();
+        const formData = await req.formData();
+        const transcript = formData.get('transcript') as string;
+        const attachedFiles = formData.getAll('files') as File[];
 
         if (!transcript || transcript.trim() === "") {
             console.error("[API] Aucun transcript fourni.");
@@ -13,8 +20,84 @@ export async function POST(req: Request) {
         }
 
         console.log(`[API] Lancement de l'analyse IA sur le transcript texte (${transcript.length} caractères)...`);
+        console.log(`[API] Réception de ${attachedFiles.length} fichier(s) attaché(s).`);
 
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+        const allUploads: { uri: string, mimeType: string, name: string }[] = [];
+
+        const uploadToGemini = async (f: File) => {
+            const buffer = Buffer.from(await f.arrayBuffer());
+
+            // Grab extension
+            let ext = '';
+            if (f.name && f.name.includes('.')) {
+                ext = f.name.substring(f.name.lastIndexOf('.'));
+            } else if (f.type) {
+                if (f.type.includes('webm')) ext = '.webm';
+                else if (f.type.includes('mp4') || f.type.includes('m4a')) ext = '.m4a';
+                else if (f.type.includes('mpeg') || f.type.includes('mp3')) ext = '.mp3';
+                else if (f.type.includes('pdf')) ext = '.pdf';
+                else if (f.type.includes('jpeg') || f.type.includes('jpg')) ext = '.jpg';
+                else if (f.type.includes('png')) ext = '.png';
+            }
+
+            const tempFilePath = path.join(os.tmpdir(), `tdt-file-${Date.now()}-${Math.random().toString(36).substring(7)}${ext}`);
+            await fs.writeFile(tempFilePath, buffer);
+            console.log(`[API] Fichier temporaire créé : ${tempFilePath}`);
+
+            const uploadResult = await ai.files.upload({
+                file: tempFilePath,
+                config: {
+                    mimeType: f.type || 'application/octet-stream',
+                }
+            });
+            console.log(`[API] Fichier uploadé sur Gemini File API : ${uploadResult.uri}`);
+
+            await fs.unlink(tempFilePath).catch(() => { });
+
+            if (!uploadResult.name || !uploadResult.uri) {
+                throw new Error("L'API Gemini n'a pas retourné de nom ou d'URI de fichier valide.");
+            }
+            return { uri: uploadResult.uri, mimeType: f.type || 'application/octet-stream', name: uploadResult.name };
+        };
+
+        for (const attach of attachedFiles) {
+            allUploads.push(await uploadToGemini(attach));
+        }
+
+        // Polling pour s'assurer que les fichiers sont "ACTIVE"
+        for (const uploaded of allUploads) {
+            let fileInfo;
+            try {
+                fileInfo = await ai.files.get({ name: uploaded.name });
+            } catch (err) {
+                console.log(`[API] Erreur initiale au get du fichier, on suppose PROCESSING...`, err);
+                fileInfo = { state: 'PROCESSING' };
+            }
+
+            let attempts = 0;
+            while (fileInfo.state === 'PROCESSING' && attempts < 180) {
+                console.log(`[API] Fichier (${uploaded.name}) en cours de traitement... (tentative ${attempts}/180)`);
+                await new Promise(r => setTimeout(r, 3000)); // wait 3s instead of 2s
+                attempts++;
+                try {
+                    fileInfo = await ai.files.get({ name: uploaded.name });
+                } catch {
+                    console.log(`[API] Fichier (${uploaded.name}) erreur API Gemini pendant le polling, on retente...`);
+                    // keep state as PROCESSING to loop again
+                }
+            }
+
+            if (fileInfo.state === 'FAILED') {
+                throw new Error(`L'API Gemini a échoué à traiter le fichier ${uploaded.name}.`);
+            }
+            if (fileInfo.state === 'PROCESSING') {
+                throw new Error(`Le fichier ${uploaded.name} met trop de temps à être traité par Gemini.`);
+            }
+            console.log(`[API] Fichier Prêt: ${fileInfo.state}`);
+        }
+
         const currentDate = new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
         const systemPrompt = `Tu es un assistant médical clinique expert. Ton rôle est de lire l'historique d'une conversation entre un thérapeute et son patient et de produire un bilan.
@@ -62,22 +145,29 @@ Structure attendue dans ce texte Markdown (pour la clé synthese) :
 Voici le transcript exact de la conversation bilingue :
 `;
 
+        const parts: Array<{ text?: string, fileData?: { fileUri: string, mimeType: string } }> = allUploads.map(up => ({
+            fileData: { fileUri: up.uri, mimeType: up.mimeType }
+        }));
+        parts.push({ text: `Transcription brute à analyser :\n${transcript}\n\nINSTRUCTIONS SYSTEME:\n${systemPrompt}` });
+
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-pro',
-            contents: [
-                systemPrompt,
-                transcript
-            ],
+            contents: parts,
             config: {
-                responseMimeType: "application/json",
+                systemInstruction: "Tu retournes uniquement du JSON.",
             }
         });
 
         const output = response.text || "{}";
 
+        const cleanJson = output
+            .replace(/```json\n/g, '')
+            .replace(/```\n?/g, '')
+            .trim();
+
         let jsonResult;
         try {
-            jsonResult = JSON.parse(output);
+            jsonResult = JSON.parse(cleanJson);
             console.log("[API analyze-transcript] JSON parsé avec succès.");
         } catch {
             console.error("[API analyze-transcript] Erreur de parsing JSON du retour IA. Brut:", output);
