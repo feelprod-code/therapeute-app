@@ -202,7 +202,7 @@ function Home() {
 
       if (newConsultationId !== undefined) {
         setActiveProcessingIds(prev => prev.filter(id => id !== newConsultationId));
-        toast({ title: "Erreur, vérifiez votre connexion", variant: "destructive" });
+        toast({ title: "Erreur détectée", description: errorMessage, variant: "destructive" });
       }
 
       toast({
