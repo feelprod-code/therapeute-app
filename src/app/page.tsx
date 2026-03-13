@@ -471,14 +471,18 @@ function Home() {
                 e.currentTarget.classList.remove('bg-[#ebd9c8]/50', 'border-dashed', 'border-[3px]', 'border-[#bd613c]');
                 if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
                   const file = e.dataTransfer.files[0];
-                  if (file.type.startsWith('audio/') || file.type.startsWith('video/')) {
+                  const validExtensions = ['.webm', '.mp3', '.m4a', '.mp4', '.wav', '.ogg'];
+                  const isAudioVideoType = file.type.startsWith('audio/') || file.type.startsWith('video/');
+                  const hasValidExtension = validExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
+
+                  if (isAudioVideoType || hasValidExtension) {
                     toast({
                       title: "Importation...",
                       description: "L'audio déposé va être analysé. Patientez...",
                     });
                     handleRecordingComplete(file);
                   } else {
-                    toast({ title: "Format invalide", description: "Veuillez déposer un fichier audio ou vidéo.", variant: "destructive" });
+                    toast({ title: "Format invalide", description: "Veuillez déposer un fichier audio ou vidéo valide.", variant: "destructive" });
                   }
                 }
               }}
@@ -503,7 +507,7 @@ function Home() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="audio/*,video/mp4,video/webm"
+                  accept="audio/*,video/*,.m4a,.webm,.mp3,.mp4,.wav,.ogg"
                   className="hidden"
                   onChange={(e) => {
                     const files = e.target.files;
