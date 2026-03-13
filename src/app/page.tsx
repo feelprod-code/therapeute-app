@@ -112,19 +112,49 @@ function Home() {
       if (insertError || !newConsultation) throw new Error("Impossible de créer l'entrée en base " + insertError?.message);
       newConsultationId = newConsultation.id;
 
-      // Analyse globale avec Gemini (Transcription + Synthèse structurée)
-      const formData = new FormData();
-      formData.append("audio", audioBlob, "recording.webm");
-      attachedFiles.forEach(file => formData.append("files", file));
+      // --- 2. UPLOAD VERS SUPABASE STORAGE POUR CONTOURNER LA LIMITE VERCEL (4.5 MO) ---
+      console.log("Upload audio vers Supabase Storage...");
+      const audioFileName = `audio_${Date.now()}_${newConsultationId}.webm`;
+      const { error: audioUploadError } = await supabase.storage
+        .from('tdt_uploads')
+        .upload(audioFileName, audioBlob, { contentType: audioBlob.type });
 
-      // Timeout manual of 10 minutes (600s) to prevent silent local hangs for very large files like 17Mo
+      if (audioUploadError) {
+        throw new Error("Erreur lors de l'upload audio : " + audioUploadError.message);
+      }
+
+      console.log("Upload des fichiers attachés...");
+      const uploadedAttachedFiles = [];
+      for (const file of attachedFiles) {
+        const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+        const fileName = `doc_${Date.now()}_${newConsultationId}_${safeName}`;
+        const { error: fileError } = await supabase.storage
+          .from('tdt_uploads')
+          .upload(fileName, file, { contentType: file.type });
+
+        if (fileError) {
+          console.error("Erreur upload fichier", file.name, fileError);
+          // On continue, on ne bloque pas tout pour un fichier
+        } else {
+          uploadedAttachedFiles.push({ fileName, mimeType: file.type });
+        }
+      }
+
+      // --- 3. ANALYSE GLOBALE AVEC GEMINI ---
+      console.log("Déclenchement de l'analyse sur /api/analyze...");
+
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 600000);
+      const timeoutId = setTimeout(() => controller.abort(), 600000); // 10 min
 
-      console.log("Envoi à l'API...");
       const analyzeRes = await fetch("/api/analyze", {
         method: "POST",
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          audioFile: { fileName: audioFileName, mimeType: audioBlob.type },
+          attachedFiles: uploadedAttachedFiles
+        }),
         signal: controller.signal
       });
 

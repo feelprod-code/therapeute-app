@@ -3,48 +3,54 @@ import { NextResponse } from 'next/server';
 import { writeFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { createClient } from '@supabase/supabase-js';
 
-// Limite la durée d'exécution (valable sur Vercel, ignoré en dev local mais ça aide)
 export const maxDuration = 300;
 
 export async function POST(req: Request) {
     const uploadedFileNames: string[] = [];
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
+    const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+
+    const storageFilesToDelete: string[] = [];
+
     try {
         const apiKey = process.env.GEMINI_API_KEY;
-
         if (!apiKey) return NextResponse.json({ error: "Clé API Gemini manquante." }, { status: 500 });
 
-        const formData = await req.formData();
-        const audioFile = formData.get('audio') as File | null;
-        const attachedFiles = formData.getAll('files') as File[];
+        const body = await req.json();
+        const { audioFile, attachedFiles } = body;
 
-        if (!audioFile) {
-            console.error("[API] Aucun fichier audio dans le FormData.");
+        if (!audioFile || !audioFile.fileName) {
+            console.error("[API] Aucun fichier audio reference.");
             return NextResponse.json({ error: "Aucun fichier audio fourni." }, { status: 400 });
         }
 
-        console.log(`[API] Réception d'un fichier audio : ${audioFile.name}, Taille: ${audioFile.size} octets, Type: ${audioFile.type}`);
+        console.log(`[API] Récupération de l'audio depuis Supabase: ${audioFile.fileName}`);
+        storageFilesToDelete.push(audioFile.fileName);
 
-        if (audioFile.size === 0) {
-            console.error("[API] Le flux audio est vide.");
-            return NextResponse.json({ error: "L'enregistrement audio est vide." }, { status: 400 });
+        const { data: audioData, error: audioError } = await supabase.storage.from('tdt_uploads').download(audioFile.fileName);
+        if (audioError || !audioData) {
+            throw new Error("Impossible de télécharger l'audio depuis Supabase: " + (audioError?.message || ""));
         }
 
         const parts: Array<{ text?: string; fileData?: { fileUri: string; mimeType: string } }> = [];
 
         // 1. Process Audio File
-        const audioArrayBuffer = await audioFile.arrayBuffer();
+        const audioArrayBuffer = await audioData.arrayBuffer();
         const audioBuffer = Buffer.from(audioArrayBuffer);
-        const audioTmpPath = join(tmpdir(), `audio_${Date.now()}_${audioFile.name.replace(/[^a-zA-Z0-9.]/g, '_')}`);
+        const audioTmpPath = join(tmpdir(), `audio_${Date.now()}_${audioFile.fileName.replace(/[^a-zA-Z0-9.]/g, '_')}`);
 
         await writeFile(audioTmpPath, audioBuffer);
 
         console.log(`[API] Uploading audio to Gemini...`);
         const uploadedAudio = await ai.files.upload({
             file: audioTmpPath,
-            config: { mimeType: audioFile.type || 'audio/webm' },
+            config: { mimeType: audioFile.mimeType || 'audio/webm' },
         });
         console.log(`[API] Audio uploaded: ${uploadedAudio.name}`);
 
@@ -57,7 +63,6 @@ export async function POST(req: Request) {
             }
         });
 
-        // Clean up audio tmp file
         await unlink(audioTmpPath).catch(console.error);
 
         // 2. Process Attached Files
@@ -65,20 +70,25 @@ export async function POST(req: Request) {
             console.log(`[API] Processing ${attachedFiles.length} attached files...`);
             for (let i = 0; i < attachedFiles.length; i++) {
                 const f = attachedFiles[i];
-                if (f.size === 0) continue;
+                storageFilesToDelete.push(f.fileName);
 
-                const fArrayBuffer = await f.arrayBuffer();
+                const { data: fData, error: fError } = await supabase.storage.from('tdt_uploads').download(f.fileName);
+                if (fError || !fData) {
+                    console.error("Erreur téléchargement fichier attaché", f.fileName, fError);
+                    continue;
+                }
+
+                const fArrayBuffer = await fData.arrayBuffer();
                 const fBuffer = Buffer.from(fArrayBuffer);
-                const fTmpPath = join(tmpdir(), `file_${Date.now()}_${i}_${f.name.replace(/[^a-zA-Z0-9.]/g, '_')}`);
+                const fTmpPath = join(tmpdir(), `file_${Date.now()}_${i}_${f.fileName.replace(/[^a-zA-Z0-9.]/g, '_')}`);
 
                 await writeFile(fTmpPath, fBuffer);
 
-                console.log(`[API] Uploading attached file ${f.name} to Gemini...`);
+                console.log(`[API] Uploading attached file ${f.fileName} to Gemini...`);
                 const uploadedF = await ai.files.upload({
                     file: fTmpPath,
-                    config: { mimeType: f.type || 'application/octet-stream' },
+                    config: { mimeType: f.mimeType || 'application/octet-stream' },
                 });
-                console.log(`[API] Attached file uploaded: ${uploadedF.name}`);
 
                 if (uploadedF.name) uploadedFileNames.push(uploadedF.name);
 
@@ -150,8 +160,6 @@ Règles impératives :
 
         const texteResponse = response.text;
 
-        console.log(`[API] Réponse brute Gemini (début):`, texteResponse?.substring(0, 100));
-
         if (!texteResponse) {
             throw new Error("L'API Gemini a retourné une réponse vide.");
         }
@@ -163,14 +171,12 @@ Règles impératives :
 
         const jsonResult = JSON.parse(cleanJson);
 
-        // Clean up Gemini files after generation
+        // CLEANUP
         for (const fileName of uploadedFileNames) {
-            try {
-                await ai.files.delete({ name: fileName });
-                console.log(`[API] Deleted Gemini file: ${fileName}`);
-            } catch (err) {
-                console.error(`[API] Failed to delete Gemini file ${fileName}:`, err);
-            }
+            await ai.files.delete({ name: fileName }).catch(() => { });
+        }
+        if (storageFilesToDelete.length > 0) {
+            await supabase.storage.from('tdt_uploads').remove(storageFilesToDelete).catch(() => { });
         }
 
         return NextResponse.json(jsonResult);
@@ -178,13 +184,11 @@ Règles impératives :
     } catch (error: unknown) {
         console.error("Erreur serveur API /analyze :", error);
 
-        // Ensure cleanup even on error
         for (const fileName of uploadedFileNames) {
-            try {
-                await ai.files.delete({ name: fileName });
-            } catch {
-                // Ignore errors during cleanup
-            }
+            await ai.files.delete({ name: fileName }).catch(() => { });
+        }
+        if (storageFilesToDelete.length > 0) {
+            await supabase.storage.from('tdt_uploads').remove(storageFilesToDelete).catch(() => { });
         }
 
         const errorMessage = error instanceof Error ? error.message : "Erreur inconnue.";
