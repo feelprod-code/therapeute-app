@@ -1,16 +1,8 @@
-import OpenAI from 'openai';
 import { GoogleGenAI } from '@google/genai';
 import { NextResponse } from 'next/server';
-<<<<<<< HEAD
 import { writeFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-=======
-import os from 'os';
-import path from 'path';
-import fs from 'fs/promises';
-import { createReadStream } from 'fs';
->>>>>>> e7e01e9 (UI refactoring: Minimalist design, unified action bar)
 
 // Limite la durée d'exécution (valable sur Vercel, ignoré en dev local mais ça aide)
 export const maxDuration = 300;
@@ -21,30 +13,19 @@ export async function POST(req: Request) {
 
     try {
         const apiKey = process.env.GEMINI_API_KEY;
-        const openAiApiKey = process.env.OPENAI_WHISPER_KEY;
 
-<<<<<<< HEAD
+        if (!apiKey) return NextResponse.json({ error: "Clé API Gemini manquante." }, { status: 500 });
+
         const formData = await req.formData();
         const audioFile = formData.get('audio') as File | null;
         const attachedFiles = formData.getAll('files') as File[];
 
         if (!audioFile) {
             console.error("[API] Aucun fichier audio dans le FormData.");
-=======
-        if (!apiKey) return NextResponse.json({ error: "Clé API Gemini manquante." }, { status: 500 });
-        if (!openAiApiKey) return NextResponse.json({ error: "Clé API OpenAI manquante." }, { status: 500 });
-
-        const formData = await req.formData();
-        const audioFile = formData.get('audio') as File;
-        const attachedFiles = formData.getAll('files') as File[];
-
-        if (!audioFile) {
->>>>>>> e7e01e9 (UI refactoring: Minimalist design, unified action bar)
             return NextResponse.json({ error: "Aucun fichier audio fourni." }, { status: 400 });
         }
 
         console.log(`[API] Réception d'un fichier audio : ${audioFile.name}, Taille: ${audioFile.size} octets, Type: ${audioFile.type}`);
-<<<<<<< HEAD
 
         if (audioFile.size === 0) {
             console.error("[API] Le flux audio est vide.");
@@ -111,106 +92,6 @@ export async function POST(req: Request) {
                 await unlink(fTmpPath).catch(console.error);
             }
         }
-=======
-        console.log(`[API] Réception de ${attachedFiles.length} fichier(s) attaché(s).`);
-
-        // --- 1. TRANSCRIPTION OPENAI (WHISPER) ---
-        const openai = new OpenAI({ apiKey: openAiApiKey });
-        let extAudio = '.webm';
-        if (audioFile.name && audioFile.name.includes('.')) {
-            extAudio = audioFile.name.substring(audioFile.name.lastIndexOf('.'));
-        }
-
-        const tempAudioPath = path.join(os.tmpdir(), `tdt-audio-${Date.now()}-${Math.random().toString(36).substring(7)}${extAudio}`);
-        const audioBuffer = Buffer.from(await audioFile.arrayBuffer());
-        await fs.writeFile(tempAudioPath, audioBuffer);
-
-        console.log(`[API OpenAI] Envoi de l'audio à Whisper...`);
-        const transcriptionResponse = await openai.audio.transcriptions.create({
-            file: createReadStream(tempAudioPath),
-            model: "whisper-1",
-            language: "fr", // Optimisation : on force le français
-            response_format: "text",
-        });
-
-        const transcription = transcriptionResponse; // Le format 'text' renvoie string textuellement
-
->>>>>>> e7e01e9 (UI refactoring: Minimalist design, unified action bar)
-
-        await fs.unlink(tempAudioPath).catch(() => { });
-        console.log(`[API Groq] Transcription réussie ! Longueur: ${transcription.length} caractères.`);
-
-        // --- 2. UPLOAD DES DOCUMENTS ATTACHÉS VERS GEMINI ---
-        const ai = new GoogleGenAI({ apiKey });
-        const allUploads: { uri: string, mimeType: string, name: string }[] = [];
-
-        const uploadToGemini = async (f: File) => {
-            const buffer = Buffer.from(await f.arrayBuffer());
-
-            // Grab extension
-            let ext = '';
-            if (f.name && f.name.includes('.')) {
-                ext = f.name.substring(f.name.lastIndexOf('.'));
-            } else if (f.type) {
-                if (f.type.includes('pdf')) ext = '.pdf';
-                else if (f.type.includes('jpeg') || f.type.includes('jpg')) ext = '.jpg';
-                else if (f.type.includes('png')) ext = '.png';
-            }
-
-            const tempFilePath = path.join(os.tmpdir(), `tdt-file-${Date.now()}-${Math.random().toString(36).substring(7)}${ext}`);
-            await fs.writeFile(tempFilePath, buffer);
-            console.log(`[API] Fichier temporaire créé : ${tempFilePath}`);
-
-            const uploadResult = await ai.files.upload({
-                file: tempFilePath,
-                config: {
-                    mimeType: f.type || 'application/octet-stream',
-                }
-            });
-            console.log(`[API] Fichier uploadé sur Gemini File API : ${uploadResult.uri}`);
-
-            await fs.unlink(tempFilePath).catch(() => { });
-
-            if (!uploadResult.name || !uploadResult.uri) {
-                throw new Error("L'API Gemini n'a pas retourné de nom ou d'URI de fichier valide.");
-            }
-            return { uri: uploadResult.uri, mimeType: f.type || 'application/octet-stream', name: uploadResult.name };
-        };
-
-        for (const attach of attachedFiles) {
-            allUploads.push(await uploadToGemini(attach));
-        }
-
-        // Polling pour s'assurer que les fichiers joints sont "ACTIVE"
-        for (const uploaded of allUploads) {
-            let fileInfo;
-            try {
-                fileInfo = await ai.files.get({ name: uploaded.name });
-            } catch {
-                console.log(`[API] Erreur initiale au get du fichier, on suppose PROCESSING...`);
-                fileInfo = { state: 'PROCESSING' };
-            }
-
-            let attempts = 0;
-            while (fileInfo.state === 'PROCESSING' && attempts < 180) {
-                console.log(`[API] Fichier (${uploaded.name}) en cours de traitement... (tentative ${attempts}/180)`);
-                await new Promise(r => setTimeout(r, 3000));
-                attempts++;
-                try {
-                    fileInfo = await ai.files.get({ name: uploaded.name });
-                } catch {
-                    console.log(`[API] Fichier (${uploaded.name}) erreur API Gemini pendant le polling, on retente...`);
-                }
-            }
-
-            if (fileInfo.state === 'FAILED') {
-                throw new Error(`L'API Gemini a échoué à traiter le fichier ${uploaded.name}.`);
-            }
-            if (fileInfo.state === 'PROCESSING') {
-                throw new Error(`Le fichier ${uploaded.name} met trop de temps à être traité par Gemini.`);
-            }
-            console.log(`[API] Fichier Prêt: ${fileInfo.state}`);
-        }
 
         // --- 3. ANALYSE GEMINI (TEXTE + DOCUMENTS) ---
         const currentDate = new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -251,7 +132,6 @@ Règles impératives :
 *IMPORTANT : Ne garde que ce qui est explicitement dit.*
 - [Année] - [Description]`;
 
-<<<<<<< HEAD
         parts.push({ text: systemPrompt });
 
         console.log(`[API] Generating content...`);
@@ -263,16 +143,6 @@ Règles impératives :
                     parts: parts
                 }
             ],
-=======
-        const parts: Array<{ text?: string, fileData?: { fileUri: string, mimeType: string } }> = allUploads.map(up => ({
-            fileData: { fileUri: up.uri, mimeType: up.mimeType }
-        }));
-        parts.push({ text: `Voici la transcription de l'audio:\n\n${transcription}\n\nINSTRUCTIONS DU SYSTEME:\n${systemPrompt}` });
-
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-pro',
-            contents: parts,
->>>>>>> e7e01e9 (UI refactoring: Minimalist design, unified action bar)
             config: {
                 systemInstruction: "Tu retournes uniquement du JSON.",
             }
@@ -286,7 +156,13 @@ Règles impératives :
             throw new Error("L'API Gemini a retourné une réponse vide.");
         }
 
-<<<<<<< HEAD
+        const cleanJson = texteResponse
+            .replace(/\`\`\`json\n/g, '')
+            .replace(/\`\`\`\n?/g, '')
+            .trim();
+
+        const jsonResult = JSON.parse(cleanJson);
+
         // Clean up Gemini files after generation
         for (const fileName of uploadedFileNames) {
             try {
@@ -297,14 +173,10 @@ Règles impératives :
             }
         }
 
-        return NextResponse.json({
-            synthese: parsedResult.synthese,
-            resume: parsedResult.resume,
-            patientName: parsedResult.patientName,
-            transcription: parsedResult.transcription
-        });
+        return NextResponse.json(jsonResult);
+
     } catch (error: unknown) {
-        console.error("Erreur Gemini:", error);
+        console.error("Erreur serveur API /analyze :", error);
 
         // Ensure cleanup even on error
         for (const fileName of uploadedFileNames) {
@@ -315,25 +187,7 @@ Règles impératives :
             }
         }
 
-        const errorMessage = error instanceof Error ? error.message : "Erreur lors du traitement Gemini";
-        return NextResponse.json(
-            { error: errorMessage },
-            { status: 500 }
-        );
-=======
-        const cleanJson = texteResponse
-            .replace(/```json\n/g, '')
-            .replace(/```\n?/g, '')
-            .trim();
-
-        const jsonResult = JSON.parse(cleanJson);
-
-        return NextResponse.json(jsonResult);
-
-    } catch (error: unknown) {
-        console.error("Erreur serveur API /analyze :", error);
         const errorMessage = error instanceof Error ? error.message : "Erreur inconnue.";
         return NextResponse.json({ error: errorMessage }, { status: 500 });
->>>>>>> e7e01e9 (UI refactoring: Minimalist design, unified action bar)
     }
 }

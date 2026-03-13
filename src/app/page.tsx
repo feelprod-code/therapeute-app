@@ -1,11 +1,11 @@
 "use client";
 
-import { useLiveQuery } from "dexie-react-hooks";
+import { useEffect, useState, useRef } from "react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { AudioRecorder } from "@/components/AudioRecorder";
 import BilingualRecorder from '@/components/BilingualRecorder';
-import { db, Consultation } from "@/lib/db";
+import { supabase, SupabaseConsultation } from "@/lib/supabaseClient";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, ArrowRight, Trash2, Paperclip, X, FileText, Image as ImageIcon, Download } from "lucide-react";
@@ -23,16 +23,60 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { useState, useRef } from "react";
+import ProtectedRoute from "@/components/ProtectedRoute";
 
-export default function Home() {
+export default function HomeWrapper() {
+  return (
+    <ProtectedRoute>
+      <Home />
+    </ProtectedRoute>
+  );
+}
+
+function Home() {
   const { toast } = useToast();
   const [recorderMode, setRecorderMode] = useState('standard');
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [consultations, setConsultations] = useState<SupabaseConsultation[] | null>(null);
 
-  // On récupère les consultations triées par date (la plus récente d'abord)
-  const consultations = useLiveQuery(() => db.consultations.orderBy("createdAt").reverse().toArray());
+  useEffect(() => {
+    const fetchConsultations = async () => {
+      const { data, error } = await supabase
+        .from('consultations')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!error && data) {
+        // Formater les données pour correspondre à l'ancien format local attendu
+        const formatted = data.map(d => ({
+          id: d.id,
+          date: new Date(d.date),
+          patientName: d.patient_name,
+          resume: d.resume,
+          synthese: d.synthese,
+          transcription: d.transcription,
+          audioPath: d.audio_path,
+          isProcessing: false, // On ne gère plus isProcessing localement de la même manière
+          createdAt: new Date(d.created_at)
+        }));
+        setConsultations(formatted);
+      }
+    };
+
+    fetchConsultations();
+
+    const subscription = supabase
+      .channel('public:consultations')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'consultations' }, () => {
+        fetchConsultations();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -54,13 +98,19 @@ export default function Home() {
       const buffer = await inputBlob.arrayBuffer();
       const audioBlob = new Blob([buffer], { type: inputBlob.type });
 
-      // 1. Créer une nouvelle entrée dans IndexedDB
-      newConsultationId = await db.consultations.add({
-        date: new Date(),
-        audioBlob,
-        isProcessing: true,
-        createdAt: new Date(),
-      });
+      // 1. Créer une nouvelle entrée dans Supabase
+      // Bypass auth verification for solo practitioner
+      // const { data: { user } } = await supabase.auth.getUser();
+      // if (!user) throw new Error("Utilisateur non authentifié");
+
+      const { data: newConsultation, error: insertError } = await supabase.from('consultations').insert({
+        date: new Date().toISOString(),
+        patient_name: "Nouveau Bilan",
+        created_at: new Date().toISOString(),
+      }).select().single();
+
+      if (insertError || !newConsultation) throw new Error("Impossible de créer l'entrée en base " + insertError?.message);
+      newConsultationId = newConsultation.id;
 
       // Analyse globale avec Gemini (Transcription + Synthèse structurée)
       const formData = new FormData();
@@ -89,13 +139,12 @@ export default function Home() {
       const analyzeData = await analyzeRes.json();
 
       // Mettre à jour avec le compte-rendu brut et la synthèse (Gemini renvoie un texte structuré)
-      await db.consultations.update(newConsultationId, {
-        patientName: analyzeData.patientName && analyzeData.patientName.trim() !== "" ? analyzeData.patientName : "Patient Anonyme",
+      await supabase.from('consultations').update({
+        patient_name: analyzeData.patientName && analyzeData.patientName.trim() !== "" ? analyzeData.patientName : "Patient Anonyme",
         resume: analyzeData.resume || "",
         synthese: analyzeData.synthese,
         transcription: "Analyse multimodale unique (cf. Synthese).",
-        isProcessing: false,
-      });
+      }).eq('id', newConsultationId);
 
       setAttachedFiles([]); // On vide les fichiers après succès
 
@@ -109,9 +158,7 @@ export default function Home() {
       const errorMessage = error instanceof Error ? error.message : "Une erreur est survenue lors du traitement audio.";
 
       if (newConsultationId !== undefined) {
-        await db.consultations.update(newConsultationId, {
-          isProcessing: false,
-        });
+        toast({ title: "Erreur, vérifiez votre connexion", variant: "destructive" });
       }
 
       toast({
@@ -125,16 +172,18 @@ export default function Home() {
   const handleBilingualComplete = async (audioBlob: Blob, result: Record<string, string>) => {
     const defaultName = result.patientName && result.patientName.trim() !== "" ? result.patientName : "Patient(e) Anglophone";
 
-    // On passe un Blob vide car l'audio est découpé dans l'historique
-    await db.consultations.add({
-      date: new Date(),
-      patientName: defaultName,
-      audioBlob: audioBlob,
+    // On insère les données traduites directement
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    await supabase.from('consultations').insert({
+      user_id: user.id,
+      date: new Date().toISOString(),
+      patient_name: defaultName,
       synthese: result.synthese,
       transcription: result.transcription,
       resume: result.resume,
-      isProcessing: false,
-      createdAt: new Date(),
+      created_at: new Date().toISOString(),
     });
 
     setAttachedFiles([]); // On vide les fichiers après succès
@@ -145,18 +194,17 @@ export default function Home() {
     });
   };
 
-  const handleDelete = async (id: number) => {
-    await db.consultations.delete(id);
+  const handleDelete = async (id: string) => {
+    await supabase.from('consultations').delete().eq('id', id);
     toast({
       title: "Bilan supprimé",
     });
   };
 
-  const recoverStuckConsultation = async (id: number) => {
-    await db.consultations.update(id, { isProcessing: false });
+  const recoverStuckConsultation = async () => {
+    // Cette fonction ne s'applique plus avec supabase sans state isProcessing
     toast({
-      title: "Statut réinitialisé",
-      description: "Vous pouvez retenter l'analyse ou télécharger l'audio brut.",
+      title: "Action obsolète",
     });
   };
 
@@ -171,78 +219,20 @@ export default function Home() {
     window.URL.revokeObjectURL(url);
   };
 
-  const retryAnalysis = async (consult: Consultation) => {
-    if (!consult.id || !consult.audioBlob) return;
-
-    await db.consultations.update(consult.id, { isProcessing: true });
+  const retryAnalysis = async (consult: SupabaseConsultation) => {
+    if (!consult.id) return;
 
     try {
-      console.log("Tentative de relance pour la consultation", consult.id);
-
-      // On recrée un pur Blob propre pour éviter les erreurs de clonage / FormData (Safari/Chrome local)
-      const buffer = await consult.audioBlob.arrayBuffer();
-      const cleanBlob = new Blob([buffer], { type: consult.audioBlob.type });
-
-      const formData = new FormData();
-      let ext = "webm";
-      if (cleanBlob.type.includes("mp4") || cleanBlob.type.includes("m4a")) ext = "m4a";
-      if (cleanBlob.type.includes("mpeg") || cleanBlob.type.includes("mp3")) ext = "mp3";
-
-      formData.append("audio", cleanBlob, `recording.${ext}`);
-
+      console.log("Relance impossible pour le moment sans fichier audio stocké.", consult.id);
       toast({
-        title: "Analyse relancée...",
-        description: "Traitement de l'audio en cours. Ne quittez pas la page.",
+        title: "Relance suspendue",
+        description: "L'option de relance n'est plus supportée sans sauvegarde audio sur le cloud.",
+        variant: "destructive"
       });
-
-      // Timeout manual of 2 minutes (120s) because Whisper is fast
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000);
-
-      const analyzeRes = await fetch("/api/analyze", {
-        method: "POST",
-        body: formData,
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!analyzeRes.ok) {
-        const errText = await analyzeRes.text();
-        throw new Error(`Erreur API (${analyzeRes.status}): ${errText}`);
-      }
-
-      console.log("Relance réussie, parsing réponse");
-      const analyzeData = await analyzeRes.json();
-
-      await db.consultations.update(consult.id, {
-        patientName: analyzeData.patientName || consult.patientName,
-        resume: analyzeData.resume || "",
-        synthese: analyzeData.synthese,
-        transcription: "Analyse re-tentée (locale)",
-        isProcessing: false,
-      });
-
-      toast({
-        title: "Bilan récupéré !",
-        description: "La consultation a été traitée avec succès.",
-      });
-
     } catch (error: unknown) {
-      console.error("Erreur lors de tryAnalysis:", error);
-      let errorMessage = "Erreur inattendue.";
-      if (error instanceof Error) {
-        if (error.name === 'AbortError') {
-          errorMessage = "Temps d'attente dépassé. Le fichier est très gros ou l'API est surchargée.";
-        } else {
-          errorMessage = error.message;
-        }
-      }
-
-      await db.consultations.update(consult.id, { isProcessing: false });
       toast({
         title: "Échec de l'analyse",
-        description: errorMessage,
+        description: error instanceof Error ? error.message : "Erreur inattendue",
         variant: "destructive",
       });
     }
@@ -255,7 +245,7 @@ export default function Home() {
     return nameA.localeCompare(nameB);
   });
 
-  const ConsultationCard = ({ consult }: { consult: Consultation }) => {
+  const ConsultationCard = ({ consult }: { consult: SupabaseConsultation }) => {
     if (!consult) return null;
     return (
       <Card key={consult.id} className="hover:shadow-md transition-shadow relative overflow-hidden group border-[#bd613c]/20">
@@ -280,8 +270,7 @@ export default function Home() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-8 text-xs ml-2 text-red-500 border-red-200 hover:bg-red-50"
-                  onClick={() => consult.id && recoverStuckConsultation(consult.id)}
+                  onClick={() => recoverStuckConsultation()}
                 >
                   Débloquer
                 </Button>

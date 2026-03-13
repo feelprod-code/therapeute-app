@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { db, Consultation } from "@/lib/db";
+import { supabase } from "@/lib/supabaseClient";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import ReactMarkdown from "react-markdown";
@@ -11,12 +11,23 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, Copy, Download, Trash2, Mic, Square, Paperclip, X, Headphones, FileText, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import ProtectedRoute from "@/components/ProtectedRoute";
 
-export default function ConsultationPage() {
+export default function ProtectedConsultationPage() {
+    return (
+        <ProtectedRoute>
+            <ConsultationPage />
+        </ProtectedRoute>
+    );
+}
+
+import { SupabaseConsultation } from "@/lib/supabaseClient";
+
+function ConsultationPage() {
     const params = useParams();
     const router = useRouter();
     const { toast } = useToast();
-    const [consultation, setConsultation] = useState<Consultation | null>(null);
+    const [consultation, setConsultation] = useState<SupabaseConsultation | null>(null);
     const [viewMode, setViewMode] = useState<"bilan" | "resume" | "transcript">("bilan");
 
     const targetRef = useRef<HTMLDivElement>(null);
@@ -36,15 +47,23 @@ export default function ConsultationPage() {
     useEffect(() => {
         async function fetchConsultation() {
             if (id) {
-                const data = await db.consultations.get(id);
+                const { data } = await supabase.from('consultations').select('*').eq('id', id).single();
                 if (data) {
-                    setConsultation(data);
+                    setConsultation({ ...data, patientName: data.patient_name, date: new Date(data.date) });
                 } else {
                     router.push("/");
                 }
             }
         }
         fetchConsultation();
+
+        const channel = supabase.channel(`public:consultations:${id}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'consultations', filter: `id=eq.${id}` }, (payload) => {
+                const newData = payload.new as SupabaseConsultation;
+                setConsultation({ ...newData, patientName: newData.patient_name, date: new Date(newData.date) });
+            }).subscribe();
+
+        return () => { supabase.removeChannel(channel); }
     }, [id, router]);
 
     const handleCopyText = async () => {
@@ -157,14 +176,12 @@ export default function ConsultationPage() {
             const data = await res.json();
 
             const updatedConsultation = {
-                ...consultation,
-                patientName: data.patientName || consultation.patientName,
+                patient_name: data.patientName || consultation.patientName,
                 synthese: data.synthese,
                 transcription: data.transcription
             };
 
-            await db.consultations.put(updatedConsultation);
-            setConsultation(updatedConsultation);
+            await supabase.from('consultations').update(updatedConsultation).eq('id', id);
 
             // Clean up states
             setUpdateAudioBlob(null);
@@ -201,7 +218,7 @@ export default function ConsultationPage() {
 
     const handleDelete = async () => {
         if (confirm("Êtes-vous sûr de vouloir supprimer cette consultation ?")) {
-            await db.consultations.delete(id);
+            await supabase.from('consultations').delete().eq('id', id);
             toast({
                 title: "Consultation supprimée",
             });
@@ -210,7 +227,7 @@ export default function ConsultationPage() {
     };
 
     const handleExportArchive = async () => {
-        if (!consultation || !consultation.audioBlob || !targetRef.current) return;
+        if (!consultation || !targetRef.current) return;
 
         try {
             toast({
@@ -227,9 +244,10 @@ export default function ConsultationPage() {
             const folderName = `Bilan_TDT_${consultation.patientName?.replace(/\s+/g, '_') || 'Anonyme'}_${dateStr}`;
 
             // 2. Ajouter l'audio original
-            // On sauvegarde en .webm (le format de capture natif Safari/Chrome pour l'espace). S'il y a un type spécifique, on l'utilise.
-            const audioExt = consultation.audioBlob.type.includes('mp4') ? 'mp4' : 'webm';
-            zip.file(`${folderName}/audio_consultation.${audioExt}`, consultation.audioBlob);
+            if (consultation.audioBlob) {
+                const audioExt = consultation.audioBlob.type.includes('mp4') ? 'mp4' : 'webm';
+                zip.file(`${folderName}/audio_consultation.${audioExt}`, consultation.audioBlob);
+            }
 
             // 3. Ajouter les notes textuelles Markdown
             let textContent = `# Bilan : ${consultation.patientName || 'Anonyme'}\nDate: ${dateStr}\n\n`;
