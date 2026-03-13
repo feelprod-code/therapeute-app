@@ -37,6 +37,7 @@ function Home() {
   const { toast } = useToast();
   const [recorderMode, setRecorderMode] = useState('standard');
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [activeProcessingIds, setActiveProcessingIds] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [consultations, setConsultations] = useState<SupabaseConsultation[] | null>(null);
 
@@ -57,7 +58,7 @@ function Home() {
           synthese: d.synthese,
           transcription: d.transcription,
           audioPath: d.audio_path,
-          isProcessing: false, // On ne gère plus isProcessing localement de la même manière
+          isProcessing: false, // Override dynamically in ConsultationCard
           createdAt: new Date(d.created_at)
         }));
         setConsultations(formatted);
@@ -88,8 +89,8 @@ function Home() {
     setAttachedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleRecordingComplete = async (inputBlob: Blob) => {
-    let newConsultationId: number | undefined = undefined;
+  const handleRecordingComplete = async (inputBlob: Blob | File) => {
+    let newConsultationId: string | undefined = undefined;
 
     try {
       console.log("Début du traitement audio. Taille:", inputBlob.size);
@@ -98,23 +99,33 @@ function Home() {
       const buffer = await inputBlob.arrayBuffer();
       const audioBlob = new Blob([buffer], { type: inputBlob.type });
 
-      // 1. Créer une nouvelle entrée dans Supabase
-      // Bypass auth verification for solo practitioner
-      // const { data: { user } } = await supabase.auth.getUser();
-      // if (!user) throw new Error("Utilisateur non authentifié");
+      const { data: { user } } = await supabase.auth.getUser();
 
+      // 1. CREATION DE LA consultation dans la DB (elle apparaîtra en temps réel grâce au websocket)
       const { data: newConsultation, error: insertError } = await supabase.from('consultations').insert({
+        user_id: user?.id || "00000000-0000-0000-0000-000000000000",
         date: new Date().toISOString(),
-        patient_name: "Nouveau Bilan",
+        patient_name: "Patient Anonyme", // Temporaire
+        synthese: "",
+        transcription: "",
+        resume: "",
         created_at: new Date().toISOString(),
       }).select().single();
 
       if (insertError || !newConsultation) throw new Error("Impossible de créer l'entrée en base " + insertError?.message);
       newConsultationId = newConsultation.id;
 
+      setActiveProcessingIds(prev => [...prev, newConsultation.id]);
+
       // --- 2. UPLOAD VERS SUPABASE STORAGE POUR CONTOURNER LA LIMITE VERCEL (4.5 MO) ---
       console.log("Upload audio vers Supabase Storage...");
-      const audioFileName = `audio_${Date.now()}_${newConsultationId}.webm`;
+      let extension = "webm";
+      if (inputBlob instanceof File && inputBlob.name) {
+        extension = inputBlob.name.split('.').pop() || "webm";
+      } else if (inputBlob.type) {
+        extension = inputBlob.type.split('/')[1]?.split(';')[0] || "webm";
+      }
+      const audioFileName = `audio_${Date.now()}_${newConsultationId}.${extension}`;
       const { error: audioUploadError } = await supabase.storage
         .from('tdt_uploads')
         .upload(audioFileName, audioBlob, { contentType: audioBlob.type });
@@ -176,6 +187,8 @@ function Home() {
         transcription: "Analyse multimodale unique (cf. Synthese).",
       }).eq('id', newConsultationId);
 
+      setActiveProcessingIds(prev => prev.filter(id => id !== newConsultationId));
+
       setAttachedFiles([]); // On vide les fichiers après succès
 
       toast({
@@ -188,6 +201,7 @@ function Home() {
       const errorMessage = error instanceof Error ? error.message : "Une erreur est survenue lors du traitement audio.";
 
       if (newConsultationId !== undefined) {
+        setActiveProcessingIds(prev => prev.filter(id => id !== newConsultationId));
         toast({ title: "Erreur, vérifiez votre connexion", variant: "destructive" });
       }
 
@@ -231,13 +245,6 @@ function Home() {
     });
   };
 
-  const recoverStuckConsultation = async () => {
-    // Cette fonction ne s'applique plus avec supabase sans state isProcessing
-    toast({
-      title: "Action obsolète",
-    });
-  };
-
   const downloadRawAudio = (blob: Blob, name: string) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -277,9 +284,11 @@ function Home() {
 
   const ConsultationCard = ({ consult }: { consult: SupabaseConsultation }) => {
     if (!consult) return null;
+    const isProcessing = activeProcessingIds.includes(consult.id);
+
     return (
       <Card key={consult.id} className="hover:shadow-md transition-shadow relative overflow-hidden group border-[#bd613c]/20">
-        {consult.isProcessing && (
+        {isProcessing && (
           <div className="absolute top-0 left-0 w-full h-1 bg-[#e25822] animate-pulse" />
         )}
         <div className="flex flex-row items-center justify-between p-4 gap-4">
@@ -293,17 +302,10 @@ function Home() {
           </div>
 
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-            {consult.isProcessing ? (
+            {isProcessing ? (
               <div className="flex items-center gap-2 text-sm text-[#e25822]">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span className="hidden sm:inline">Traitement...</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => recoverStuckConsultation()}
-                >
-                  Débloquer
-                </Button>
               </div>
             ) : (
               <>
@@ -454,24 +456,46 @@ function Home() {
           </TabsContent>
 
           <TabsContent value="import">
-            <Card className="border-[#bd613c]/30 shadow-none bg-white/50">
-              <div className="flex flex-col items-center justify-center p-8 sm:p-12 text-center">
-                <div className="w-16 h-16 bg-[#ebd9c8]/50 rounded-full flex items-center justify-center mb-4 text-[#bd613c]">
+            <Card
+              className="border-[#bd613c]/30 shadow-none bg-white/50 transition-colors duration-200"
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.currentTarget.classList.add('bg-[#ebd9c8]/50', 'border-dashed', 'border-[3px]', 'border-[#bd613c]');
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                e.currentTarget.classList.remove('bg-[#ebd9c8]/50', 'border-dashed', 'border-[3px]', 'border-[#bd613c]');
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.currentTarget.classList.remove('bg-[#ebd9c8]/50', 'border-dashed', 'border-[3px]', 'border-[#bd613c]');
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                  const file = e.dataTransfer.files[0];
+                  if (file.type.startsWith('audio/') || file.type.startsWith('video/')) {
+                    toast({
+                      title: "Importation...",
+                      description: "L'audio déposé va être analysé. Patientez...",
+                    });
+                    handleRecordingComplete(file);
+                  } else {
+                    toast({ title: "Format invalide", description: "Veuillez déposer un fichier audio ou vidéo.", variant: "destructive" });
+                  }
+                }
+              }}
+            >
+              <div className="flex flex-col items-center justify-center p-8 sm:p-12 text-center cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                <div className="w-16 h-16 bg-[#ebd9c8]/50 rounded-full flex items-center justify-center mb-4 text-[#bd613c] group-hover:scale-110 transition-transform">
                   <Download className="w-8 h-8" />
                 </div>
                 <h3 className="font-bebas text-2xl tracking-widest text-[#bd613c] mb-2 uppercase">
-                  Importer un vieil Enregistrement
+                  Glisser & Déposer un vieil Enregistrement
                 </h3>
-                <p className="text-slate-500 mb-6 max-w-md mx-auto">
-                  Si un enregistrement a échoué sur mobile, récupérez-le et importez le fichier audio brut (.webm, .mp3, .m4a) ici pour lancer l&apos;analyse manuellement.
+                <p className="text-slate-500 mb-6 max-w-md mx-auto pointer-events-none">
+                  Glissez ici un fichier audio (.webm, .mp3, .m4a) ou cliquez pour le sélectionner si un enregistrement a échoué sur mobile, pour le relancer manuellement.
                 </p>
                 <Button
-                  onClick={() => {
-                    if (fileInputRef.current) {
-                      fileInputRef.current.click();
-                    }
-                  }}
-                  className="bg-[#bd613c] hover:bg-[#a05232] text-white px-8 py-6 rounded-full text-lg shadow-md transition-transform hover:scale-105 cursor-pointer"
+                  type="button"
+                  className="bg-[#bd613c] hover:bg-[#a05232] text-white px-8 py-6 rounded-full text-lg shadow-md transition-transform hover:scale-105 cursor-pointer pointer-events-none"
                 >
                   <Paperclip className="w-5 h-5 mr-2" />
                   Sélectionner l&apos;Audio
