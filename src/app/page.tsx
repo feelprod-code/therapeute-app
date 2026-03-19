@@ -499,6 +499,7 @@ function Home() {
         if (deleteError) throw deleteError;
 
         toast({ title: "Fusion réussie", description: "Le bilan a été fusionné au dossier cible avec succès." });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (err: any) {
         console.error(err);
         toast({ title: "Erreur", description: err.message || "Impossible de fusionner.", variant: "destructive" });

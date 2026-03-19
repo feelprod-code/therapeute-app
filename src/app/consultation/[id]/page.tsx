@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,14 @@ export default function ConsultationDetail() {
   const [editDate, setEditDate] = useState("");
   const [isAppending, setIsAppending] = useState(false);
   const [isRecordingModalOpen, setIsRecordingModalOpen] = useState(false);
+
+  // Nouveaux états pour le suivi chronologique
+  const [appendMode, setAppendMode] = useState<'bilan' | 'suivi'>('bilan');
+  const fileInputRefBilanMobile = useRef<HTMLInputElement>(null);
+  const fileInputRefSuiviMobile = useRef<HTMLInputElement>(null);
+  const fileInputRefBilanDesktop = useRef<HTMLInputElement>(null);
+  const fileInputRefSuiviDesktop = useRef<HTMLInputElement>(null);
+
   const [attachedDocs, setAttachedDocs] = useState<{ name: string, originalName: string, url: string, type: 'image' | 'pdf' | 'other' }[] | null>(null);
 
   const handleSaveName = async () => {
@@ -38,6 +46,7 @@ export default function ConsultationDetail() {
     try {
       const { error } = await supabase.from("consultations").update({ patient_name: editName }).eq("id", params.id);
       if (!error) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         setData((prev: any) => ({ ...prev, patient_name: editName })); // eslint-disable-line @typescript-eslint/no-explicit-any
         setIsEditing(false);
       }
@@ -52,6 +61,7 @@ export default function ConsultationDetail() {
       const parsedDate = new Date(editDate);
       const { error } = await supabase.from("consultations").update({ date: parsedDate.toISOString() }).eq("id", params.id);
       if (!error) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         setData((prev: any) => ({ ...prev, date: parsedDate.toISOString() })); // eslint-disable-line @typescript-eslint/no-explicit-any
         setIsEditingDate(false);
       }
@@ -95,7 +105,7 @@ export default function ConsultationDetail() {
     }
   };
 
-  const handleAppendFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAppendFile = async (e: React.ChangeEvent<HTMLInputElement>, mode: 'bilan' | 'suivi') => {
     if (!e.target.files || e.target.files.length === 0) return;
     setIsAppending(true);
     try {
@@ -108,32 +118,74 @@ export default function ConsultationDetail() {
         }
       }
 
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          attachedFiles: uploadedFiles,
-          previousContext: {
-            synthese: data.synthese,
-            transcription: data.transcription,
-            patientName: data.patient_name || data.patientName || ""
-          }
-        })
-      });
 
-      if (!response.ok) throw new Error("Erreur lors de la mise à jour par l'IA.");
-      const result = await response.json();
+      if (mode === 'bilan') {
+        const response = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            attachedFiles: uploadedFiles,
+            previousContext: {
+              synthese: data.synthese,
+              transcription: data.transcription,
+              patientName: data.patient_name || data.patientName || ""
+            }
+          })
+        });
 
-      const { data: updatedData } = await supabase.from('consultations').update({
-        synthese: result.synthese,
-        transcription: result.transcription,
-        resume: result.resume,
-        patient_name: result.patientName || data.patient_name
-      }).eq('id', params.id).select().single();
+        if (!response.ok) throw new Error("Erreur lors de la mise à jour par l'IA.");
+        const result = await response.json();
 
-      if (updatedData) setData(updatedData);
+        const { data: updatedData } = await supabase.from('consultations').update({
+          synthese: result.synthese,
+          transcription: result.transcription,
+          resume: result.resume,
+          patient_name: result.patientName || data.patient_name
+        }).eq('id', params.id).select().single();
 
-      // Cleanup post-analyse: suppression des gros fichiers non-images
+        if (updatedData) setData(updatedData);
+
+      } else {
+        // SUIVI
+        const analyzeResp = await fetch('/api/analyze-transcript', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            attachedFiles: uploadedFiles,
+          })
+        });
+
+        if (!analyzeResp.ok) throw new Error("Erreur d'extraction du document.");
+        const { transcription } = await analyzeResp.json();
+
+        const response = await fetch('/api/generate-follow-up', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            transcription: transcription,
+            previousSynthese: data.synthese
+          })
+        });
+
+        if (!response.ok) throw new Error("Erreur de génération du suivi.");
+        const { content } = await response.json();
+
+        const newFollowUp = {
+          id: crypto.randomUUID(),
+          date: new Date().toISOString(),
+          content: content,
+          transcription: transcription
+        };
+
+        const currentFollowUps = data.follow_ups || [];
+        const { data: updatedData } = await supabase.from('consultations').update({
+          follow_ups: [newFollowUp, ...currentFollowUps]
+        }).eq('id', params.id).select().single();
+
+        if (updatedData) setData(updatedData);
+      }
+
+      // Cleanup post-analyse:      // Cleanup post-analyse: suppression des gros fichiers non-images
       try {
         const filesToDelete = uploadedFiles.filter(f => !f.mimeType.startsWith('image/')).map(f => f.fileName);
         if (filesToDelete.length > 0) {
@@ -164,34 +216,76 @@ export default function ConsultationDetail() {
 
       if (uploadError) throw new Error("Erreur upload audio addendum");
 
-      toast({ title: "Analyse en cours...", description: "Fusion des nouvelles informations avec le bilan existant." });
 
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          audioFile: { fileName, mimeType: audioBlob.type },
-          previousContext: {
-            synthese: data.synthese,
-            transcription: data.transcription,
-            patientName: data.patient_name || data.patientName || ""
-          }
-        })
-      });
+      if (appendMode === 'bilan') {
+        toast({ title: "Analyse en cours...", description: "Fusion des nouvelles informations avec le bilan existant." });
+        const response = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            audioFile: { fileName, mimeType: audioBlob.type },
+            previousContext: {
+              synthese: data.synthese,
+              transcription: data.transcription,
+              patientName: data.patient_name || data.patientName || ""
+            }
+          })
+        });
 
-      if (!response.ok) throw new Error("Erreur lors de la mise à jour par l'IA.");
-      const result = await response.json();
+        if (!response.ok) throw new Error("Erreur lors de la mise à jour par l'IA.");
+        const result = await response.json();
 
-      const { data: updatedData } = await supabase.from('consultations').update({
-        synthese: result.synthese,
-        transcription: result.transcription,
-        resume: result.resume,
-        patient_name: result.patientName || data.patient_name
-      }).eq('id', params.id).select().single();
+        const { data: updatedData } = await supabase.from('consultations').update({
+          synthese: result.synthese,
+          transcription: result.transcription,
+          resume: result.resume,
+          patient_name: result.patientName || data.patient_name
+        }).eq('id', params.id).select().single();
 
-      if (updatedData) setData(updatedData);
+        if (updatedData) setData(updatedData);
 
-      // Cleanup post-analyse: suppression du fichier audio
+      } else {
+        toast({ title: "Analyse en cours...", description: "Création de la note de suivi chronologique..." });
+
+        const analyzeResp = await fetch('/api/analyze-transcript', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            audioFile: { fileName, mimeType: audioBlob.type },
+          })
+        });
+
+        if (!analyzeResp.ok) throw new Error("Erreur d'extraction audio.");
+        const { transcription } = await analyzeResp.json();
+
+        const response = await fetch('/api/generate-follow-up', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            transcription: transcription,
+            previousSynthese: data.synthese
+          })
+        });
+
+        if (!response.ok) throw new Error("Erreur de génération.");
+        const { content } = await response.json();
+
+        const newFollowUp = {
+          id: crypto.randomUUID(),
+          date: new Date().toISOString(),
+          content: content,
+          transcription: transcription
+        };
+
+        const currentFollowUps = data.follow_ups || [];
+        const { data: updatedData } = await supabase.from('consultations').update({
+          follow_ups: [newFollowUp, ...currentFollowUps]
+        }).eq('id', params.id).select().single();
+
+        if (updatedData) setData(updatedData);
+      }
+
+      // Cleanup post-analyse: suppression du fichier audio      // Cleanup post-analyse: suppression du fichier audio
       try {
         await supabase.storage.from('tdt_uploads').remove([fileName]);
         console.log("Fichier audio temporaire supprimé:", fileName);
@@ -293,7 +387,7 @@ export default function ConsultationDetail() {
 
   return (
     <main className="min-h-screen py-8 px-4 sm:px-6 mb-12 flex justify-center">
-      
+
       {/* MODAL AUDIO GÉRÉ GLOBALEMENT POUR EVITER LES DOUBLONS SUR MOBILE/DESKTOP */}
       <Dialog open={isRecordingModalOpen} onOpenChange={setIsRecordingModalOpen}>
         <DialogContent className="sm:max-w-xl bg-white border-[#ebd9c8]/30">
@@ -309,7 +403,7 @@ export default function ConsultationDetail() {
       </Dialog>
 
       <div className="w-full max-w-5xl space-y-8 xl:space-y-10">
-        
+
         <Button
           variant="ghost"
           onClick={() => router.push("/")}
@@ -322,10 +416,10 @@ export default function ConsultationDetail() {
 
         <Tabs defaultValue="synthese" className="w-full">
           <div className="flex flex-col lg:flex-row gap-8 items-start">
-            
+
             {/* LECTURE ZONE (Notebook) - Gauche (flex-1) */}
             <div id="consultation-export-container" className="flex-1 min-w-0 bg-[#fdfcfb] rounded-2xl p-6 sm:p-10 shadow-sm border border-[#ebd9c8]/50 w-full">
-              
+
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
                   {isEditing ? (
@@ -403,52 +497,74 @@ export default function ConsultationDetail() {
 
               {/* --- MOBILE ONLY CONTROLS (Comme avant le refactoring) --- */}
               <div className="flex flex-col lg:hidden mt-8 gap-8" data-html2canvas-ignore="true">
-                
+
                 {/* Actions Centrales Horizontales */}
                 <div className="flex justify-center items-center gap-4">
-                  <Button variant="outline" onClick={() => setIsRecordingModalOpen(true)} className="h-10 px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending}>
-                    <Mic className="w-4 h-4 mr-2" /> <span className="font-medium text-sm">Audio</span>
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className="h-10 px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending}>
+                        <Mic className="w-4 h-4 mr-2" /> <span className="font-medium text-[13px]">Audio</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="center" className="w-56 bg-white border-[#ebd9c8]">
+                      <DropdownMenuItem onClick={() => { setAppendMode('bilan'); setIsRecordingModalOpen(true); }} className="cursor-pointer py-3">
+                        <span className="font-medium">Mettre à jour le Bilan</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => { setAppendMode('suivi'); setIsRecordingModalOpen(true); }} className="cursor-pointer py-3 text-[#bd613c]">
+                        <span className="font-medium">📝 Nouvelle Note de Suivi</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
 
-                  <div className="relative">
-                    <input type="file" id="append-file-mobile" className="hidden" onChange={handleAppendFile} disabled={isAppending} multiple />
-                    <Button asChild variant="outline" className="h-10 px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all cursor-pointer">
-                      <label htmlFor="append-file-mobile" className="flex items-center w-full">
-                        {isAppending ? <Loader2 className="w-4 h-4 mr-2 animate-spin text-[#bd613c]" /> : <Paperclip className="w-4 h-4 mr-2 text-[#bd613c]" />}
-                        <span className="font-medium text-sm">Document</span>
-                      </label>
-                    </Button>
-                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className="h-10 px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending}>
+                        {isAppending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Paperclip className="w-4 h-4 mr-2" />}
+                        <span className="font-medium text-[13px]">Document</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="center" className="w-56 bg-white border-[#ebd9c8]">
+                      <DropdownMenuItem onClick={() => fileInputRefBilanMobile.current?.click()} className="cursor-pointer py-3">
+                        <span className="font-medium">Mettre à jour le Bilan</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => fileInputRefSuiviMobile.current?.click()} className="cursor-pointer py-3 text-[#bd613c]">
+                        <span className="font-medium">📝 Nouvelle Note de Suivi</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <input type="file" ref={fileInputRefBilanMobile} className="hidden" onChange={(e) => handleAppendFile(e, 'bilan')} multiple />
+                  <input type="file" ref={fileInputRefSuiviMobile} className="hidden" onChange={(e) => handleAppendFile(e, 'suivi')} multiple />
                 </div>
 
                 {/* Documents Associés Mobile */}
                 {attachedDocs && attachedDocs.length > 0 && (
                   <Card className="p-5 border-[#bd613c]/20 shadow-sm bg-white/50 border">
                     <h2 className="text-lg font-bebas tracking-wide text-[#bd613c] uppercase mb-4 flex items-center border-b border-[#ebd9c8] pb-2">
-                       <ImageIcon className="w-5 h-5 mr-2" /> Documents Associés
+                      <ImageIcon className="w-5 h-5 mr-2" /> Documents Associés
                     </h2>
                     <div className="flex flex-wrap gap-3">
-                       {attachedDocs.map((doc, idx) => (
-                         <a key={idx} href={doc.url} target="_blank" rel="noopener noreferrer" className="block relative w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-[#bd613c]/20 bg-[#ebd9c8]/10 hover:shadow-md transition-all">
-                           {doc.type === 'image' ? (
-                             <img src={doc.url} alt={doc.originalName} className="object-cover w-full h-full" />
-                           ) : (
-                             <div className="w-full h-full flex flex-col items-center justify-center text-[#bd613c] p-2 text-center">
-                               <FileText className="w-6 h-6 mb-1 opacity-80" />
-                               <span className="text-[9px] leading-tight font-medium truncate w-full px-1">{doc.originalName}</span>
-                             </div>
-                           )}
-                         </a>
-                       ))}
+                      {attachedDocs.map((doc, idx) => (
+                        <a key={idx} href={doc.url} target="_blank" rel="noopener noreferrer" className="block relative w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-[#bd613c]/20 bg-[#ebd9c8]/10 hover:shadow-md transition-all">
+                          {doc.type === 'image' ? (
+                            <img src={doc.url} alt={doc.originalName} className="object-cover w-full h-full" />
+                          ) : (
+                            <div className="w-full h-full flex flex-col items-center justify-center text-[#bd613c] p-2 text-center">
+                              <FileText className="w-6 h-6 mb-1 opacity-80" />
+                              <span className="text-[9px] leading-tight font-medium truncate w-full px-1">{doc.originalName}</span>
+                            </div>
+                          )}
+                        </a>
+                      ))}
                     </div>
                   </Card>
                 )}
 
                 {/* TabsList Mobile (Horizontale à 3 colonnes) */}
-                <TabsList className="grid grid-cols-3 w-full bg-[#ebd9c8]/30 p-1.5 rounded-xl h-auto">
+                <TabsList className="grid grid-cols-4 w-full bg-[#ebd9c8]/30 p-1.5 rounded-xl h-auto">
                   <TabsTrigger value="synthese" className="text-[11px] sm:text-sm data-[state=active]:bg-[#bd613c] data-[state=active]:text-white rounded-lg py-2 transition-all font-medium">Synthèse</TabsTrigger>
                   <TabsTrigger value="notes" className="text-[11px] sm:text-sm data-[state=active]:bg-[#bd613c] data-[state=active]:text-white rounded-lg py-2 transition-all font-medium">Résumé</TabsTrigger>
                   <TabsTrigger value="transcription" className="text-[11px] sm:text-sm data-[state=active]:bg-[#bd613c] data-[state=active]:text-white rounded-lg py-2 transition-all font-medium">Dialogue</TabsTrigger>
+                  <TabsTrigger value="suivi" className="text-[11px] sm:text-sm data-[state=active]:bg-[#bd613c] data-[state=active]:text-white rounded-lg py-2 transition-all font-medium">Suivi</TabsTrigger>
                 </TabsList>
               </div>
               {/* --- END MOBILE ONLY --- */}
@@ -527,88 +643,92 @@ export default function ConsultationDetail() {
 
             {/* BARRE LATERALE (Outils + Docs) - Droite UNIQUEMENT SUR DESKTOP */}
             <div className="hidden lg:flex w-72 shrink-0 flex-col gap-10 print:hidden" data-html2canvas-ignore="true">
-              
+
               {/* ACTIONS (Audio / Doc) */}
               <div className="space-y-4">
-                 <h3 className="font-bebas text-xl tracking-wide text-[#bd613c] uppercase">Ajout d'information</h3>
-                 
-                 <div className="flex flex-col gap-3">
-                    <Button
-                      variant="outline"
-                      onClick={() => setIsRecordingModalOpen(true)}
-                      className="w-full justify-start text-left h-12 px-4 rounded-xl text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all"
-                      disabled={isAppending}
-                    >
-                      <Mic className="w-5 h-5 mr-3 text-[#bd613c]" />
-                      <span className="font-medium text-base">Ajouter un Audio</span>
-                    </Button>
+                <h3 className="font-bebas text-xl tracking-wide text-[#bd613c] uppercase">Ajout d&apos;information</h3>
 
-                    <div className="relative">
-                      <input
-                        type="file"
-                        id="append-file-desktop"
-                        className="hidden"
-                        onChange={handleAppendFile}
-                        disabled={isAppending}
-                        multiple
-                      />
-                      <Button
-                        asChild
-                        variant="outline"
-                        className="w-full justify-start text-left h-12 px-4 rounded-xl text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all cursor-pointer"
-                      >
-                        <label htmlFor="append-file-desktop" className="flex items-center w-full">
-                          {isAppending ? (
-                            <Loader2 className="w-5 h-5 mr-3 animate-spin text-[#bd613c]" />
-                          ) : (
-                            <Paperclip className="w-5 h-5 mr-3 text-[#bd613c]" />
-                          )}
-                          <span className="font-medium text-base">{isAppending ? "Traitement..." : "Ajouter un Document"}</span>
-                        </label>
+                <div className="flex flex-col gap-3">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start text-left h-12 px-4 rounded-xl text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending}>
+                        <Mic className="w-5 h-5 mr-3 text-[#bd613c]" />
+                        <span className="font-medium text-base">Ajouter un Audio</span>
                       </Button>
-                    </div>
-                 </div>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-64 p-2 bg-white border-[#ebd9c8]">
+                      <DropdownMenuItem onClick={() => { setAppendMode('bilan'); setIsRecordingModalOpen(true); }} className="cursor-pointer py-3 rounded-lg">
+                        <span className="font-medium text-base">Mettre à jour le Bilan</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => { setAppendMode('suivi'); setIsRecordingModalOpen(true); }} className="cursor-pointer py-3 rounded-lg text-[#bd613c] mt-1 bg-[#ebd9c8]/10">
+                        <span className="font-medium text-base">📝 Nouvelle Note de Suivi</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start text-left h-12 px-4 rounded-xl text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending}>
+                        {isAppending ? <Loader2 className="w-5 h-5 mr-3 animate-spin text-[#bd613c]" /> : <Paperclip className="w-5 h-5 mr-3 text-[#bd613c]" />}
+                        <span className="font-medium text-base">{isAppending ? "Traitement..." : "Ajouter un Document"}</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-64 p-2 bg-white border-[#ebd9c8]">
+                      <DropdownMenuItem onClick={() => fileInputRefBilanDesktop.current?.click()} className="cursor-pointer py-3 rounded-lg">
+                        <span className="font-medium text-base">Mettre à jour le Bilan</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => fileInputRefSuiviDesktop.current?.click()} className="cursor-pointer py-3 rounded-lg text-[#bd613c] mt-1 bg-[#ebd9c8]/10">
+                        <span className="font-medium text-base">📝 Nouvelle Note de Suivi</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <input type="file" ref={fileInputRefBilanDesktop} className="hidden" onChange={(e) => handleAppendFile(e, 'bilan')} multiple />
+                  <input type="file" ref={fileInputRefSuiviDesktop} className="hidden" onChange={(e) => handleAppendFile(e, 'suivi')} multiple />
+                </div>
               </div>
 
               {/* TABS (Navigation Verticale) */}
               <div className="space-y-4">
-                 <h3 className="font-bebas text-xl tracking-wide text-[#bd613c] uppercase">Vues du dossier</h3>
-                 <TabsList className="flex flex-col h-auto bg-transparent p-0 gap-2 w-full">
-                   <TabsTrigger value="synthese" className="w-full justify-start text-left px-4 py-3 rounded-xl bg-[#ebd9c8]/20 data-[state=active]:bg-[#bd613c] data-[state=active]:text-white data-[state=active]:shadow-md transition-all font-medium border border-transparent data-[state=active]:border-[#bd613c] hover:bg-[#ebd9c8]/40">
-                     <FileText className="w-4 h-4 mr-3 opacity-70" /> Synthèse
-                   </TabsTrigger>
-                   <TabsTrigger value="notes" className="w-full justify-start text-left px-4 py-3 rounded-xl bg-[#ebd9c8]/20 data-[state=active]:bg-[#bd613c] data-[state=active]:text-white data-[state=active]:shadow-md transition-all font-medium border border-transparent data-[state=active]:border-[#bd613c] hover:bg-[#ebd9c8]/40">
-                     <Activity className="w-4 h-4 mr-3 opacity-70" /> Résumé Rapide
-                   </TabsTrigger>
-                   <TabsTrigger value="transcription" className="w-full justify-start text-left px-4 py-3 rounded-xl bg-[#ebd9c8]/20 data-[state=active]:bg-[#bd613c] data-[state=active]:text-white data-[state=active]:shadow-md transition-all font-medium border border-transparent data-[state=active]:border-[#bd613c] hover:bg-[#ebd9c8]/40">
-                     <MessageSquare className="w-4 h-4 mr-3 opacity-70" /> Dialogue
-                   </TabsTrigger>
-                 </TabsList>
+                <h3 className="font-bebas text-xl tracking-wide text-[#bd613c] uppercase">Vues du dossier</h3>
+                <TabsList className="flex flex-col h-auto bg-transparent p-0 gap-2 w-full">
+                  <TabsTrigger value="synthese" className="w-full justify-start text-left px-4 py-3 rounded-xl bg-[#ebd9c8]/20 data-[state=active]:bg-[#bd613c] data-[state=active]:text-white data-[state=active]:shadow-md transition-all font-medium border border-transparent data-[state=active]:border-[#bd613c] hover:bg-[#ebd9c8]/40">
+                    <FileText className="w-4 h-4 mr-3 opacity-70" /> Synthèse
+                  </TabsTrigger>
+                  <TabsTrigger value="notes" className="w-full justify-start text-left px-4 py-3 rounded-xl bg-[#ebd9c8]/20 data-[state=active]:bg-[#bd613c] data-[state=active]:text-white data-[state=active]:shadow-md transition-all font-medium border border-transparent data-[state=active]:border-[#bd613c] hover:bg-[#ebd9c8]/40">
+                    <Activity className="w-4 h-4 mr-3 opacity-70" /> Résumé Rapide
+                  </TabsTrigger>
+                  <TabsTrigger value="transcription" className="w-full justify-start text-left px-4 py-3 rounded-xl bg-[#ebd9c8]/20 data-[state=active]:bg-[#bd613c] data-[state=active]:text-white data-[state=active]:shadow-md transition-all font-medium border border-transparent data-[state=active]:border-[#bd613c] hover:bg-[#ebd9c8]/40">
+                    <MessageSquare className="w-4 h-4 mr-3 opacity-70" /> Dialogue
+                  </TabsTrigger>
+                  <TabsTrigger value="suivi" className="w-full justify-start text-left px-4 py-3 rounded-xl bg-[#ebd9c8]/20 data-[state=active]:bg-[#bd613c] data-[state=active]:text-white data-[state=active]:shadow-md transition-all font-medium border border-transparent data-[state=active]:border-[#bd613c] hover:bg-[#ebd9c8]/40">
+                    <Activity className="w-4 h-4 mr-3 opacity-70" /> Séances de Suivi
+                  </TabsTrigger>
+                </TabsList>
               </div>
 
               {/* DOCUMENTS ASSOCIES */}
               {attachedDocs && attachedDocs.length > 0 && (
                 <div className="space-y-4">
-                   <h3 className="font-bebas text-xl tracking-wide text-[#bd613c] uppercase flex items-center">
-                     <ImageIcon className="w-5 h-5 mr-2" /> Fichiers Joints
-                   </h3>
-                   <div className="grid grid-cols-2 gap-3">
-                      {attachedDocs.map((doc, idx) => (
-                        <a key={idx} href={doc.url} target="_blank" rel="noopener noreferrer" title={doc.originalName} className="block relative aspect-square rounded-xl overflow-hidden border border-[#bd613c]/20 hover:border-[#bd613c]/50 hover:shadow-md transition-all bg-[#ebd9c8]/10 group/doc">
-                          {doc.type === 'image' ? (
-                            <img src={doc.url} alt={doc.originalName} className="object-cover w-full h-full group-hover/doc:scale-105 transition-transform duration-300" />
-                          ) : (
-                            <div className="w-full h-full flex flex-col items-center justify-center text-[#bd613c] p-2 text-center group-hover/doc:bg-[#ebd9c8]/30 transition-colors">
-                              <FileText className="w-8 h-8 mb-2 opacity-80" />
-                              <span className="text-[9px] leading-tight font-medium truncate w-full px-1">{doc.originalName}</span>
-                            </div>
-                          )}
-                          <div className="absolute inset-0 bg-[#bd613c]/90 opacity-0 group-hover/doc:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
-                            <span className="text-white text-xs font-medium font-sans px-2 text-center text-balance overflow-hidden break-words">Ouvrir</span>
+                  <h3 className="font-bebas text-xl tracking-wide text-[#bd613c] uppercase flex items-center">
+                    <ImageIcon className="w-5 h-5 mr-2" /> Fichiers Joints
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    {attachedDocs.map((doc, idx) => (
+                      <a key={idx} href={doc.url} target="_blank" rel="noopener noreferrer" title={doc.originalName} className="block relative aspect-square rounded-xl overflow-hidden border border-[#bd613c]/20 hover:border-[#bd613c]/50 hover:shadow-md transition-all bg-[#ebd9c8]/10 group/doc">
+                        {doc.type === 'image' ? (
+                          <img src={doc.url} alt={doc.originalName} className="object-cover w-full h-full group-hover/doc:scale-105 transition-transform duration-300" />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center text-[#bd613c] p-2 text-center group-hover/doc:bg-[#ebd9c8]/30 transition-colors">
+                            <FileText className="w-8 h-8 mb-2 opacity-80" />
+                            <span className="text-[9px] leading-tight font-medium truncate w-full px-1">{doc.originalName}</span>
                           </div>
-                        </a>
-                      ))}
-                   </div>
+                        )}
+                        <div className="absolute inset-0 bg-[#bd613c]/90 opacity-0 group-hover/doc:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
+                          <span className="text-white text-xs font-medium font-sans px-2 text-center text-balance overflow-hidden break-words">Ouvrir</span>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
                 </div>
               )}
 
