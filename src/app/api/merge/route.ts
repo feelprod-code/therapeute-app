@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { NextResponse } from 'next/server';
 
-export const maxDuration = 900; // 15 minutes max duration
+export const maxDuration = 800; // 15 minutes max duration
 
 export async function POST(req: Request) {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });

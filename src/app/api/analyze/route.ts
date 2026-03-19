@@ -2,7 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-export const maxDuration = 900; // 15 minutes instead of 5
+export const maxDuration = 800; // 15 minutes instead of 5
 
 export async function POST(req: Request) {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
