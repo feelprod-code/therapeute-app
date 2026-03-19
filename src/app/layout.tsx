@@ -33,7 +33,7 @@ export default function RootLayout({
   return (
     <html lang="fr" className="h-full">
       <body className={`${inter.variable} ${bebasNeue.variable} font-sans bg-[#fdfbf6] text-[#4a3f35] antialiased min-h-screen`} style={{paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)', paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)'}}>
-          <main className="max-w-md mx-auto w-full min-h-screen flex flex-col relative pb-24 md:pb-6">
+          <main className="w-full min-h-screen flex flex-col relative pb-24 md:pb-6">
             {children}
           </main>
           <Toaster />

@@ -1,502 +1,568 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import ReactMarkdown from "react-markdown";
-import generatePDF from "react-to-pdf";
-import { Button } from "@/components/ui/button";
-import { ArrowLeft, Copy, Download, Trash2, Mic, Square, Paperclip, X, Headphones, FileText, Loader2 } from "lucide-react";
+import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AudioRecorder } from "@/components/AudioRecorder";
 import { useToast } from "@/hooks/use-toast";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import ProtectedRoute from "@/components/ProtectedRoute";
 
-export default function ProtectedConsultationPage() {
-    return (
-        <ProtectedRoute>
-            <ConsultationPage />
-        </ProtectedRoute>
-    );
-}
+export default function ConsultationDetail() {
+  const params = useParams();
+  const router = useRouter();
+  const [data, setData] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
 
-import { SupabaseConsultation } from "@/lib/supabaseClient";
+  // Nouveaux états pour l'édition et l'ajout de documents
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [isEditingDate, setIsEditingDate] = useState(false);
+  const [editDate, setEditDate] = useState("");
+  const [isAppending, setIsAppending] = useState(false);
+  const [isRecordingModalOpen, setIsRecordingModalOpen] = useState(false);
+  const [attachedDocs, setAttachedDocs] = useState<{ name: string, originalName: string, url: string, type: 'image' | 'pdf' | 'other' }[] | null>(null);
 
-function ConsultationPage() {
-    const params = useParams();
-    const router = useRouter();
-    const { toast } = useToast();
-    const [consultation, setConsultation] = useState<SupabaseConsultation | null>(null);
-    const [viewMode, setViewMode] = useState<"bilan" | "resume" | "transcript">("bilan");
+  const handleSaveName = async () => {
+    if (!editName.trim()) return;
+    try {
+      const { error } = await supabase.from("consultations").update({ patient_name: editName }).eq("id", params.id);
+      if (!error) {
+        setData((prev: any) => ({ ...prev, patient_name: editName })); // eslint-disable-line @typescript-eslint/no-explicit-any
+        setIsEditing(false);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
-    const targetRef = useRef<HTMLDivElement>(null);
-    const id = Number(params.id);
+  const handleSaveDate = async () => {
+    if (!editDate) return;
+    try {
+      const parsedDate = new Date(editDate);
+      const { error } = await supabase.from("consultations").update({ date: parsedDate.toISOString() }).eq("id", params.id);
+      if (!error) {
+        setData((prev: any) => ({ ...prev, date: parsedDate.toISOString() })); // eslint-disable-line @typescript-eslint/no-explicit-any
+        setIsEditingDate(false);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
-    // Update States
-    const [isUpdating, setIsUpdating] = useState(false);
-    const [isRecordingUpdate, setIsRecordingUpdate] = useState(false);
-    const [recordingTime, setRecordingTime] = useState(0);
-    const [updateAudioBlob, setUpdateAudioBlob] = useState<Blob | null>(null);
-    const [updateFiles, setUpdateFiles] = useState<File[]>([]);
+  const exportTxt = (content: string, type: 'bilan' | 'resume' | 'retranscription') => {
+    if (!content) return;
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${type}_${data.patient_name || 'patient'}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-    const audioChunksRef = useRef<Blob[]>([]);
-    const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const handleExportPDF = async (filename: string) => {
+    const element = document.getElementById('consultation-export-container');
+    if (!element) return;
 
-    useEffect(() => {
-        async function fetchConsultation() {
-            if (id) {
-                const { data } = await supabase.from('consultations').select('*').eq('id', id).single();
-                if (data) {
-                    setConsultation({ ...data, patientName: data.patient_name, date: new Date(data.date) });
-                } else {
-                    router.push("/");
-                }
-            }
+    toast({ title: "Génération du PDF...", description: "Veuillez patienter..." });
+    try {
+      // @ts-ignore - html2pdf.js has poor typing without @types/html2pdf.js but works perfectly
+      const html2pdf = (await import('html2pdf.js')).default;
+      const opt = {
+        margin: [15, 15, 15, 15],
+        filename: filename + '.pdf',
+        image: { type: 'jpeg', quality: 1 },
+        html2canvas: { scale: 2, useCORS: true, letterRendering: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+
+      await html2pdf().set(opt).from(element).save();
+      toast({ title: "Succès", description: "Le PDF a été généré et téléchargé avec succès." });
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Erreur", description: "Une erreur est survenue lors de la génération du PDF.", variant: "destructive" });
+    }
+  };
+
+  const handleAppendFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    setIsAppending(true);
+    try {
+      const uploadedFiles = [];
+      for (const file of Array.from(e.target.files)) {
+        const fileName = `doc_${Date.now()}_${params.id}_${file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')}`;
+        const { error } = await supabase.storage.from('tdt_uploads').upload(fileName, file);
+        if (!error) {
+          uploadedFiles.push({ fileName, mimeType: file.type });
         }
-        fetchConsultation();
+      }
 
-        const channel = supabase.channel(`public:consultations:${id}`)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'consultations', filter: `id=eq.${id}` }, (payload) => {
-                const newData = payload.new as SupabaseConsultation;
-                setConsultation({ ...newData, patientName: newData.patient_name, date: new Date(newData.date) });
-            }).subscribe();
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          attachedFiles: uploadedFiles,
+          previousContext: {
+            synthese: data.synthese,
+            transcription: data.transcription,
+            patientName: data.patient_name || data.patientName || ""
+          }
+        })
+      });
 
-        return () => { supabase.removeChannel(channel); }
-    }, [id, router]);
+      if (!response.ok) throw new Error("Erreur lors de la mise à jour par l'IA.");
+      const result = await response.json();
 
-    const handleCopyText = async () => {
-        let textToCopy = "";
+      const { data: updatedData } = await supabase.from('consultations').update({
+        synthese: result.synthese,
+        transcription: result.transcription,
+        resume: result.resume,
+        patient_name: result.patientName || data.patient_name
+      }).eq('id', params.id).select().single();
 
-        switch (viewMode) {
-            case "resume":
-                textToCopy = consultation?.resume || "";
-                break;
-            case "transcript":
-                textToCopy = consultation?.transcription || "";
-                break;
-            case "bilan":
-            default:
-                textToCopy = consultation?.synthese || "";
-                break;
+      if (updatedData) setData(updatedData);
+
+      // Cleanup post-analyse: suppression des gros fichiers non-images
+      try {
+        const filesToDelete = uploadedFiles.filter(f => !f.mimeType.startsWith('image/')).map(f => f.fileName);
+        if (filesToDelete.length > 0) {
+          await supabase.storage.from('tdt_uploads').remove(filesToDelete);
+          console.log("Fichiers temporaires supprimés:", filesToDelete);
         }
+      } catch (e) {
+        console.error("Erreur suppression fichiers:", e);
+      }
 
-        if (textToCopy) {
-            await navigator.clipboard.writeText(textToCopy);
-            toast({
-                title: "Texte copié",
-                description: "Le texte a été copié dans le presse-papiers.",
-            });
+      toast({ title: "Bilan mis à jour", description: "Le document a bien été ajouté au dossier." });
+
+    } catch (err) {
+      console.error(err);
+      toast({ title: "Erreur", description: "Une erreur est survenue lors de l'ajout du document.", variant: "destructive" });
+    } finally {
+      setIsAppending(false);
+    }
+  };
+
+  const handleAppendRecording = async (audioBlob: Blob) => {
+    setIsAppending(true);
+    setIsRecordingModalOpen(false); // Ferme le modal d'enregistrement
+
+    try {
+      const fileName = `audio_addendum_${Date.now()}_${params.id}.webm`;
+      const { error: uploadError } = await supabase.storage.from('tdt_uploads').upload(fileName, audioBlob, { contentType: audioBlob.type });
+
+      if (uploadError) throw new Error("Erreur upload audio addendum");
+
+      toast({ title: "Analyse en cours...", description: "Fusion des nouvelles informations avec le bilan existant." });
+
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          audioFile: { fileName, mimeType: audioBlob.type },
+          previousContext: {
+            synthese: data.synthese,
+            transcription: data.transcription,
+            patientName: data.patient_name || data.patientName || ""
+          }
+        })
+      });
+
+      if (!response.ok) throw new Error("Erreur lors de la mise à jour par l'IA.");
+      const result = await response.json();
+
+      const { data: updatedData } = await supabase.from('consultations').update({
+        synthese: result.synthese,
+        transcription: result.transcription,
+        resume: result.resume,
+        patient_name: result.patientName || data.patient_name
+      }).eq('id', params.id).select().single();
+
+      if (updatedData) setData(updatedData);
+
+      // Cleanup post-analyse: suppression du fichier audio
+      try {
+        await supabase.storage.from('tdt_uploads').remove([fileName]);
+        console.log("Fichier audio temporaire supprimé:", fileName);
+      } catch (e) {
+        console.error("Erreur suppression fichier audio:", e);
+      }
+
+      toast({ title: "Bilan mis à jour", description: "L'enregistrement a bien été ajouté au dossier." });
+
+    } catch (err) {
+      console.error(err);
+      toast({ title: "Erreur", description: "Impossible d'ajouter l'enregistrement.", variant: "destructive" });
+    } finally {
+      setIsAppending(false);
+    }
+  };
+
+  useEffect(() => {
+    async function fetchConsultation() {
+      if (!params.id) return;
+      const { data: consultData, error } = await supabase
+        .from("consultations")
+        .select("*")
+        .eq("id", params.id)
+        .single();
+
+      if (error) {
+        console.error("Error fetching consultation:", error);
+      } else {
+        setData(consultData);
+        setEditName(consultData?.patient_name || consultData?.patientName || `Patient #${consultData?.id}`);
+        if (consultData?.date) {
+          // Format datetime-local requires YYYY-MM-DDTHH:mm
+          const d = new Date(consultData.date);
+          // Adjust to local time format for input
+          const localIso = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+          setEditDate(localIso);
         }
-    };
-
-    const startUpdateRecording = async () => {
-        setUpdateAudioBlob(null);
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const mediaRecorder = new MediaRecorder(stream, {
-                mimeType: MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4'
-            });
-            mediaRecorderRef.current = mediaRecorder;
-            audioChunksRef.current = [];
-
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    audioChunksRef.current.push(event.data);
-                }
-            };
-
-            mediaRecorder.onstop = () => {
-                const mimeType = mediaRecorder.mimeType || 'audio/webm';
-                const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-                setUpdateAudioBlob(audioBlob);
-                stream.getTracks().forEach(track => track.stop());
-            };
-
-            mediaRecorder.start();
-            setIsRecordingUpdate(true);
-            setRecordingTime(0);
-
-            timerRef.current = setInterval(() => {
-                setRecordingTime((prev) => prev + 1);
-            }, 1000);
-        } catch {
-            toast({
-                title: "Erreur microphone",
-                description: "Impossible d'accéder au microphone.",
-                variant: "destructive"
-            });
-        }
-    };
-
-    const stopUpdateRecording = () => {
-        if (mediaRecorderRef.current && isRecordingUpdate) {
-            mediaRecorderRef.current.stop();
-            setIsRecordingUpdate(false);
-            if (timerRef.current) clearInterval(timerRef.current);
-        }
-    };
-
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files) {
-            setUpdateFiles(Array.from(e.target.files));
-        }
-    };
-
-    const handleUpdateSubmit = async () => {
-        if (!consultation) return;
-        setIsUpdating(true);
-        toast({
-            title: "Mise à jour en cours...",
-            description: "Analyse des nouveaux éléments pour reformer le bilan.",
-        });
-
-        try {
-            const formData = new FormData();
-            formData.append("oldTranscription", consultation.transcription || "");
-            formData.append("oldSynthese", consultation.synthese || "");
-            formData.append("oldPatientName", consultation.patientName || "");
-
-            if (updateAudioBlob) {
-                formData.append("audio", updateAudioBlob, "update.webm");
-            }
-
-            updateFiles.forEach(file => {
-                formData.append("files", file);
-            });
-
-            const res = await fetch("/api/update-analyze", {
-                method: "POST",
-                body: formData
-            });
-
-            if (!res.ok) throw new Error("Erreur lors de la mise à jour");
-
-            const data = await res.json();
-
-            const updatedConsultation = {
-                patient_name: data.patientName || consultation.patientName,
-                synthese: data.synthese,
-                transcription: data.transcription
-            };
-
-            await supabase.from('consultations').update(updatedConsultation).eq('id', id);
-
-            // Clean up states
-            setUpdateAudioBlob(null);
-            setUpdateFiles([]);
-
-            toast({
-                title: "Bilan mis à jour !",
-                description: "Les nouveaux éléments ont été intégrés au bilan.",
-            });
-        } catch (e: unknown) {
-            console.error(e);
-            toast({
-                title: "Erreur",
-                description: e instanceof Error ? e.message : "Une erreur est survenue.",
-                variant: 'destructive'
-            });
-        } finally {
-            setIsUpdating(false);
-        }
-    };
-
-    const handleExportPDF = () => {
-        if (targetRef.current) {
-            const filename = `Bilan_${consultation?.patientName || "Patient"}_${format(
-                new Date(consultation?.date || new Date()),
-                "dd-MM-yyyy"
-            )}.pdf`;
-            generatePDF(targetRef, {
-                filename,
-                page: { format: 'A4', margin: 15 }
-            });
-        }
-    };
-
-    const handleDelete = async () => {
-        if (confirm("Êtes-vous sûr de vouloir supprimer cette consultation ?")) {
-            await supabase.from('consultations').delete().eq('id', id);
-            toast({
-                title: "Consultation supprimée",
-            });
-            router.push("/");
-        }
-    };
-
-    const handleExportArchive = async () => {
-        if (!consultation || !targetRef.current) return;
-
-        try {
-            toast({
-                title: "Création de l'archive...",
-                description: "Le téléchargement va commencer (Audio + Bilan)",
-            });
-
-            // 1. Charger JSZip dynamiquement pour éviter les soucis de SSR
-            const JSZip = (await import('jszip')).default;
-            const { saveAs } = (await import('file-saver')).default;
-
-            const zip = new JSZip();
-            const dateStr = format(new Date(consultation.date), "dd-MM-yyyy");
-            const folderName = `Bilan_TDT_${consultation.patientName?.replace(/\s+/g, '_') || 'Anonyme'}_${dateStr}`;
-
-            // 2. Ajouter l'audio original
-            if (consultation.audioBlob) {
-                const audioExt = consultation.audioBlob.type.includes('mp4') ? 'mp4' : 'webm';
-                zip.file(`${folderName}/audio_consultation.${audioExt}`, consultation.audioBlob);
-            }
-
-            // 3. Ajouter les notes textuelles Markdown
-            let textContent = `# Bilan : ${consultation.patientName || 'Anonyme'}\nDate: ${dateStr}\n\n`;
-            textContent += `## Résumé Narrative\n${consultation.resume || 'Non généré'}\n\n`;
-            textContent += `## Synthèse Structurée\n${consultation.synthese || 'Non généré'}\n\n`;
-            textContent += `## Transcription Brute\n${consultation.transcription || 'Non généré'}`;
-            zip.file(`${folderName}/notes_cliniques.md`, textContent);
-
-            // 4. Générer le PDF (on force le mode bilan le temps de la capture)
-            if (viewMode !== 'bilan') {
-                setViewMode('bilan');
-                // Petit délai pour laisser React faire le rendu du Dom
-                await new Promise(resolve => setTimeout(resolve, 500));
-            }
-
-            const html2pdf = (await import('html2pdf.js')).default;
-            const element = targetRef.current;
-            const opt = {
-                margin: 0,
-                filename: `${folderName}/TDT_${viewMode}.pdf`,
-                image: { type: 'jpeg' as const, quality: 0.98 },
-                html2canvas: { scale: 2, useCORS: true },
-                jsPDF: { unit: 'mm' as const, format: 'a4', orientation: 'portrait' as const }
-            };
-
-            // html2pdf peut sortit un Blob directement via `output`
-            const pdfBlob = await html2pdf().from(element).set(opt).output('blob');
-            zip.file(`${folderName}/TDT_${viewMode}.pdf`, pdfBlob);
-
-            // 5. Mettre tout en paquet et télécharger
-            const zipBlob = await zip.generateAsync({ type: "blob" });
-            saveAs(zipBlob, `${folderName}.zip`);
-
-            toast({
-                title: "Archive téléchargée !",
-                description: "Vérifiez votre dossier de téléchargements.",
-            });
-
-        } catch (err) {
-            console.error(err);
-            toast({
-                title: "Erreur",
-                description: "Impossible de créer l'archive.",
-                variant: 'destructive'
-            });
-        }
-    };
-
-    if (!consultation) {
-        return <div className="p-8 text-center font-inter">Chargement...</div>;
+      }
+      setLoading(false);
     }
 
+    fetchConsultation();
+  }, [params.id]);
+
+  useEffect(() => {
+    if (!params.id) return;
+    async function fetchDocs() {
+      try {
+        const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { search: params.id as string });
+        if (listError || !listData) return;
+
+        const docs = listData.filter(f => f.name.includes('doc_') && f.name.includes(params.id as string));
+
+        const loadedDocs = await Promise.all(docs.map(async (f) => {
+          const { data: fileData } = await supabase.storage.from('tdt_uploads').download(f.name);
+          if (!fileData) return null;
+
+          const url = URL.createObjectURL(fileData);
+          const nameParts = f.name.split('_');
+          const originalName = nameParts.slice(3).join('_') || f.name;
+
+          let type: 'image' | 'pdf' | 'other' = 'other';
+          const lower = f.name.toLowerCase();
+          if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp')) type = 'image';
+          else if (lower.endsWith('.pdf')) type = 'pdf';
+
+          return { name: f.name, originalName, url, type };
+        }));
+
+        setAttachedDocs(loadedDocs.filter(Boolean) as any);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    fetchDocs();
+  }, [params.id]);
+
+  if (loading) {
     return (
-        <main className="min-h-screen py-8 px-4 sm:px-6">
-            <div className="max-w-4xl mx-auto space-y-6 mt-12 mb-12">
-
-                {/* En-tête TDT Minimaliste (Actions globales + Update) */}
-                <div className="flex flex-col sm:flex-row justify-between items-center bg-white rounded-2xl p-2 sm:p-3 shadow-sm border border-slate-200 gap-4 sticky top-4 z-10">
-                    <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "bilan" | "resume" | "transcript")} className="w-full sm:w-auto shrink-0">
-                        <TabsList className="grid w-full grid-cols-3 bg-slate-50 p-1">
-                            <TabsTrigger value="bilan" className="text-xs sm:text-sm">Bilan</TabsTrigger>
-                            <TabsTrigger value="resume" className="text-xs sm:text-sm">Résumé</TabsTrigger>
-                            <TabsTrigger value="transcript" className="text-xs sm:text-sm">Brut</TabsTrigger>
-                        </TabsList>
-                    </Tabs>
-
-                    <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2 w-full sm:w-auto">
-
-                        {/* Actions d'ajout express */}
-                        <div className="flex items-center gap-1 bg-red-50/80 rounded-full border border-red-100 p-1 px-2 shrink-0">
-                            <span className="text-[10px] text-red-800 font-semibold tracking-wide mr-1 hidden sm:inline uppercase">Mise à jour</span>
-                            {!isRecordingUpdate ? (
-                                <Button size="icon" variant="ghost" onClick={startUpdateRecording} className="h-7 w-7 rounded-full text-red-500 hover:bg-red-100 hover:text-red-700" title="Dicter un complément vocal">
-                                    <Mic className="w-3.5 h-3.5" />
-                                </Button>
-                            ) : (
-                                <Button size="sm" variant="destructive" onClick={stopUpdateRecording} className="h-7 rounded-full animate-pulse px-3 text-xs" title="Arrêter l'enregistrement">
-                                    <Square className="w-3 h-3 mr-1" />
-                                    {recordingTime}s
-                                </Button>
-                            )}
-                            <div className="relative">
-                                <input
-                                    type="file"
-                                    multiple
-                                    accept="application/pdf,image/jpeg,image/png"
-                                    onChange={handleFileChange}
-                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                                    title="Joindre un document"
-                                />
-                                <Button size="icon" variant="ghost" className="h-7 w-7 rounded-full text-[#bd613c] hover:bg-[#ebd9c8]" title="Joindre un document">
-                                    <Paperclip className="w-3.5 h-3.5" />
-                                </Button>
-                            </div>
-                        </div>
-
-                        <div className="w-px h-5 bg-slate-200 mx-1 hidden sm:block shrink-0"></div>
-
-                        {/* Actions consultation */}
-                        <div className="flex items-center gap-1 shrink-0">
-                            {consultation.audioBlob && (
-                                <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-blue-600 hover:bg-blue-50 focus:ring-0"
-                                    onClick={() => {
-                                        const url = URL.createObjectURL(consultation.audioBlob!);
-                                        const a = document.createElement('a');
-                                        a.style.display = 'none';
-                                        a.href = url;
-                                        a.download = `audio_${consultation.patientName?.replace(/\s+/g, '_') || 'brut'}.webm`;
-                                        document.body.appendChild(a);
-                                        a.click();
-                                        window.URL.revokeObjectURL(url);
-                                    }} title="Audio brut">
-                                    <Headphones className="w-4 h-4" />
-                                </Button>
-                            )}
-                            <Button size="icon" variant="ghost" onClick={handleCopyText} className="h-8 w-8 text-slate-400 hover:text-slate-700 hover:bg-slate-100" title="Copier le texte affiché">
-                                <Copy className="w-4 h-4" />
-                            </Button>
-                            <Button size="icon" variant="ghost" onClick={handleExportPDF} className="h-8 w-8 text-slate-400 hover:text-[#bd613c] hover:bg-orange-50" title="Exporter le PDF en cours">
-                                <FileText className="w-4 h-4" />
-                            </Button>
-                            <Button size="icon" variant="ghost" onClick={handleExportArchive} className="h-8 w-8 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50" title="Archiver (ZIP Data)">
-                                <Download className="w-4 h-4" />
-                            </Button>
-                            <Button size="icon" variant="ghost" onClick={handleDelete} className="h-8 w-8 text-slate-400 hover:text-red-600 hover:bg-red-50" title="Supprimer la consultation">
-                                <Trash2 className="w-4 h-4" />
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Bulle d'état si des ajouts sont en attente d'être compilés */}
-                {(updateAudioBlob || updateFiles.length > 0 || isUpdating) && (
-                    <div className="bg-[#fdfaf8] border border-[#bd613c]/30 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-inner text-sm animate-in fade-in slide-in-from-top-2">
-                        {isUpdating ? (
-                            <div className="flex items-center text-[#bd613c] font-medium w-full justify-center sm:justify-start">
-                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                                Fusion des informations en cours...
-                            </div>
-                        ) : (
-                            <>
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-[#4a3f35] font-medium mr-2">À intégrer :</span>
-                                    {updateAudioBlob && (
-                                        <span className="flex items-center bg-white border border-[#bd613c]/20 px-2 py-1 rounded-full text-[11px] text-[#bd613c]">
-                                            <Mic className="w-3 h-3 mr-1" /> Note vocale
-                                            <X className="w-3 h-3 ml-1 cursor-pointer hover:text-red-500" onClick={() => setUpdateAudioBlob(null)} />
-                                        </span>
-                                    )}
-                                    {updateFiles.map((f, i) => (
-                                        <span key={i} className="flex items-center bg-white border border-[#bd613c]/20 px-2 py-1 rounded-full text-[11px] text-[#bd613c] max-w-[150px]">
-                                            <Paperclip className="w-3 h-3 mr-1 shrink-0" /> <span className="truncate">{f.name}</span>
-                                            <X className="w-3 h-3 ml-1 shrink-0 cursor-pointer hover:text-red-500" onClick={() => setUpdateFiles(prev => prev.filter((_, idx) => idx !== i))} />
-                                        </span>
-                                    ))}
-                                </div>
-                                <Button onClick={handleUpdateSubmit} className="bg-[#bd613c] hover:bg-[#a05232] text-white shrink-0 h-8 text-xs rounded-full shadow-sm">
-                                    Regénérer le Bilan
-                                </Button>
-                            </>
-                        )}
-                    </div>
-                )}
-
-                {/* Lecteur Audio */}
-                {consultation.audioBlob && (
-                    <div className="bg-white rounded-lg p-4 shadow-sm border border-slate-200 w-full md:max-w-3xl mx-auto flex flex-col gap-2">
-                        <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Enregistrement initial</h4>
-                        <audio
-                            controls
-                            className="w-full h-10 outline-none"
-                            src={URL.createObjectURL(consultation.audioBlob)}
-                        >
-                            Votre navigateur ne supporte pas l&apos;élément audio.
-                        </audio>
-                    </div>
-                )}
-
-                {/* Cible pour le PDF */}
-                <div className="bg-white mx-auto shadow-sm border border-slate-200 max-w-full overflow-hidden md:overflow-visible w-full md:max-w-3xl min-h-[50vh]">
-                    <div ref={targetRef} className="p-6 md:p-12 text-[#4a3f35] font-inter">
-
-                        {/* En-tête TDT pour le PDF */}
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b-[3px] border-[#bd613c] pb-6 mb-8 mt-4 gap-4">
-                            <div>
-                                <h1 className="font-bebas text-2xl sm:text-3xl md:text-4xl text-[#bd613c] tracking-widest uppercase leading-none">
-                                    Techniques Douces
-                                </h1>
-                                <div className="flex items-center gap-2 mt-1 mb-2">
-                                    <span className="h-[2px] w-4 sm:w-6 bg-[#bd613c]"></span>
-                                    <h2 className="font-bebas text-xl sm:text-2xl md:text-3xl text-[#bd613c] tracking-widest uppercase leading-none">
-                                        Tissulaires
-                                    </h2>
-                                    <span className="h-[2px] w-4 sm:w-6 bg-[#bd613c]"></span>
-                                </div>
-                                <p className="text-xs sm:text-sm font-semibold tracking-wider text-slate-500 uppercase mt-2">
-                                    Guillaume Philippe<br />
-                                    <span className="text-[10px] sm:text-xs font-normal">Kinésithérapeute</span>
-                                </p>
-                            </div>
-                            <div className="self-start sm:text-right mt-2 sm:mt-0">
-                                <p className="text-lg sm:text-xl font-bold">Bilan de Consultation</p>
-                                <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                                    {format(new Date(consultation.date), "EEEE d MMMM yyyy", { locale: fr })}
-                                </p>
-                            </div>
-                        </div>
-
-                        {/* Contenu dynamique en fonction du choix utilisateur */}
-                        {viewMode === "resume" && (
-                            <div className="text-[#4a3f35] leading-relaxed text-lg whitespace-pre-wrap font-inter">
-                                {consultation.resume ? consultation.resume : <span className="italic text-slate-400">Aucun résumé généré.</span>}
-                            </div>
-                        )}
-
-                        {viewMode === "bilan" && (
-                            <div className="prose max-w-none prose-headings:text-[#1a2f4c] prose-h3:text-xl prose-h3:font-bold prose-h3:border-b prose-h3:pb-2 prose-h3:mb-4 prose-p:text-[#4a3f35] prose-li:text-[#4a3f35]">
-                                {consultation.synthese ? (
-                                    <ReactMarkdown>{consultation.synthese}</ReactMarkdown>
-                                ) : (
-                                    <p className="italic text-slate-400">Le bilan n&apos;a pas pu être généré ou est en cours...</p>
-                                )}
-                            </div>
-                        )}
-
-                        {viewMode === "transcript" && (
-                            <div className="text-[#4a3f35] whitespace-pre-wrap font-mono text-sm leading-relaxed p-4 bg-slate-50 border border-slate-200 rounded-md">
-                                {consultation.transcription ? consultation.transcription : <span className="italic text-slate-400">Aucune retranscription disponible.</span>}
-                            </div>
-                        )}
-
-                        {/* Note de bas de page PDF */}
-                        <div className="mt-16 pt-4 border-t border-slate-100 text-[10px] text-slate-400 text-center pb-8">
-                            Centre Via Sana - 28 Bis Boulevard Sébastopol, 75004 Paris | Document généré le {format(new Date(), "dd/MM/yyyy")}
-                        </div>
-
-                    </div>
-                </div>
-
-            </div>
-
-            {/* Bouton retour en bas (Esthétique Marron TDT) */}
-            <div className="flex justify-center mt-8 pb-8">
-                <Button onClick={() => router.push("/")} className="gap-2 bg-[#bd613c] hover:bg-[#a05232] text-white px-8 py-6 text-lg rounded-full shadow-md transition-all hover:scale-105 active:scale-95">
-                    <ArrowLeft className="w-5 h-5" />
-                    Retour à l&apos;accueil
-                </Button>
-            </div>
-
-        </main>
+      <div className="min-h-screen flex flex-col items-center justify-center p-8">
+        <Loader2 className="w-12 h-12 text-[#bd613c] animate-spin mb-4" />
+        <p className="text-[#4a3f35]">Chargement du bilan...</p>
+      </div>
     );
+  }
+
+  if (!data) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center space-y-4">
+        <h1 className="text-2xl font-bold text-red-500">Bilan introuvable</h1>
+        <p className="text-slate-500">Cette consultation n&apos;existe pas ou a été supprimée.</p>
+        <Button onClick={() => router.push("/")} variant="outline">
+          Retour à l&apos;accueil
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <main className="min-h-screen py-8 px-4 sm:px-6 mb-12 flex justify-center">
+      <div className="w-full max-w-5xl space-y-8 xl:space-y-10">
+
+        <Button
+          variant="ghost"
+          onClick={() => router.push("/")}
+          className="text-[#bd613c] hover:bg-[#ebd9c8]/30 -ml-2 print:hidden"
+          data-html2canvas-ignore="true"
+        >
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Retour aux bilans
+        </Button>
+
+        <Tabs defaultValue="synthese" className="w-full">
+          <div className="flex flex-col lg:flex-row gap-8 items-start">
+
+            {/* LECTURE ZONE (Notebook) - Gauche */}
+            <div id="consultation-export-container" className="flex-1 min-w-0 bg-[#fdfcfb] rounded-2xl p-6 sm:p-10 shadow-sm border border-[#ebd9c8]/50 w-full">
+
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  {isEditing ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className="font-bebas text-3xl sm:text-4xl text-[#bd613c] tracking-wide uppercase bg-transparent border-b-2 border-[#bd613c] focus:outline-none w-full max-w-sm"
+                        autoFocus
+                      />
+                      <Button size="icon" variant="ghost" className="text-green-600 hover:bg-green-50" onClick={handleSaveName}>
+                        <Check className="w-5 h-5" />
+                      </Button>
+                      <Button size="icon" variant="ghost" className="text-red-500 hover:bg-red-50" onClick={() => setIsEditing(false)}>
+                        <XIcon className="w-5 h-5" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 relative group">
+                      <h1 className="font-bebas text-4xl sm:text-5xl text-[#bd613c] tracking-wide uppercase">
+                        {data.patient_name || data.patientName || `Patient #${data.id}`}
+                      </h1>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-[#bd613c] print:hidden"
+                        onClick={() => setIsEditing(true)}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 relative group">
+                  {isEditingDate ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="datetime-local"
+                        value={editDate}
+                        onChange={(e) => setEditDate(e.target.value)}
+                        className="text-[#4a3f35]/80 font-medium bg-transparent border-b-2 border-[#bd613c] focus:outline-none"
+                        autoFocus
+                      />
+                      <Button size="icon" variant="ghost" className="text-green-600 hover:bg-green-50 h-8 w-8" onClick={handleSaveDate}>
+                        <Check className="w-4 h-4" />
+                      </Button>
+                      <Button size="icon" variant="ghost" className="text-red-500 hover:bg-red-50 h-8 w-8" onClick={() => setIsEditingDate(false)}>
+                        <XIcon className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-[#4a3f35]/80 font-medium mb-0">
+                        {format(new Date(data.date), "EEEE d MMMM yyyy 'à' HH:mm", { locale: fr })}
+                      </p>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-[#bd613c] print:hidden h-6 w-6 ml-1"
+                        onClick={() => {
+                          const d = new Date(data.date);
+                          const localIso = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+                          setEditDate(localIso);
+                          setIsEditingDate(true);
+                        }}
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* TABS CONTENT */}
+              <TabsContent value="synthese" className="mt-8 border-t border-[#ebd9c8]/50 pt-8 print:border-none print:mt-4 print:pt-4">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-6 h-6 text-[#bd613c]" />
+                    <h2 className="font-bebas text-3xl tracking-wide text-[#bd613c] uppercase mb-0">
+                      Synthèse
+                    </h2>
+                  </div>
+                  {data.synthese && (
+                    <Button variant="ghost" size="sm" onClick={() => handleExportPDF(`bilan_${data.patient_name || 'patient'}`)} className="text-[#bd613c] hover:bg-[#ebd9c8]/30 print:hidden h-8 px-3 rounded-lg" data-html2canvas-ignore="true">
+                      <Share className="w-4 h-4 sm:mr-2" /> <span className="hidden sm:inline text-sm font-medium">Exporter PDF</span>
+                    </Button>
+                  )}
+                </div>
+                <div className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#bd613c] prose-headings:tracking-wide prose-p:text-[#4a3f35]/90 prose-strong:text-[#bd613c] prose-li:text-[#4a3f35]/90 prose-h1:text-2xl sm:prose-h1:text-4xl">
+                  {data.synthese ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                      {data.synthese}
+                    </ReactMarkdown>
+                  ) : "Aucune synthèse disponible."}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="notes" className="mt-8 border-t border-[#ebd9c8]/50 pt-8 print:hidden">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-6 h-6 text-[#bd613c]" />
+                    <h2 className="font-bebas text-3xl tracking-wide text-[#bd613c] uppercase mb-0">
+                      Résumé Rapide
+                    </h2>
+                  </div>
+                  {data.resume && (
+                    <Button variant="ghost" size="sm" onClick={() => handleExportPDF(`resume_${data.patient_name || 'patient'}`)} className="text-[#bd613c] hover:bg-[#ebd9c8]/30 h-8 px-3 rounded-lg" data-html2canvas-ignore="true">
+                      <Share className="w-4 h-4 sm:mr-2" /> <span className="hidden sm:inline text-sm font-medium">Exporter PDF</span>
+                    </Button>
+                  )}
+                </div>
+                <div className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#bd613c] prose-headings:tracking-wide prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c]">
+                  {data.resume ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {data.resume}
+                    </ReactMarkdown>
+                  ) : "Aucun résumé disponible."}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="transcription" className="mt-8 border-t border-[#ebd9c8]/50 pt-8 print:block">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="w-6 h-6 text-[#bd613c]" />
+                    <h2 className="font-bebas text-3xl tracking-wide text-[#bd613c] uppercase mb-0">
+                      Dialogue Brut
+                    </h2>
+                  </div>
+                  {data.transcription && (
+                    <Button variant="ghost" size="sm" onClick={() => handleExportPDF(`dialogue_${data.patient_name || 'patient'}`)} className="text-[#bd613c] hover:bg-[#ebd9c8]/30 print:hidden h-8 px-3 rounded-lg" data-html2canvas-ignore="true">
+                      <Share className="w-4 h-4 sm:mr-2" /> <span className="hidden sm:inline text-sm font-medium">Exporter PDF</span>
+                    </Button>
+                  )}
+                </div>
+                <div className="prose prose-sm max-w-none text-[#4a3f35]/80 whitespace-pre-wrap font-mono text-xs prose-strong:text-[#bd613c]">
+                  {data.transcription ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                      {data.transcription}
+                    </ReactMarkdown>
+                  ) : "Aucune transcription disponible."}
+                </div>
+              </TabsContent>
+
+            </div>
+
+            {/* BARRE LATERALE (Outils + Docs) - Droite */}
+            <div className="w-full lg:w-72 shrink-0 flex flex-col gap-10 print:hidden" data-html2canvas-ignore="true">
+
+              {/* ACTIONS (Audio / Doc) */}
+              <div className="space-y-4">
+                <h3 className="font-bebas text-xl tracking-wide text-[#bd613c] uppercase">Ajout d'information</h3>
+
+                <div className="flex flex-col gap-3">
+                  <Dialog open={isRecordingModalOpen} onOpenChange={setIsRecordingModalOpen}>
+                    <DialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start text-left h-12 px-4 rounded-xl text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all"
+                        disabled={isAppending}
+                      >
+                        <Mic className="w-5 h-5 mr-3 text-[#bd613c]" />
+                        <span className="font-medium text-base">Ajouter un Audio</span>
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-xl bg-white border-[#ebd9c8]/30">
+                      <DialogHeader>
+                        <DialogTitle className="font-bebas tracking-wide text-3xl text-[#bd613c] uppercase text-center mb-4">
+                          Ajouter au dossier
+                        </DialogTitle>
+                      </DialogHeader>
+                      <div className="py-2">
+                        <AudioRecorder onRecordingComplete={handleAppendRecording} isProcessing={isAppending} />
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+
+                  <div className="relative">
+                    <input
+                      type="file"
+                      id="append-file"
+                      className="hidden"
+                      onChange={handleAppendFile}
+                      disabled={isAppending}
+                      multiple
+                    />
+                    <Button
+                      asChild
+                      variant="outline"
+                      className="w-full justify-start text-left h-12 px-4 rounded-xl text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all cursor-pointer"
+                    >
+                      <label htmlFor="append-file" className="flex items-center w-full">
+                        {isAppending ? (
+                          <Loader2 className="w-5 h-5 mr-3 animate-spin text-[#bd613c]" />
+                        ) : (
+                          <Paperclip className="w-5 h-5 mr-3 text-[#bd613c]" />
+                        )}
+                        <span className="font-medium text-base">{isAppending ? "Traitement..." : "Ajouter un Document"}</span>
+                      </label>
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* TABS (Navigation Verticale) */}
+              <div className="space-y-4">
+                <h3 className="font-bebas text-xl tracking-wide text-[#bd613c] uppercase">Vues du dossier</h3>
+                <TabsList className="flex flex-col h-auto bg-transparent p-0 gap-2 w-full">
+                  <TabsTrigger value="synthese" className="w-full justify-start text-left px-4 py-3 rounded-xl bg-[#ebd9c8]/20 data-[state=active]:bg-[#bd613c] data-[state=active]:text-white data-[state=active]:shadow-md transition-all font-medium border border-transparent data-[state=active]:border-[#bd613c] hover:bg-[#ebd9c8]/40">
+                    <FileText className="w-4 h-4 mr-3 opacity-70" /> Synthèse
+                  </TabsTrigger>
+                  <TabsTrigger value="notes" className="w-full justify-start text-left px-4 py-3 rounded-xl bg-[#ebd9c8]/20 data-[state=active]:bg-[#bd613c] data-[state=active]:text-white data-[state=active]:shadow-md transition-all font-medium border border-transparent data-[state=active]:border-[#bd613c] hover:bg-[#ebd9c8]/40">
+                    <Activity className="w-4 h-4 mr-3 opacity-70" /> Résumé Rapide
+                  </TabsTrigger>
+                  <TabsTrigger value="transcription" className="w-full justify-start text-left px-4 py-3 rounded-xl bg-[#ebd9c8]/20 data-[state=active]:bg-[#bd613c] data-[state=active]:text-white data-[state=active]:shadow-md transition-all font-medium border border-transparent data-[state=active]:border-[#bd613c] hover:bg-[#ebd9c8]/40">
+                    <MessageSquare className="w-4 h-4 mr-3 opacity-70" /> Dialogue
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+
+              {/* DOCUMENTS ASSOCIES */}
+              {attachedDocs && attachedDocs.length > 0 && (
+                <div className="space-y-4">
+                  <h3 className="font-bebas text-xl tracking-wide text-[#bd613c] uppercase flex items-center">
+                    <ImageIcon className="w-5 h-5 mr-2" /> Fichiers Joints
+                  </h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 gap-3">
+                    {attachedDocs.map((doc, idx) => (
+                      <a key={idx} href={doc.url} target="_blank" rel="noopener noreferrer" title={doc.originalName} className="block relative aspect-square rounded-xl overflow-hidden border border-[#bd613c]/20 hover:border-[#bd613c]/50 hover:shadow-md transition-all bg-[#ebd9c8]/10 group/doc">
+                        {doc.type === 'image' ? (
+                          <img src={doc.url} alt={doc.originalName} className="object-cover w-full h-full group-hover/doc:scale-105 transition-transform duration-300" />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center text-[#bd613c] p-2 text-center group-hover/doc:bg-[#ebd9c8]/30 transition-colors">
+                            <FileText className="w-8 h-8 mb-2 opacity-80" />
+                            <span className="text-[9px] leading-tight font-medium truncate w-full px-1">{doc.originalName}</span>
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-[#bd613c]/90 opacity-0 group-hover/doc:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
+                          <span className="text-white text-xs font-medium font-sans px-2 text-center text-balance overflow-hidden break-words">Ouvrir</span>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            </div>
+
+          </div>
+        </Tabs>
+      </div>
+    </main>
+  );
 }

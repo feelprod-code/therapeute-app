@@ -46,6 +46,7 @@ export default function BilingualRecorder({
     const scrollRef = useRef<HTMLDivElement>(null);
     const recordStartTimeRef = useRef<Date | null>(null);
     const mimeTypeRef = useRef<string>('audio/webm');
+    const streamRef = useRef<MediaStream | null>(null);
     const { toast } = useToast();
 
     // Pre-load voices on mount to ensure premium voices are available
@@ -68,6 +69,16 @@ export default function BilingualRecorder({
             }
         };
         checkDraft();
+
+        // CLEANUP DU MICROPHONE SI ON CHANGE D'ONGLET
+        return () => {
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+                mediaRecorderRef.current.stop();
+            }
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop());
+            }
+        };
     }, []);
 
     useEffect(() => {
@@ -104,7 +115,6 @@ export default function BilingualRecorder({
 
     const startRecording = async (role: 'therapeut' | 'patient') => {
         // Unlock iOS Audio: Siri/Web Speech API blocks audio after async fetches
-        // We must play a silent sound synchronously on the button click to unlock it
         if ('speechSynthesis' in window) {
             const unlockUtterance = new SpeechSynthesisUtterance('');
             unlockUtterance.volume = 0;
@@ -112,7 +122,13 @@ export default function BilingualRecorder({
         }
 
         try {
+            // Nettoyage sécurité avant d'ouvrir un nouveau flux
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop());
+            }
+
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            streamRef.current = stream;
 
             // Safari iOS fallback logic
             let options = { mimeType: 'audio/webm' };
@@ -152,12 +168,15 @@ export default function BilingualRecorder({
                 const finalMimeType = options.mimeType;
                 const audioBlob = new Blob(audioChunksRef.current, { type: finalMimeType });
 
+                // Couper le matériel micro IMMÉDIATEMENT même si l'API traduit en arrière plan
+                if (streamRef.current) {
+                    streamRef.current.getTracks().forEach(track => track.stop());
+                    streamRef.current = null;
+                }
+
                 if (audioBlob.size > 0) {
                     await handleTranslation(audioBlob, role);
                 }
-
-                // Stop all tracks to release microphone
-                stream.getTracks().forEach(track => track.stop());
 
                 // Clear draft on successful stop
                 await db.drafts.delete('bilingual');
@@ -348,7 +367,7 @@ export default function BilingualRecorder({
             )}
 
             {/* Chat Area */}
-            <Card className="bg-white/80 backdrop-blur-sm border-[#e8dfd5] shadow-lg flex-1 min-h-[300px] flex flex-col relative">
+            <Card className="bg-white/80 backdrop-blur-sm border-[#e8dfd5] shadow-lg flex-1 min-h-[400px] flex flex-col relative">
                 {messages.length > 0 && (
                     <div className="absolute top-2 right-2 z-10 bg-white/50 rounded-full">
                         <Button
@@ -362,8 +381,8 @@ export default function BilingualRecorder({
                         </Button>
                     </div>
                 )}
-                <CardContent className="p-4 pt-8 flex-1">
-                    <ScrollArea className="h-[300px] pr-4 w-full" ref={scrollRef}>
+                <CardContent className="p-4 flex-1 h-full">
+                    <ScrollArea className="h-[400px] pr-4 w-full" ref={scrollRef}>
                         {messages.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-[#8c7b6c] space-y-4">
                                 <Globe className="w-12 h-12 opacity-20" />
@@ -389,11 +408,11 @@ export default function BilingualRecorder({
                                         </div>
                                     </div>
                                 ))}
-                                {isTranslating && (
-                                    <div className="flex justify-center py-4">
-                                        <Loader2 className="w-6 h-6 animate-spin text-[#bd613c]" />
-                                    </div>
-                                )}
+                            </div>
+                        )}
+                        {isTranslating && (
+                            <div className="flex justify-center py-4 mt-4">
+                                <Loader2 className="w-6 h-6 animate-spin text-[#bd613c]" />
                             </div>
                         )}
                     </ScrollArea>
@@ -419,23 +438,23 @@ export default function BilingualRecorder({
                     <Button
                         size="lg"
                         variant={recordingRole === 'therapeut' ? 'destructive' : 'default'}
-                        className={`h-24 text-lg font-bebas tracking-wide flex flex-col gap-2 ${recordingRole === 'therapeut' ? 'animate-pulse' : 'bg-[#4a3f35] hover:bg-[#3a3129]'}`}
+                        className={`h-24 text-lg font-bebas tracking-wide flex flex-col items-center justify-center gap-2 ${recordingRole === 'therapeut' ? 'animate-pulse' : 'bg-[#4a3f35] hover:bg-[#3a3129]'}`}
                         onClick={() => isRecording ? stopRecording() : startRecording('therapeut')}
                         disabled={isTranslating || isAnalyzing || (isRecording && recordingRole !== 'therapeut')}
                     >
                         {recordingRole === 'therapeut' ? <Square className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-                        {recordingRole === 'therapeut' ? "Arrêter" : "Parler (Français)"}
+                        <span className="text-center">{recordingRole === 'therapeut' ? "Arrêter" : "Parler (Français)"}</span>
                     </Button>
 
                     <Button
                         size="lg"
                         variant={recordingRole === 'patient' ? 'destructive' : 'outline'}
-                        className={`h-24 text-lg font-bebas tracking-wide flex flex-col gap-2 border-2 ${recordingRole === 'patient' ? 'animate-pulse' : 'border-[#4a3f35] text-[#4a3f35] hover:bg-[#e8dfd5]'}`}
+                        className={`h-24 text-lg font-bebas tracking-wide flex flex-col items-center justify-center gap-2 border-2 ${recordingRole === 'patient' ? 'animate-pulse' : 'border-[#4a3f35] text-[#4a3f35] hover:bg-[#e8dfd5]'}`}
                         onClick={() => isRecording ? stopRecording() : startRecording('patient')}
                         disabled={isTranslating || isAnalyzing || (isRecording && recordingRole !== 'patient')}
                     >
                         {recordingRole === 'patient' ? <Square className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-                        {recordingRole === 'patient' ? "Stop" : `Patient (${patientLang.code.substring(0, 2).toUpperCase()})`}
+                        <span className="text-center">{recordingRole === 'patient' ? "Stop" : `Patient (${patientLang.code.substring(0, 2).toUpperCase()})`}</span>
                     </Button>
                 </div>
             </div>
@@ -444,7 +463,7 @@ export default function BilingualRecorder({
                 <Button
                     onClick={synthesizeConsultation}
                     disabled={isAnalyzing || isRecording || isTranslating}
-                    className="w-full py-8 text-xl font-bebas tracking-widest bg-[#bd613c] hover:bg-[#a05232] text-white transition-all duration-300 shadow-xl"
+                    className="w-full py-6 text-xl font-bebas tracking-widest bg-[#bd613c] hover:bg-[#a05232] text-white transition-all duration-300 shadow-xl"
                 >
                     {isAnalyzing ? (
                         <>

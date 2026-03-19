@@ -24,6 +24,7 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
     const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const recordStartTimeRef = useRef<Date | null>(null);
     const mimeTypeRef = useRef<string>('audio/webm');
+    const streamRef = useRef<MediaStream | null>(null);
 
     // Audio Visualizer Refs
     const audioContextRef = useRef<AudioContext | null>(null);
@@ -121,6 +122,9 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
             if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
                 mediaRecorderRef.current.stop();
             }
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach((track) => track.stop());
+            }
         };
     }, []);
 
@@ -175,7 +179,12 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                 audioContext.resume().catch(console.error);
             }
 
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop());
+            }
+
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            streamRef.current = stream;
 
             // Safari iOS fallback logic
             let options: MediaRecorderOptions = {};
@@ -221,18 +230,21 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                 await db.drafts.delete('standard');
                 setDraftExists(false);
 
+                if (streamRef.current) {
+                    streamRef.current.getTracks().forEach((track) => track.stop());
+                    streamRef.current = null;
+                }
+
                 if (audioBlob.size === 0) {
                     toast({
                         title: "Erreur audio",
                         description: "L'enregistrement a retourné un fichier vide. Vérifiez les accès micro Safari.",
                         variant: "destructive",
                     });
-                    stream.getTracks().forEach((track) => track.stop());
                     return;
                 }
 
                 onRecordingComplete(audioBlob);
-                stream.getTracks().forEach((track) => track.stop());
             };
 
             const analyser = audioContext.createAnalyser();
@@ -314,9 +326,9 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
     };
 
     return (
-        <Card className="w-full max-w-md mx-auto shadow-md border-[#bd613c]/20">
-            <CardHeader className="bg-[#ebd9c8]/30 border-b border-[#bd613c]/10 pb-4">
-                <CardTitle className="text-center font-bebas tracking-wide text-2xl text-[#bd613c]">Enregistrement</CardTitle>
+        <Card className="w-full max-w-4xl mx-auto shadow-md border-[#bd613c]/20">
+            <CardHeader className="bg-[#ebd9c8]/30 border-b border-[#bd613c]/10 pb-2 pt-3">
+                <CardTitle className="text-center font-bebas tracking-wide text-xl text-[#bd613c]">Enregistrement</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col items-center justify-center pt-8 pb-6 gap-6">
                 {draftExists && !isRecording && (
@@ -333,7 +345,7 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                     </div>
                 )}
 
-                <div className="text-5xl font-mono text-[#4a3f35] tracking-wider">
+                <div className="text-5xl font-mono text-[#4a3f35] tracking-wider my-4">
                     {formatTime(recordingTime)}
                 </div>
 
@@ -341,11 +353,11 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                     {!isRecording ? (
                         <Button
                             size="lg"
-                            className="rounded-full w-16 h-16 bg-[#e25822] hover:bg-[#bd613c] shadow-md shadow-[#e25822]/30 transition-colors"
+                            className="rounded-full w-16 h-16 bg-[#e25822] hover:bg-[#bd613c] shadow-lg shadow-[#e25822]/30 transition-all hover:scale-105"
                             onClick={startRecording}
                             disabled={isProcessing}
                         >
-                            <Mic className="w-6 h-6 text-white" />
+                            <Mic className="w-5 h-5 text-white" />
                         </Button>
                     ) : (
                         <>
@@ -353,19 +365,19 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                                 <Button
                                     size="lg"
                                     variant="outline"
-                                    className="rounded-full w-14 h-14 border-2 border-[#ebd9c8]"
+                                    className="rounded-full w-12 h-12 border-2 border-[#ebd9c8]"
                                     onClick={resumeRecording}
                                 >
-                                    <Play className="w-6 h-6 text-[#bd613c]" />
+                                    <Play className="w-5 h-5 text-[#bd613c]" />
                                 </Button>
                             ) : (
                                 <Button
                                     size="lg"
                                     variant="outline"
-                                    className="rounded-full w-14 h-14 border-2 border-[#ebd9c8]"
+                                    className="rounded-full w-12 h-12 border-2 border-[#ebd9c8]"
                                     onClick={pauseRecording}
                                 >
-                                    <Pause className="w-6 h-6 text-[#bd613c]" />
+                                    <Pause className="w-5 h-5 text-[#bd613c]" />
                                 </Button>
                             )}
 
