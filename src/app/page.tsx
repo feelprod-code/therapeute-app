@@ -48,7 +48,7 @@ interface CustomSpeechEvent {
   };
 }
 
-export function EmptyState() {
+function EmptyState() {
   return (
     <details className="mt-8 mb-8 mx-auto max-w-2xl bg-white rounded-2xl border border-[#ebd9c8] p-6 text-center cursor-pointer shadow-sm hover:shadow transition-shadow group">
       <summary className="font-bebas text-xl text-[#bd613c] tracking-wide list-none flex items-center justify-center gap-2">
