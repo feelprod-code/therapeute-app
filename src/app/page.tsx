@@ -900,11 +900,11 @@ function Home() {
   };
 
   return (
-    <main className="min-h-screen py-4 sm:py-8 px-4 sm:px-6 mb-12">
-      <div className="max-w-7xl mx-auto space-y-8 sm:space-y-12 relative">
+    <main className="min-h-[100dvh] md:h-[100dvh] md:overflow-hidden flex flex-col py-4 sm:py-8 px-4 sm:px-6 mb-12 md:mb-0">
+      <div className="max-w-7xl mx-auto w-full flex flex-col relative md:h-full">
 
         {/* Bouton Agenda (Top Right) */}
-        <div className="absolute top-0 right-0 sm:top-2">
+        <div className="absolute top-0 right-0 sm:top-2 z-20">
           <Button asChild variant="outline" className="text-[#bd613c] border-[#bd613c]/30 hover:bg-[#ebd9c8]/30 rounded-xl h-10 px-4 shadow-sm">
             <Link href="/calendrier">
               <CalendarDays className="w-5 h-5 sm:mr-2" />
@@ -913,8 +913,8 @@ function Home() {
           </Button>
         </div>
 
-        {/* En-tête de l'application (Identité TDT) */}
-        <div className="text-center mt-8 sm:mt-4 mb-8 sm:mb-10">
+        {/* En-tête de l'application (Identité TDT) - Fixe en Desktop */}
+        <div className="text-center mt-8 sm:mt-4 mb-6 sm:mb-8 shrink-0">
           <h1 className="font-bebas text-3xl sm:text-5xl md:text-6xl text-[#bd613c] tracking-wide uppercase leading-none mb-1 text-balance mt-4 sm:mt-0">
             Techniques Douces Tissulaires
           </h1>
@@ -923,9 +923,11 @@ function Home() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-8 md:gap-12 items-start w-full">
-          <div className="md:col-span-5 flex flex-col gap-6 md:sticky md:top-8">
-            {/* Upload de documents locaux (IRM, Radio, etc.) */}
+        {/* Grille Flex pour prendre le reste de l'écran en Desktop */}
+        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-12 gap-8 md:gap-12 items-start w-full">
+
+          {/* Colonne de Gauche : Outils d'Enregistrement (Fixe ou scroll indépendant) */}
+          <div className="md:col-span-5 flex flex-col gap-6 md:h-full md:overflow-y-auto custom-scrollbar md:pr-2 pb-4">
             {/* Upload de documents externes */}
             <div
               className="bg-white/40 p-2 sm:p-3 rounded-lg border border-[#bd613c]/10 shadow-sm mb-4 flex flex-row justify-between items-center gap-3 transition-colors duration-200 hover:border-[#bd613c]/30 w-full"
@@ -1127,7 +1129,7 @@ function Home() {
           </div>
 
           {/* Historique des consultations */}
-          <div className="md:col-span-7 space-y-6 pt-4 md:pt-0">
+          <div className="md:col-span-7 space-y-6 pt-4 md:pt-0 md:h-full md:overflow-y-auto md:pr-2 pb-12 custom-scrollbar">
 
             <Tabs defaultValue="date" className="w-full">
               <div className="flex items-center justify-between border-b border-[#bd613c]/20 mb-6 mt-8 md:mt-0 gap-4">
