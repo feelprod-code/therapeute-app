@@ -168,77 +168,130 @@ export default function CalendarPage() {
                         <p className="text-[#4a3f35]/60 font-medium">Chargement de l'agenda...</p>
                     </div>
                 ) : (
-                    <div className="bg-white rounded-2xl border border-[#ebd9c8]/50 shadow-sm overflow-x-auto">
-                        <div className="min-w-[800px]">
-                            {/* En-tête des jours */}
-                            <div className="grid grid-cols-[60px_repeat(6,1fr)] border-b border-[#ebd9c8]/50 bg-[#ebd9c8]/10 text-center">
-                                <div className="p-3 border-r border-[#ebd9c8]/30"></div>
-                                {weekDays.map((day, i) => (
-                                    <div key={i} className={`p-3 border-r border-[#ebd9c8]/30 last:border-r-0 ${isSameDay(day, new Date()) ? 'bg-[#bd613c]/10' : ''}`}>
-                                        <div className="text-xs uppercase tracking-widest font-semibold text-[#8c7b6d]">{format(day, "EEEE", { locale: fr })}</div>
-                                        <div className={`text-xl font-bebas tracking-wide mt-1 ${isSameDay(day, new Date()) ? 'text-[#bd613c]' : 'text-[#4a3f35]'}`}>
-                                            {format(day, "d MMM", { locale: fr })}
+                    <>
+                        {/* Vue Mobile (Liste verticale) */}
+                        <div className="md:hidden space-y-6">
+                            {weekDays.map((day, i) => {
+                                const dayEvents = events
+                                    .filter((evt) => isSameDay(evt.date, day))
+                                    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+                                if (dayEvents.length === 0) return null;
+
+                                return (
+                                    <div key={i} className="bg-white rounded-2xl border border-[#ebd9c8]/50 shadow-sm overflow-hidden">
+                                        <div className={`px-4 py-3 border-b border-[#ebd9c8]/50 ${isSameDay(day, new Date()) ? 'bg-[#bd613c]/10' : 'bg-[#ebd9c8]/10'}`}>
+                                            <h3 className={`font-bebas tracking-wide text-xl capitalize ${isSameDay(day, new Date()) ? 'text-[#bd613c]' : 'text-[#4a3f35]'}`}>
+                                                {format(day, "EEEE d MMMM yyyy", { locale: fr })}
+                                            </h3>
                                         </div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* Corps de la grille (Heures) */}
-                            <div className="relative">
-                                {HOURS.map((hour, rowIdx) => (
-                                    <div key={hour} className="grid grid-cols-[60px_repeat(6,1fr)] border-b border-[#ebd9c8]/30 last:border-b-0 min-h-[80px]">
-
-                                        {/* Colonne de l'heure */}
-                                        <div className="p-2 border-r border-[#ebd9c8]/30 text-right text-xs font-semibold text-[#8c7b6d] bg-[#fdfcfb]">
-                                            {hour}h00
-                                        </div>
-
-                                        {/* Cellules des jours pour cette heure */}
-                                        {weekDays.map((day, colIdx) => {
-                                            // Trouver les événements qui correspondent à ce jour ET à cette heure
-                                            // Si l'heure de l'événement n'est pas dans [9..20], on l'affiche a la première case (9h) s'il est avant 9h, ou à la dernière (20h) s'il est après.
-                                            const cellEvents = events.filter(evt => {
-                                                const isSameD = isSameDay(evt.date, day);
-                                                if (!isSameD) return false;
-
-                                                let displayHour = evt.hour;
-                                                if (displayHour < 9) displayHour = 9;
-                                                if (displayHour > 20) displayHour = 20;
-
-                                                return displayHour === hour;
-                                            });
-
-                                            return (
-                                                <div key={`${rowIdx}-${colIdx}`} className={`relative p-1.5 border-r border-[#ebd9c8]/30 last:border-r-0 hover:bg-[#ebd9c8]/5 transition-colors ${isSameDay(day, new Date()) ? 'bg-[#ebd9c8]/5' : ''}`}>
-                                                    <div className="flex flex-col gap-1.5 h-full">
-                                                        {cellEvents.map(evt => (
-                                                            <Link
-                                                                href={`/consultation/${evt.consultationId}`}
-                                                                key={evt.id}
-                                                                className={`
-                                  block p-2 rounded-lg text-xs leading-tight shadow-sm border transition-transform hover:scale-[1.02] hover:shadow-md cursor-pointer 
-                                  ${evt.type === 'bilan'
-                                                                        ? 'bg-orange-50 border-orange-200 text-orange-900 hover:bg-orange-100'
-                                                                        : 'bg-yellow-50 border-yellow-200 text-yellow-900 hover:bg-yellow-100'
-                                                                    }
-                                `}
-                                                            >
-                                                                <div className="font-semibold uppercase tracking-wide truncate mb-0.5">{evt.title}</div>
-                                                                <div className="flex items-center gap-1 opacity-80 text-[10px] font-medium">
-                                                                    <CalendarDays className="w-3 h-3" />
-                                                                    {format(evt.date, "HH:mm")} - {evt.type === 'bilan' ? 'Bilan' : 'Suivi'}
-                                                                </div>
-                                                            </Link>
-                                                        ))}
+                                        <div className="p-4 flex flex-col gap-3">
+                                            {dayEvents.map(evt => (
+                                                <Link
+                                                    href={`/consultation/${evt.consultationId}`}
+                                                    key={evt.id}
+                                                    className={`
+                            block p-3 rounded-xl shadow-sm border transition-transform hover:scale-[1.02] hover:shadow-md cursor-pointer 
+                            ${evt.type === 'bilan'
+                                                            ? 'bg-orange-50 border-orange-200 text-orange-900'
+                                                            : 'bg-yellow-50 border-yellow-200 text-yellow-900'
+                                                        }
+                          `}
+                                                >
+                                                    <div className="flex justify-between items-start mb-1">
+                                                        <div className="font-semibold uppercase tracking-wide truncate pr-2">{evt.title}</div>
+                                                        <div className="flex items-center gap-1 opacity-80 text-xs font-bold whitespace-nowrap bg-white/50 px-2 py-1 rounded-md">
+                                                            <CalendarDays className="w-3.5 h-3.5" />
+                                                            {format(evt.date, "HH:mm")}
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            );
-                                        })}
+                                                    <div className="text-xs opacity-70 font-medium uppercase tracking-wider">{evt.type === 'bilan' ? 'Consultation Bilan' : 'Note de Suivi'}</div>
+                                                </Link>
+                                            ))}
+                                        </div>
                                     </div>
-                                ))}
+                                );
+                            })}
+
+                            {/* Cas où la semaine est vide */}
+                            {events.length === 0 && (
+                                <div className="text-center py-12 bg-white rounded-2xl border border-[#ebd9c8]/50 border-dashed">
+                                    <p className="text-[#4a3f35]/60 font-medium">Aucun rendez-vous planifié cette semaine.</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Vue Tablette/Desktop (Grille classique) */}
+                        <div className="hidden md:block bg-white rounded-2xl border border-[#ebd9c8]/50 shadow-sm overflow-x-auto">
+                            <div className="min-w-[900px]">
+                                {/* En-tête des jours */}
+                                <div className="grid grid-cols-[60px_repeat(6,1fr)] border-b border-[#ebd9c8]/50 bg-[#ebd9c8]/10 text-center">
+                                    <div className="p-3 border-r border-[#ebd9c8]/30"></div>
+                                    {weekDays.map((day, i) => (
+                                        <div key={i} className={`p-3 border-r border-[#ebd9c8]/30 last:border-r-0 ${isSameDay(day, new Date()) ? 'bg-[#bd613c]/10' : ''}`}>
+                                            <div className="text-xs uppercase tracking-widest font-semibold text-[#8c7b6d]">{format(day, "EEEE", { locale: fr })}</div>
+                                            <div className={`text-xl font-bebas tracking-wide mt-1 ${isSameDay(day, new Date()) ? 'text-[#bd613c]' : 'text-[#4a3f35]'}`}>
+                                                {format(day, "d MMM", { locale: fr })}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Corps de la grille (Heures) */}
+                                <div className="relative">
+                                    {HOURS.map((hour, rowIdx) => (
+                                        <div key={hour} className="grid grid-cols-[60px_repeat(6,1fr)] border-b border-[#ebd9c8]/30 last:border-b-0 min-h-[80px]">
+
+                                            {/* Colonne de l'heure */}
+                                            <div className="p-2 border-r border-[#ebd9c8]/30 text-right text-xs font-semibold text-[#8c7b6d] bg-[#fdfcfb]">
+                                                {hour}h00
+                                            </div>
+
+                                            {/* Cellules des jours pour cette heure */}
+                                            {weekDays.map((day, colIdx) => {
+                                                const cellEvents = events.filter(evt => {
+                                                    const isSameD = isSameDay(evt.date, day);
+                                                    if (!isSameD) return false;
+
+                                                    let displayHour = evt.hour;
+                                                    if (displayHour < 9) displayHour = 9;
+                                                    if (displayHour > 20) displayHour = 20;
+
+                                                    return displayHour === hour;
+                                                });
+
+                                                return (
+                                                    <div key={`${rowIdx}-${colIdx}`} className={`relative p-1.5 border-r border-[#ebd9c8]/30 last:border-r-0 hover:bg-[#ebd9c8]/5 transition-colors ${isSameDay(day, new Date()) ? 'bg-[#ebd9c8]/5' : ''}`}>
+                                                        <div className="flex flex-col gap-1.5 relative h-full">
+                                                            {cellEvents.map(evt => (
+                                                                <Link
+                                                                    href={`/consultation/${evt.consultationId}`}
+                                                                    key={evt.id}
+                                                                    className={`
+                                      block p-2 rounded-lg text-xs leading-tight shadow-sm border transition-transform hover:scale-[1.02] hover:shadow-md cursor-pointer 
+                                      ${evt.type === 'bilan'
+                                                                            ? 'bg-orange-50 border-orange-200 text-orange-900 hover:bg-orange-100'
+                                                                            : 'bg-yellow-50 border-yellow-200 text-yellow-900 hover:bg-yellow-100'
+                                                                        }
+                                    `}
+                                                                >
+                                                                    <div className="font-semibold uppercase tracking-wide truncate mb-0.5">{evt.title}</div>
+                                                                    <div className="flex items-center gap-1 opacity-80 text-[10px] font-medium">
+                                                                        <CalendarDays className="w-3 h-3" />
+                                                                        {format(evt.date, "HH:mm")} - {evt.type === 'bilan' ? 'Bilan' : 'Suivi'}
+                                                                    </div>
+                                                                </Link>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
-                    </div>
+                    </>
                 )}
 
             </main>
