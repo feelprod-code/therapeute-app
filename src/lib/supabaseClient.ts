@@ -11,6 +11,8 @@ export interface SupabaseConsultation {
     resume?: string;
     audioBlob?: Blob;
     isProcessing?: boolean;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    follow_ups?: any[];
 }
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!

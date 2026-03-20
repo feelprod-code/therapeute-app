@@ -92,13 +92,20 @@ export async function POST(req: Request) {
                 if (f.fileName.toLowerCase().endsWith('.png')) fMimeType = 'image/png';
                 if (f.fileName.toLowerCase().endsWith('jpg') || f.fileName.toLowerCase().endsWith('jpeg')) fMimeType = 'image/jpeg';
 
-                console.log(`[API] Fichier attaché prêt en mémoire: ${f.fileName}`);
-                parts.push({
-                    inlineData: {
-                        data: fBuffer.toString('base64'),
-                        mimeType: fMimeType
-                    }
-                });
+                if (fMimeType.startsWith('text/')) {
+                    console.log(`[API] Document texte joint prêt en mémoire: ${f.fileName}`);
+                    parts.push({
+                        text: `\n\n--- Document texte joint (${f.fileName}) ---\n${fBuffer.toString('utf-8')}\n--- Fin du document ---\n`
+                    });
+                } else {
+                    console.log(`[API] Fichier attaché prêt en mémoire: ${f.fileName} (${fMimeType})`);
+                    parts.push({
+                        inlineData: {
+                            data: fBuffer.toString('base64'),
+                            mimeType: fMimeType
+                        }
+                    });
+                }
             }
         }
 
@@ -137,6 +144,7 @@ Ton objectif est d'ajouter les nouveaux éléments à la synthèse précédente,
 Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme ceci :
 {
   "patientName": "Nom et Prénom trouvés (ou chaîne vide si aucun)",
+  "consultationDate": "Date trouvée dans le texte (ex: 2024-10-14). Si aucune date précise n'est mentionnée, renvoie null ou une chaîne vide.",
   "transcription": "Génère la retranscription EXACTE, LITTÉRALE (Verbatim) et INTÉGRALE de tout le dialogue de ce nouvel audio (ou document). RÈGLE ABSOLUE : Tu ne dois AUCUNEMENT corriger la grammaire, tu ne dois PAS supprimer les hésitations ('euh', 'ah', 'ben', répétitions). Retranscris CHAQUE MOT tel qu'il a été prononcé. Formate ce texte avec Markdown : ajoute toujours un **double saut de ligne** entre chaque prise de parole, et identifie l'interlocuteur avec : **<span style=\\"color: #bd613c;\\">Praticien :</span>** ou **<span style=\\"color: #bd613c;\\">Patient :</span>**.",
   "resume": "Un résumé narratif en 3 à 5 phrases, sous forme d'un paragraphe continu unique (AUCUNE liste, AUCUN tiret, AUCUNE puce). Intègre l'essentiel de façon fluide.",
   "synthese": "La synthèse médicale formatée en Markdown"
@@ -144,17 +152,18 @@ Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme 
 
 Règles impératives :
 1. "patientName" : Nom du patient (ex:"Jean DUPONT"). Laisse vide "" si absent.
-2. "transcription" : Intégralité du texte brut reçu en entrée (nouveau vocal ou document). RÈGLE D'OR : Mot pour mot (Verbatim), incluant les erreurs, faux-départs et hésitations.
-3. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil.
-4. "synthese" : Applique strictement la structure Markdown ci-dessous UNIQUEMENT si l'information est présente (ou fusionne à l'existant en ajoutant la section "Ajout du ..." si en mise à jour) :
+2. "consultationDate" : Si le texte mentionne explicitement la date de la séance (ex: "bilan du 14 octobre", "vu le 12/03/2021"), extrait-la au format string ISO AAAA-MM-JJ. Sinon, string vide "".
+3. "transcription" : Intégralité du texte brut reçu en entrée (nouveau vocal ou document). RÈGLE D'OR : Mot pour mot (Verbatim), incluant les erreurs, faux-départs et hésitations.
+4. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil.
+5. "synthese" : Applique strictement la structure Markdown ci-dessous UNIQUEMENT si l'information est présente (ou fusionne à l'existant en ajoutant la section "Ajout du ..." si en mise à jour) :
 
-# Bilan de Consultation - ${currentDate}
+# Bilan de Consultation - [Date exacte de la consultation extraite du texte, ou ${currentDate} par défaut]
 
 ### Informations Patient
 - **Nom/Prénom :** [Jean Dupont]
 - **Âge / Date de naissance :** [Extraire si mentionné]
 - **Profession :** [Extraire si mentionné]
-- **Date de consultation :** La consultation se passe aujourd'hui le ${currentDate}.
+- **Date de consultation :** [Date exacte de la consultation extraite du texte]
 ### Motif de Consultation
 [...]
 ### Histoire de la Maladie / Douleur

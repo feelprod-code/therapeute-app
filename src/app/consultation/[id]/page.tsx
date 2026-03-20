@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon, Trash2 } from "lucide-react";
+import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon, Trash2, Square } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import ReactMarkdown from "react-markdown";
@@ -43,6 +43,13 @@ export default function ConsultationDetail() {
 
   const [attachedDocs, setAttachedDocs] = useState<{ name: string, originalName: string, url: string, type: 'image' | 'pdf' | 'other' }[] | null>(null);
 
+  // Nouveaux états pour la modification de texte
+  const [isEditingBilan, setIsEditingBilan] = useState(false);
+  const [editBilanContent, setEditBilanContent] = useState("");
+
+  const [editingFollowUpId, setEditingFollowUpId] = useState<string | null>(null);
+  const [editFollowUpContent, setEditFollowUpContent] = useState("");
+
   const handleDeleteFollowUp = async (followUpId: string) => {
     if (!confirm("Voulez-vous vraiment supprimer cette note de suivi ?")) return;
 
@@ -61,6 +68,86 @@ export default function ConsultationDetail() {
     } catch (e) {
       console.error(e);
       toast({ title: "Erreur", description: "Impossible de supprimer la note.", variant: "destructive" });
+    }
+  };
+
+  const handleSaveBilan = async () => {
+    try {
+      const { error } = await supabase.from('consultations').update({ synthese: editBilanContent }).eq('id', params.id);
+      if (error) throw error;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setData((prev: any) => ({ ...prev, synthese: editBilanContent }));
+      setIsEditingBilan(false);
+      toast({ title: "Bilan mis à jour", description: "Vos modifications ont été enregistrées." });
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Erreur", description: "Impossible de sauvegarder le bilan.", variant: "destructive" });
+    }
+  };
+
+  const [isDictating, setIsDictating] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  const toggleDictation = () => {
+    if (isDictating) {
+      recognitionRef.current?.stop();
+      setIsDictating(false);
+      return;
+    }
+
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      toast({ title: "Non supporté", description: "La dictée vocale n'est pas supportée sur ce navigateur.", variant: "destructive" });
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'fr-FR';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onresult = (event: any) => {
+      let currentFinal = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          currentFinal += event.results[i][0].transcript + ' ';
+        }
+      }
+      if (currentFinal) {
+        setTextContent(prev => prev + (prev && !prev.endsWith(' ') ? ' ' : '') + currentFinal);
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("Speech recognition error", event.error);
+      setIsDictating(false);
+    };
+
+    recognition.onend = () => {
+      setIsDictating(false);
+    };
+
+    recognition.start();
+    recognitionRef.current = recognition;
+    setIsDictating(true);
+  };
+
+  const handleSaveFollowUp = async (followUpId: string) => {
+    try {
+      const currentFollowUps = data.follow_ups || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updatedFollowUps = currentFollowUps.map((n: any) =>
+        n.id === followUpId ? { ...n, content: editFollowUpContent } : n
+      );
+      const { error } = await supabase.from('consultations').update({ follow_ups: updatedFollowUps }).eq('id', params.id);
+      if (error) throw error;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setData((prev: any) => ({ ...prev, follow_ups: updatedFollowUps }));
+      setEditingFollowUpId(null);
+      toast({ title: "Note mise à jour", description: "Vos modifications ont été enregistrées." });
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Erreur", description: "Impossible de sauvegarder la note.", variant: "destructive" });
     }
   };
 
@@ -545,13 +632,25 @@ export default function ConsultationDetail() {
             </DialogTitle>
           </DialogHeader>
           <div className="py-4 space-y-4">
-            <textarea
-              value={textContent}
-              onChange={(e) => setTextContent(e.target.value)}
-              placeholder="Saisissez ici les informations de votre consultation..."
-              className="w-full min-h-[200px] p-4 font-inter text-base rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none resize-none transition-shadow"
-              disabled={isAppending}
-            />
+            <div className="relative">
+              <textarea
+                value={textContent}
+                onChange={(e) => setTextContent(e.target.value)}
+                placeholder="Saisissez ici les informations de votre consultation..."
+                className="w-full min-h-[200px] p-4 pb-14 font-inter text-base rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none resize-none transition-shadow"
+                disabled={isAppending}
+              />
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={toggleDictation}
+                disabled={isAppending}
+                className={`absolute bottom-3 right-3 rounded-full transition-all ${isDictating ? 'bg-red-100 text-red-500 hover:bg-red-200 animate-pulse' : 'bg-[#ebd9c8]/30 text-[#bd613c] hover:bg-[#ebd9c8]/50'}`}
+                title={isDictating ? "Arrêter la dictée" : "Démarrer la dictée vocale"}
+              >
+                {isDictating ? <Square className="w-5 h-5 fill-current" /> : <Mic className="w-5 h-5" />}
+              </Button>
+            </div>
             <div className="flex justify-end gap-3 pt-2">
               <Button variant="ghost" onClick={() => setIsTextModalOpen(false)} disabled={isAppending} className="text-[#4a3f35]/60 hover:text-[#4a3f35] hover:bg-[#ebd9c8]/20">
                 Annuler
@@ -670,11 +769,13 @@ export default function ConsultationDetail() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="center" className="w-56 bg-white border-[#ebd9c8]">
-                      <DropdownMenuItem onClick={() => { setAppendMode('bilan'); setIsRecordingModalOpen(true); }} className="cursor-pointer py-3">
-                        <span className="font-medium">Mettre à jour le Bilan</span>
+                      <DropdownMenuItem onClick={() => { setAppendMode('bilan'); setIsRecordingModalOpen(true); }} className="cursor-pointer py-3 flex items-center hover:bg-[#ebd9c8]/20 transition-colors rounded-lg">
+                        <span className="text-xl mr-3 opacity-80">🔄</span>
+                        <span className="font-medium text-[15px] text-slate-700">Mettre à jour le Bilan</span>
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => { setAppendMode('suivi'); setIsRecordingModalOpen(true); }} className="cursor-pointer py-3 text-[#bd613c]">
-                        <span className="font-medium">📝 Nouvelle Note de Suivi</span>
+                      <DropdownMenuItem onClick={() => { setAppendMode('suivi'); setIsRecordingModalOpen(true); }} className="cursor-pointer py-3 flex items-center mt-1 bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors rounded-lg text-[#bd613c] shadow-sm border border-[#bd613c]/10">
+                        <span className="text-xl mr-3">📝</span>
+                        <span className="font-medium text-[15px]">Nouvelle Note de Suivi</span>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -687,11 +788,13 @@ export default function ConsultationDetail() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="center" className="w-56 bg-white border-[#ebd9c8]">
-                      <DropdownMenuItem onClick={() => { setAppendMode('bilan'); setIsTextModalOpen(true); }} className="cursor-pointer py-3">
-                        <span className="font-medium">Mettre à jour le Bilan</span>
+                      <DropdownMenuItem onClick={() => { setAppendMode('bilan'); setIsTextModalOpen(true); }} className="cursor-pointer py-3 flex items-center hover:bg-[#ebd9c8]/20 transition-colors rounded-lg">
+                        <span className="text-xl mr-3 opacity-80">🔄</span>
+                        <span className="font-medium text-[15px] text-slate-700">Mettre à jour le Bilan</span>
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => { setAppendMode('suivi'); setIsTextModalOpen(true); }} className="cursor-pointer py-3 text-[#bd613c]">
-                        <span className="font-medium">📝 Nouvelle Note de Suivi</span>
+                      <DropdownMenuItem onClick={() => { setAppendMode('suivi'); setIsTextModalOpen(true); }} className="cursor-pointer py-3 flex items-center mt-1 bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors rounded-lg text-[#bd613c] shadow-sm border border-[#bd613c]/10">
+                        <span className="text-xl mr-3">📝</span>
+                        <span className="font-medium text-[15px]">Nouvelle Note de Suivi</span>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -704,11 +807,13 @@ export default function ConsultationDetail() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="center" className="w-56 bg-white border-[#ebd9c8]">
-                      <DropdownMenuItem onClick={() => fileInputRefBilanMobile.current?.click()} className="cursor-pointer py-3">
-                        <span className="font-medium">Mettre à jour le Bilan</span>
+                      <DropdownMenuItem onClick={() => fileInputRefBilanMobile.current?.click()} className="cursor-pointer py-3 flex items-center hover:bg-[#ebd9c8]/20 transition-colors rounded-lg">
+                        <span className="text-xl mr-3 opacity-80">🔄</span>
+                        <span className="font-medium text-[15px] text-slate-700">Mettre à jour le Bilan</span>
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => fileInputRefSuiviMobile.current?.click()} className="cursor-pointer py-3 text-[#bd613c]">
-                        <span className="font-medium">📝 Nouvelle Note de Suivi</span>
+                      <DropdownMenuItem onClick={() => fileInputRefSuiviMobile.current?.click()} className="cursor-pointer py-3 flex items-center mt-1 bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors rounded-lg text-[#bd613c] shadow-sm border border-[#bd613c]/10">
+                        <span className="text-xl mr-3">📝</span>
+                        <span className="font-medium text-[15px]">Nouvelle Note de Suivi</span>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -758,19 +863,45 @@ export default function ConsultationDetail() {
                       Synthèse
                     </h2>
                   </div>
-                  {data.synthese && (
-                    <Button variant="ghost" size="sm" onClick={() => handleExportPDF(`bilan_${data.patient_name || 'patient'}`)} className="text-[#bd613c] hover:bg-[#ebd9c8]/30 print:hidden h-8 px-3 rounded-lg" data-html2canvas-ignore="true">
-                      <Share className="w-4 h-4 sm:mr-2" /> <span className="hidden sm:inline text-sm font-medium">Exporter PDF</span>
-                    </Button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {data.synthese && !isEditingBilan && (
+                      <>
+                        <Button variant="ghost" size="sm" onClick={() => { setEditBilanContent(data.synthese); setIsEditingBilan(true); }} className="text-slate-400 hover:text-[#bd613c] hover:bg-[#ebd9c8]/30 print:hidden h-8 px-3 rounded-lg">
+                          <Pencil className="w-4 h-4 sm:mr-2" /> <span className="hidden sm:inline text-sm font-medium">Modifier</span>
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => handleExportPDF(`bilan_${data.patient_name || 'patient'}`)} className="text-[#bd613c] hover:bg-[#ebd9c8]/30 print:hidden h-8 px-3 rounded-lg" data-html2canvas-ignore="true">
+                          <Share className="w-4 h-4 sm:mr-2" /> <span className="hidden sm:inline text-sm font-medium">Exporter PDF</span>
+                        </Button>
+                      </>
+                    )}
+                    {isEditingBilan && (
+                      <>
+                        <Button variant="ghost" size="sm" onClick={() => setIsEditingBilan(false)} className="text-slate-400 hover:text-red-500 hover:bg-red-50 print:hidden h-8 px-3 rounded-lg">
+                          <XIcon className="w-4 h-4 mr-2" /> <span className="text-sm font-medium">Annuler</span>
+                        </Button>
+                        <Button size="sm" onClick={handleSaveBilan} className="bg-green-600 hover:bg-green-700 text-white print:hidden h-8 px-4 rounded-lg">
+                          <Check className="w-4 h-4 mr-2" /> <span className="text-sm font-medium">Sauvegarder</span>
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#bd613c] prose-headings:tracking-wide prose-p:text-[#4a3f35]/90 prose-strong:text-[#bd613c] prose-li:text-[#4a3f35]/90 prose-h1:text-2xl sm:prose-h1:text-4xl">
-                  {data.synthese ? (
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
-                      {data.synthese}
-                    </ReactMarkdown>
-                  ) : "Aucune synthèse disponible."}
-                </div>
+
+                {isEditingBilan ? (
+                  <textarea
+                    value={editBilanContent}
+                    onChange={(e) => setEditBilanContent(e.target.value)}
+                    className="w-full min-h-[500px] p-4 font-mono text-sm sm:text-base rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none"
+                  />
+                ) : (
+                  <div className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#bd613c] prose-headings:tracking-wide prose-p:text-[#4a3f35]/90 prose-strong:text-[#bd613c] prose-li:text-[#4a3f35]/90 prose-h1:text-2xl sm:prose-h1:text-4xl">
+                    {data.synthese ? (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                        {data.synthese}
+                      </ReactMarkdown>
+                    ) : "Aucune synthèse disponible."}
+                  </div>
+                )}
               </TabsContent>
 
               <TabsContent value="notes" className="mt-8 lg:border-t border-[#ebd9c8]/50 lg:pt-8 print:hidden">
@@ -836,48 +967,164 @@ export default function ConsultationDetail() {
                     <p className="text-sm text-[#4a3f35]/40 mt-1">Ajoutez un audio ou document pour créer le premier suivi.</p>
                   </div>
                 ) : (
-                  <div className="space-y-8 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-[#ebd9c8] before:to-transparent">
-                    {data.follow_ups.map((note: any, idx: number) => (
-                      <div key={note.id || idx} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                        {/* Timeline Marker */}
-                        <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-white bg-[#bd613c] shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10">
-                          <Check className="w-4 h-4 text-white" />
-                        </div>
+                  <div className="space-y-8 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-[#ebd9c8] before:to-transparent">
+                    {(() => {
+                      // Group follow_ups by day (YYYY-MM-DD)
+                      const grouped = data.follow_ups.reduce((acc: any, note: any) => {
+                        if (!note.date) return acc;
+                        const dayStr = new Date(note.date).toISOString().split('T')[0];
+                        if (!acc[dayStr]) acc[dayStr] = [];
+                        acc[dayStr].push(note);
+                        return acc;
+                      }, {});
 
-                        {/* Card */}
-                        <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border border-[#ebd9c8]/50 bg-white shadow-sm hover:shadow-md transition-shadow">
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                            <time className="text-sm font-medium text-[#bd613c] bg-[#ebd9c8]/20 px-2.5 py-1 rounded-md inline-block">
-                              {format(new Date(note.date), "d MMM yyyy, HH:mm", { locale: fr })}
-                            </time>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-slate-400 hover:text-red-500 hover:bg-red-50 h-8 px-2"
-                              onClick={() => handleDeleteFollowUp(note.id)}
-                              title="Supprimer la note"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
+                      // Determine the absolute session number based on all unique dates of interaction
+                      const extractExplicitSession = (text: string | null | undefined): number | null => {
+                        if (!text) return null;
+                        const match = text.match(/\b(?:s|séance|seance)\s*([0-9]+)\b/i);
+                        if (match) {
+                          const num = parseInt(match[1], 10);
+                          const isSpelledOut = /(?:séance|seance)/i.test(match[0]);
+                          // Avoid S1-S5 (sacrum) false positives unless explicitly "séance"
+                          if (num > 5 || isSpelledOut) return num;
+                        }
+                        return null;
+                      };
+
+                      const allDates = new Set<string>();
+                      let maxExplicitOffset = 0;
+                      let maxExplicitIndex = -1;
+
+                      if (data.date) {
+                        try {
+                          const dStr = new Date(data.date).toISOString().split('T')[0];
+                          allDates.add(dStr);
+                          const num = extractExplicitSession(data.resume) || extractExplicitSession(data.synthese);
+                          if (num) {
+                            maxExplicitOffset = num;
+                            maxExplicitIndex = 0;
+                          }
+                        } catch (e) {
+                          console.error("Invalid Bilan date", e);
+                        }
+                      }
+
+                      Object.keys(grouped).forEach(dayStr => allDates.add(dayStr));
+                      const sortedAllDates = Array.from(allDates).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+
+                      // Pass 2: check follow-ups for explicit session markers
+                      Object.keys(grouped).forEach(dayStr => {
+                        const dIdx = sortedAllDates.indexOf(dayStr);
+                        grouped[dayStr].forEach((note: any) => {
+                          const num = extractExplicitSession(note.title) || extractExplicitSession(note.content);
+                          if (num && num > maxExplicitOffset) {
+                            maxExplicitOffset = num;
+                            maxExplicitIndex = dIdx;
+                          }
+                        });
+                      });
+
+                      const getSessionNumberForDay = (dayStr: string) => {
+                        const idx = sortedAllDates.indexOf(dayStr);
+                        if (maxExplicitOffset > 0 && maxExplicitIndex >= 0) {
+                          return maxExplicitOffset + (idx - maxExplicitIndex);
+                        }
+                        return idx + 1;
+                      };
+
+                      const sortedDays = Object.keys(grouped).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+
+                      return sortedDays.map((dayStr, dayIdx) => (
+                        <div key={dayStr} className="relative flex items-start gap-4 md:gap-6 group is-active">
+                          {/* Timeline Marker (one per DAY) */}
+                          <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-white bg-[#bd613c] shadow shrink-0 z-10 mt-4 relative">
+                            <Check className="w-4 h-4 text-white" />
                           </div>
-                          <div className="prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c]">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
-                              {note.content}
-                            </ReactMarkdown>
+
+                          {/* Card for the DAY */}
+                          <div className="flex-1 min-w-0 p-5 rounded-2xl border border-[#ebd9c8]/50 bg-white shadow-sm hover:shadow-md transition-shadow">
+                            <h3 className="font-bebas tracking-wide text-lg sm:text-xl text-[#bd613c] mb-3 pb-2 border-b border-[#ebd9c8]/30 flex items-center overflow-hidden">
+                              <span className="capitalize truncate flex-1">{format(new Date(dayStr), "EEEE d MMMM yyyy", { locale: fr })}</span>
+                              <span className="shrink-0 text-sm sm:text-base opacity-70 border-l border-[#bd613c]/30 pl-2 ml-2">SÉANCE {getSessionNumberForDay(dayStr)}</span>
+                              <span className="shrink-0 text-sm sm:text-base opacity-60 border-l border-[#bd613c]/30 pl-2 ml-2">
+                                à {format(new Date(Math.min(...grouped[dayStr].map((n: any) => new Date(n.date).getTime()))), "HH:mm")}
+                              </span>
+                            </h3>
+
+                            <div className="space-y-6">
+                              {grouped[dayStr].map((note: any, noteIdx: number) => (
+                                <div key={note.id || noteIdx} className="relative">
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-2 mb-2">
+                                    <div className="flex items-center -mr-2">
+                                      {editingFollowUpId === note.id ? (
+                                        <>
+                                          <Button size="icon" variant="ghost" className="text-green-600 hover:bg-green-50 h-8 w-8" onClick={() => handleSaveFollowUp(note.id)}>
+                                            <Check className="w-4 h-4" />
+                                          </Button>
+                                          <Button size="icon" variant="ghost" className="text-slate-400 hover:text-red-500 hover:bg-red-50 h-8 w-8" onClick={() => setEditingFollowUpId(null)}>
+                                            <XIcon className="w-4 h-4" />
+                                          </Button>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="text-slate-400 hover:text-[#bd613c] hover:bg-[#ebd9c8]/30 h-8 px-2"
+                                            onClick={() => { setEditFollowUpContent(note.content); setEditingFollowUpId(note.id); }}
+                                            title="Modifier la note"
+                                          >
+                                            <Pencil className="w-4 h-4" />
+                                          </Button>
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="text-slate-400 hover:text-red-500 hover:bg-red-50 h-8 px-2"
+                                            onClick={() => handleDeleteFollowUp(note.id)}
+                                            title="Supprimer la note"
+                                          >
+                                            <Trash2 className="w-4 h-4" />
+                                          </Button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {editingFollowUpId === note.id ? (
+                                    <textarea
+                                      value={editFollowUpContent}
+                                      onChange={(e) => setEditFollowUpContent(e.target.value)}
+                                      className="w-full min-h-[150px] p-3 font-mono text-sm rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none"
+                                    />
+                                  ) : (
+                                    <div className="prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c]">
+                                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                                        {note.content}
+                                      </ReactMarkdown>
+                                    </div>
+                                  )}
+                                  {note.transcription && (
+                                    <details className="mt-3 pt-2 border-t border-[#ebd9c8]/30 group/details">
+                                      <summary className="text-xs font-medium text-slate-400 hover:text-[#bd613c] cursor-pointer list-none flex items-center gap-1 select-none transition-colors">
+                                        <span className="group-open/details:hidden">▶</span><span className="hidden group-open/details:inline">▼</span> Voir la transcription source
+                                      </summary>
+                                      <div className="mt-2 p-3 bg-slate-50 rounded-lg text-xs font-mono text-slate-500 whitespace-pre-wrap">
+                                        {note.transcription}
+                                      </div>
+                                    </details>
+                                  )}
+
+                                  {/* Separator between notes of the same day, except the last one */}
+                                  {noteIdx < grouped[dayStr].length - 1 && (
+                                    <div className="w-full h-px bg-gradient-to-r from-transparent via-[#ebd9c8]/50 to-transparent my-6" />
+                                  )}
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                          {note.transcription && (
-                            <details className="mt-4 pt-3 border-t border-[#ebd9c8]/30 group/details">
-                              <summary className="text-xs font-medium text-slate-400 hover:text-[#bd613c] cursor-pointer list-none flex items-center gap-1 select-none transition-colors">
-                                <span className="group-open/details:hidden">▶</span><span className="hidden group-open/details:inline">▼</span> Voir la transcription source
-                              </summary>
-                              <div className="mt-2 p-3 bg-slate-50 rounded-lg text-xs font-mono text-slate-500 whitespace-pre-wrap">
-                                {note.transcription}
-                              </div>
-                            </details>
-                          )}
                         </div>
-                      </div>
-                    ))}
+                      ));
+                    })()}
                   </div>
                 )}
               </TabsContent>
@@ -888,10 +1135,10 @@ export default function ConsultationDetail() {
             <div className="hidden lg:flex w-72 shrink-0 flex-col gap-10 print:hidden" data-html2canvas-ignore="true">
 
               {/* ACTIONS (Audio / Doc) */}
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <h3 className="font-bebas text-xl tracking-wide text-[#bd613c] uppercase">Ajout d&apos;information</h3>
 
-                <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-5">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="outline" className="w-full justify-start text-left h-12 px-4 rounded-xl text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending}>
@@ -900,11 +1147,13 @@ export default function ConsultationDetail() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-64 p-2 bg-white border-[#ebd9c8]">
-                      <DropdownMenuItem onClick={() => { setAppendMode('bilan'); setIsRecordingModalOpen(true); }} className="cursor-pointer py-3 rounded-lg">
-                        <span className="font-medium text-base">Mettre à jour le Bilan</span>
+                      <DropdownMenuItem onClick={() => { setAppendMode('bilan'); setIsRecordingModalOpen(true); }} className="cursor-pointer py-3 flex items-center rounded-lg hover:bg-[#ebd9c8]/20 transition-colors">
+                        <span className="text-xl mr-3 opacity-80">🔄</span>
+                        <span className="font-medium text-base text-slate-700">Mettre à jour le Bilan</span>
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => { setAppendMode('suivi'); setIsRecordingModalOpen(true); }} className="cursor-pointer py-3 rounded-lg text-[#bd613c] mt-1 bg-[#ebd9c8]/10">
-                        <span className="font-medium text-base">📝 Nouvelle Note de Suivi</span>
+                      <DropdownMenuItem onClick={() => { setAppendMode('suivi'); setIsRecordingModalOpen(true); }} className="cursor-pointer py-3 flex items-center rounded-lg text-[#bd613c] mt-1 bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors shadow-sm border border-[#bd613c]/10">
+                        <span className="text-xl mr-3">📝</span>
+                        <span className="font-medium text-base">Nouvelle Note de Suivi</span>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -917,11 +1166,13 @@ export default function ConsultationDetail() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-64 p-2 bg-white border-[#ebd9c8]">
-                      <DropdownMenuItem onClick={() => { setAppendMode('bilan'); setIsTextModalOpen(true); }} className="cursor-pointer py-3 rounded-lg">
-                        <span className="font-medium text-base">Mettre à jour le Bilan</span>
+                      <DropdownMenuItem onClick={() => { setAppendMode('bilan'); setIsTextModalOpen(true); }} className="cursor-pointer py-3 flex items-center rounded-lg hover:bg-[#ebd9c8]/20 transition-colors">
+                        <span className="text-xl mr-3 opacity-80">🔄</span>
+                        <span className="font-medium text-base text-slate-700">Mettre à jour le Bilan</span>
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => { setAppendMode('suivi'); setIsTextModalOpen(true); }} className="cursor-pointer py-3 rounded-lg text-[#bd613c] mt-1 bg-[#ebd9c8]/10">
-                        <span className="font-medium text-base">📝 Nouvelle Note de Suivi</span>
+                      <DropdownMenuItem onClick={() => { setAppendMode('suivi'); setIsTextModalOpen(true); }} className="cursor-pointer py-3 flex items-center rounded-lg text-[#bd613c] mt-1 bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors shadow-sm border border-[#bd613c]/10">
+                        <span className="text-xl mr-3">📝</span>
+                        <span className="font-medium text-base">Nouvelle Note de Suivi</span>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -934,11 +1185,13 @@ export default function ConsultationDetail() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-64 p-2 bg-white border-[#ebd9c8]">
-                      <DropdownMenuItem onClick={() => fileInputRefBilanDesktop.current?.click()} className="cursor-pointer py-3 rounded-lg">
-                        <span className="font-medium text-base">Mettre à jour le Bilan</span>
+                      <DropdownMenuItem onClick={() => fileInputRefBilanDesktop.current?.click()} className="cursor-pointer py-3 flex items-center rounded-lg hover:bg-[#ebd9c8]/20 transition-colors">
+                        <span className="text-xl mr-3 opacity-80">🔄</span>
+                        <span className="font-medium text-base text-slate-700">Mettre à jour le Bilan</span>
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => fileInputRefSuiviDesktop.current?.click()} className="cursor-pointer py-3 rounded-lg text-[#bd613c] mt-1 bg-[#ebd9c8]/10">
-                        <span className="font-medium text-base">📝 Nouvelle Note de Suivi</span>
+                      <DropdownMenuItem onClick={() => fileInputRefSuiviDesktop.current?.click()} className="cursor-pointer py-3 flex items-center rounded-lg text-[#bd613c] mt-1 bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors shadow-sm border border-[#bd613c]/10">
+                        <span className="text-xl mr-3">📝</span>
+                        <span className="font-medium text-base">Nouvelle Note de Suivi</span>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>

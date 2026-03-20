@@ -9,7 +9,7 @@ import { compressAudio } from '@/lib/compress-audio';
 import { supabase, SupabaseConsultation } from "@/lib/supabaseClient";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, ArrowRight, Trash2, Paperclip, X, FileText, Image as ImageIcon, Download, Folder as FolderIcon, ChevronDown, Mic, Combine, RefreshCw } from "lucide-react";
+import { Copy, Plus, Trash2, ArrowRight, Loader2, RefreshCw, FileText, Check, MessageSquare, ListTodo, MoreHorizontal, Merge, Search, Mic, Type, FileUp, X as XIcon, CalendarDays, Folder as FolderIcon, ChevronDown, Combine, Paperclip, Image as ImageIcon, X, Download, Square } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,7 +25,46 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import ProtectedRoute from "@/components/ProtectedRoute";
+
+const BATCH_SIZE = 10; // Number of items to load per page
+
+interface CustomSpeechEvent {
+  resultIndex: number;
+  results: {
+    length: number;
+    [key: number]: {
+      isFinal: boolean;
+      [key: number]: {
+        transcript: string;
+      };
+    };
+  };
+}
+
+export function EmptyState() {
+  return (
+    <details className="mt-8 mb-8 mx-auto max-w-2xl bg-white rounded-2xl border border-[#ebd9c8] p-6 text-center cursor-pointer shadow-sm hover:shadow transition-shadow group">
+      <summary className="font-bebas text-xl text-[#bd613c] tracking-wide list-none flex items-center justify-center gap-2">
+        <span className="text-2xl opacity-80 group-open:hidden">▶</span>
+        <span className="text-2xl opacity-80 hidden group-open:inline">▼</span>
+        Comment utiliser le mode Bilingue ou un autre appareil ?
+      </summary>
+      <div className="mt-6 text-[#4a3f35]/80 text-sm space-y-4 font-inter text-left px-4">
+        <p>1. Cliquez sur le bouton <strong className="text-[#bd613c] font-semibold">Mode Bilingue</strong> si vous passez d'une langue à l'autre dans le même enregistrement.</p>
+        <p>2. Enregistrez avec le dictaphone de votre téléphone ou tout autre appareil portable.</p>
+        <p>3. Cliquez sur l'onglet <strong className="text-[#bd613c] font-semibold">Importer Audio</strong> et déposez votre fichier.</p>
+        <p>4. L'IA générera automatiquement le bilan complet basé sur ce fichier.</p>
+      </div>
+    </details>
+  );
+}
 
 export default function HomeWrapper() {
   return (
@@ -61,6 +100,53 @@ function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [consultations, setConsultations] = useState<SupabaseConsultation[] | null>(null);
 
+  const [isDictating, setIsDictating] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  const toggleDictation = () => {
+    if (isDictating) {
+      recognitionRef.current?.stop();
+      setIsDictating(false);
+      return;
+    }
+
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      toast({ title: "Non supporté", description: "La dictée vocale n'est pas supportée sur ce navigateur.", variant: "destructive" });
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'fr-FR';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onresult = (event: CustomSpeechEvent) => {
+      let currentFinal = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          currentFinal += event.results[i][0].transcript + ' ';
+        }
+      }
+      if (currentFinal) {
+        setTextContent(prev => prev + (prev && !prev.endsWith(' ') ? ' ' : '') + currentFinal);
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("Speech recognition error", event.error);
+      setIsDictating(false);
+    };
+
+    recognition.onend = () => {
+      setIsDictating(false);
+    };
+
+    recognition.start();
+    recognitionRef.current = recognition;
+    setIsDictating(true);
+  };
+
   useEffect(() => {
     const fetchConsultations = async () => {
       const { data, error } = await supabase
@@ -85,6 +171,7 @@ function Home() {
           synthese: d.synthese,
           transcription: d.transcription,
           audioPath: d.audio_path,
+          follow_ups: d.follow_ups,
           isProcessing: false, // Override dynamically in ConsultationCard
           createdAt: new Date(d.created_at)
         }));
@@ -212,12 +299,23 @@ function Home() {
       const analyzeData = await analyzeRes.json();
 
       // Mettre à jour avec le compte-rendu brut et la synthèse (Gemini renvoie un texte structuré)
-      await supabase.from('consultations').update({
+      // Construire le payload de mise à jour
+      const updatePayload: any = {
         patient_name: analyzeData.patientName && analyzeData.patientName.trim() !== "" ? analyzeData.patientName : "Patient Anonyme",
         resume: analyzeData.resume || "",
         synthese: analyzeData.synthese,
         transcription: analyzeData.transcription || "",
-      }).eq('id', newConsultationId);
+      };
+
+      // Si l'IA a trouvé une date de consultation claire dans le texte, on écrase la date de création par défaut
+      if (analyzeData.consultationDate) {
+        const parsedDate = new Date(analyzeData.consultationDate);
+        if (!isNaN(parsedDate.getTime())) {
+          updatePayload.date = parsedDate.toISOString();
+        }
+      }
+
+      await supabase.from('consultations').update(updatePayload).eq('id', newConsultationId);
 
       setActiveProcessingIds(prev => prev.filter(id => id !== newConsultationId));
 
@@ -553,6 +651,78 @@ function Home() {
       }
     };
 
+    const extractExplicitSession = (text: string | null | undefined): number | null => {
+      if (!text) return null;
+      // Allow e.g. "s15", "séance 15", "S 15", "seance15"
+      const match = text.match(/\b(?:s|séance|seance)\s*([0-9]+)\b/i);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        const isSpelledOut = /(?:séance|seance)/i.test(match[0]);
+        // If it's just "S1" to "S5", ignore to avoid Sacral Vertebrae. If spelled out, keep it.
+        if (num > 5 || isSpelledOut) return num;
+      }
+      return null;
+    };
+
+    const getSessionCount = () => {
+      const allDates = new Set<string>();
+      let maxExplicitOffset = 0;
+      let maxExplicitIndex = -1;
+
+      if (consult.date) {
+        try {
+          const dStr = new Date(consult.date).toISOString().split('T')[0];
+          allDates.add(dStr);
+          const num = extractExplicitSession(consult.resume) || extractExplicitSession(consult.synthese);
+          if (num) {
+            maxExplicitOffset = num;
+            maxExplicitIndex = 0;
+          }
+        } catch (e) { }
+      }
+
+      if (consult.follow_ups && Array.isArray(consult.follow_ups)) {
+        consult.follow_ups.forEach((note: any) => {
+          if (note.date) {
+            try {
+              const dStr = new Date(note.date).toISOString().split('T')[0];
+              allDates.add(dStr);
+            } catch (e) { }
+          }
+        });
+      }
+
+      const sortedAllDates = Array.from(allDates).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+
+      // Look for explicit markers in followups to adjust offset
+      if (consult.follow_ups && Array.isArray(consult.follow_ups)) {
+        consult.follow_ups.forEach((note: any) => {
+          if (note.date) {
+            try {
+              const dStr = new Date(note.date).toISOString().split('T')[0];
+              const dIdx = sortedAllDates.indexOf(dStr);
+              const num = extractExplicitSession(note.title) || extractExplicitSession(note.content);
+              if (num && num > maxExplicitOffset) {
+                // Keep the largest explicit offset we find to set the baseline
+                maxExplicitOffset = num;
+                maxExplicitIndex = dIdx;
+              }
+            } catch (e) { }
+          }
+        });
+      }
+
+      if (maxExplicitOffset > 0 && maxExplicitIndex >= 0) {
+        // If we found 'S15' at index 4, and total length is 6
+        // S15 is index 4. Index 5 is 16. Max is `15 + (5 - 4)` = 16.
+        return maxExplicitOffset + ((sortedAllDates.length - 1) - maxExplicitIndex);
+      }
+
+      return sortedAllDates.length || 1;
+    };
+
+    const sessionCount = getSessionCount();
+
     return (
       <Card key={consult.id} className="hover:shadow-md transition-shadow relative overflow-hidden group border-[#bd613c]/20">
         {isProcessing && (
@@ -563,9 +733,15 @@ function Home() {
             <h3 className="text-lg sm:text-xl font-bebas tracking-wide text-[#bd613c] uppercase mb-1 truncate">
               {consult.patientName || `Patient #${consult.id}`}
             </h3>
-            <p className="text-xs sm:text-sm text-[#4a3f35]/70 truncate">
-              {format(new Date(consult.date), "EEEE d MMMM yyyy 'à' HH:mm", { locale: fr })}
-            </p>
+            <div className="flex flex-row items-center flex-wrap gap-2 text-xs sm:text-sm text-[#4a3f35]/70">
+              <span className="truncate">
+                {format(new Date(consult.date), "EEEE d MMMM yyyy 'à' HH:mm", { locale: fr })}
+              </span>
+              <div className="flex items-center gap-1 px-1.5 py-0.5 bg-[#ebd9c8]/30 text-[#bd613c]/80 text-[10px] sm:text-[11px] font-medium rounded-sm">
+                <CalendarDays className="w-2.5 h-2.5 opacity-80" />
+                <span>S{sessionCount}</span>
+              </div>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 sm:gap-2 shrink-0">
@@ -601,12 +777,12 @@ function Home() {
                       <DialogTrigger asChild>
                         <Button
                           variant="ghost"
-                          size="sm"
-                          className="text-[#bd613c] hover:bg-[#bd613c]/10 h-9 px-3"
+                          size="icon"
+                          className="text-[#bd613c] hover:bg-[#bd613c]/10 h-9 w-9"
                           disabled={isAppending}
+                          title="Ajouter Audio"
                         >
-                          <Mic className="w-4 h-4 sm:mr-1" />
-                          <span className="hidden sm:inline">Ajouter Audio</span>
+                          <Mic className="w-4 h-4" />
                         </Button>
                       </DialogTrigger>
                       <DialogContent className="sm:max-w-xl bg-white border-[#ebd9c8]/30">
@@ -725,11 +901,21 @@ function Home() {
 
   return (
     <main className="min-h-screen py-4 sm:py-8 px-4 sm:px-6 mb-12">
-      <div className="max-w-7xl mx-auto space-y-8 sm:space-y-12">
+      <div className="max-w-7xl mx-auto space-y-8 sm:space-y-12 relative">
+
+        {/* Bouton Agenda (Top Right) */}
+        <div className="absolute top-0 right-0 sm:top-2">
+          <Button asChild variant="outline" className="text-[#bd613c] border-[#bd613c]/30 hover:bg-[#ebd9c8]/30 rounded-xl h-10 px-4 shadow-sm">
+            <Link href="/calendrier">
+              <CalendarDays className="w-5 h-5 sm:mr-2" />
+              <span className="hidden sm:inline font-medium">Mon Agenda</span>
+            </Link>
+          </Button>
+        </div>
 
         {/* En-tête de l'application (Identité TDT) */}
-        <div className="text-center mt-2 sm:mt-4 mb-8 sm:mb-10">
-          <h1 className="font-bebas text-3xl sm:text-5xl md:text-6xl text-[#bd613c] tracking-wide uppercase leading-none mb-1 text-balance">
+        <div className="text-center mt-8 sm:mt-4 mb-8 sm:mb-10">
+          <h1 className="font-bebas text-3xl sm:text-5xl md:text-6xl text-[#bd613c] tracking-wide uppercase leading-none mb-1 text-balance mt-4 sm:mt-0">
             Techniques Douces Tissulaires
           </h1>
           <p className="mt-2 text-lg sm:text-xl md:text-2xl tracking-[0.2em] text-[#4a3f35] uppercase font-light">
@@ -796,22 +982,18 @@ function Home() {
 
             {/* Sélection du Mode d'Enregistrement */}
             <Tabs value={recorderMode} onValueChange={setRecorderMode} className="w-full">
-              <TabsList className="grid w-full grid-cols-4 mb-6 h-auto p-1 sm:h-10">
-                <TabsTrigger value="standard" className="text-[10px] sm:text-sm py-2 px-1 sm:py-1.5 leading-tight">
-                  <span className="sm:hidden">Audio</span>
-                  <span className="hidden sm:inline">Mode Standard</span>
+              <TabsList className="grid w-full grid-cols-4 gap-1 p-1 bg-[#ebd9c8]/20 rounded-xl mb-6 h-auto min-h-[44px]">
+                <TabsTrigger value="standard" className="text-xs sm:text-sm py-2 px-1 leading-tight rounded-lg data-[state=active]:bg-white data-[state=active]:text-[#bd613c] data-[state=active]:shadow-sm">
+                  Audio
                 </TabsTrigger>
-                <TabsTrigger value="bilingual" className="text-[10px] sm:text-sm py-2 px-1 sm:py-1.5 leading-tight">
-                  <span className="sm:hidden">Bilingue</span>
-                  <span className="hidden sm:inline">Mode Bilingue</span>
+                <TabsTrigger value="bilingual" className="text-xs sm:text-sm py-2 px-1 leading-tight rounded-lg data-[state=active]:bg-white data-[state=active]:text-[#bd613c] data-[state=active]:shadow-sm">
+                  Bilingue
                 </TabsTrigger>
-                <TabsTrigger value="import" className="text-[10px] sm:text-sm py-2 px-1 sm:py-1.5 leading-tight">
-                  <span className="sm:hidden">Import</span>
-                  <span className="hidden sm:inline">Importer Audio</span>
+                <TabsTrigger value="import" className="text-xs sm:text-sm py-2 px-1 leading-tight rounded-lg data-[state=active]:bg-white data-[state=active]:text-[#bd613c] data-[state=active]:shadow-sm">
+                  Import
                 </TabsTrigger>
-                <TabsTrigger value="text" className="text-[10px] sm:text-sm py-2 px-1 sm:py-1.5 leading-tight">
-                  <span className="sm:hidden">Texte</span>
-                  <span className="hidden sm:inline">Saisir Texte</span>
+                <TabsTrigger value="text" className="text-xs sm:text-sm py-2 px-1 leading-tight rounded-lg data-[state=active]:bg-white data-[state=active]:text-[#bd613c] data-[state=active]:shadow-sm">
+                  Texte
                 </TabsTrigger>
               </TabsList>
 
@@ -909,12 +1091,23 @@ function Home() {
                     <p className="text-sm text-[#4a3f35]/70 mb-6 text-center">
                       Collez vos anciennes notes ou rédigez votre brouillon. L'IA s'occupera d'en extraire le bilan complet.
                     </p>
-                    <textarea
-                      className="flex-1 w-full min-h-[200px] p-4 font-inter text-base rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none resize-none mb-6"
-                      placeholder="Exemple : Patient Jean Dupont, 45 ans. Douleur cervicale depuis 5 jours. Antécédents d'entorse en 2018..."
-                      value={textContent}
-                      onChange={(e) => setTextContent(e.target.value)}
-                    />
+                    <div className="relative flex-1 mb-6">
+                      <textarea
+                        className="w-full h-full min-h-[200px] p-4 pb-14 font-inter text-base rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none resize-none"
+                        placeholder="Exemple : Patient Jean Dupont, 45 ans. Douleur cervicale depuis 5 jours. Antécédents d'entorse en 2018..."
+                        value={textContent}
+                        onChange={(e) => setTextContent(e.target.value)}
+                      />
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={toggleDictation}
+                        className={`absolute bottom-3 right-3 rounded-full transition-all ${isDictating ? 'bg-red-100 text-red-500 hover:bg-red-200 animate-pulse' : 'bg-[#ebd9c8]/30 text-[#bd613c] hover:bg-[#ebd9c8]/50'}`}
+                        title={isDictating ? "Arrêter la dictée" : "Démarrer la dictée vocale"}
+                      >
+                        {isDictating ? <Square className="w-5 h-5 fill-current" /> : <Mic className="w-5 h-5" />}
+                      </Button>
+                    </div>
                     <Button
                       className="w-full sm:w-auto self-center bg-[#e25822] hover:bg-[#bd613c] text-white px-10 h-11 rounded-full text-base font-medium shadow-md transition-transform hover:scale-105"
                       disabled={!textContent.trim()}
