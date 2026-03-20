@@ -31,6 +31,8 @@ export default function ConsultationDetail() {
   const [editDate, setEditDate] = useState("");
   const [isAppending, setIsAppending] = useState(false);
   const [isRecordingModalOpen, setIsRecordingModalOpen] = useState(false);
+  const [isTextModalOpen, setIsTextModalOpen] = useState(false);
+  const [textContent, setTextContent] = useState("");
 
   // Nouveaux états pour le suivi chronologique
   const [appendMode, setAppendMode] = useState<'bilan' | 'suivi'>('bilan');
@@ -330,6 +332,108 @@ export default function ConsultationDetail() {
     }
   };
 
+  const handleAppendText = async () => {
+    if (!textContent.trim()) return;
+    setIsAppending(true);
+    setIsTextModalOpen(false);
+
+    try {
+      const textBlob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
+      const fileName = `txt_addendum_${Date.now()}_${params.id}.txt`;
+      const { error: uploadError } = await supabase.storage.from('tdt_uploads').upload(fileName, textBlob);
+
+      if (uploadError) throw new Error("Erreur upload text addendum");
+
+      const uploadedFiles = [{ fileName, mimeType: 'text/plain' }];
+
+      if (appendMode === 'bilan') {
+        const response = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            attachedFiles: uploadedFiles,
+            previousContext: {
+              synthese: data.synthese,
+              transcription: data.transcription,
+              patientName: data.patient_name || data.patientName || ""
+            }
+          })
+        });
+
+        if (!response.ok) throw new Error("Erreur lors de la mise à jour par l'IA.");
+        const result = await response.json();
+
+        const { data: updatedData } = await supabase.from('consultations').update({
+          synthese: result.synthese,
+          transcription: result.transcription,
+          resume: result.resume,
+          patient_name: result.patientName || data.patient_name
+        }).eq('id', params.id).select().single();
+
+        if (updatedData) setData(updatedData);
+
+      } else {
+        toast({ title: "Analyse en cours...", description: "Création de la note de suivi chronologique..." });
+
+        const analyzeResp = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            attachedFiles: uploadedFiles,
+          })
+        });
+
+        if (!analyzeResp.ok) throw new Error("Erreur d'extraction texte.");
+        const { transcription } = await analyzeResp.json();
+
+        const response = await fetch('/api/generate-follow-up', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            transcription: transcription,
+            previousSynthese: data.synthese
+          })
+        });
+
+        if (!response.ok) throw new Error("Erreur de génération.");
+        const { content } = await response.json();
+
+        const newFollowUp = {
+          id: crypto.randomUUID(),
+          date: new Date().toISOString(),
+          content: content,
+          transcription: transcription
+        };
+
+        const currentFollowUps = data.follow_ups || [];
+        const { data: updatedData, error: updateError } = await supabase.from('consultations').update({
+          follow_ups: [newFollowUp, ...currentFollowUps]
+        }).eq('id', params.id).select().single();
+
+        if (updateError) {
+          console.error("Supabase update error:", updateError);
+          throw new Error("Erreur de sauvegarde dans la base de données.");
+        }
+        if (updatedData) setData(updatedData);
+      }
+
+      try {
+        await supabase.storage.from('tdt_uploads').remove([fileName]);
+      } catch (e) {
+        console.error("Erreur suppression fichier texte:", e);
+      }
+
+      toast({ title: "Bilan mis à jour", description: "La note écrite a bien été ajoutée au dossier." });
+      setTextContent(""); // Reset textarea
+
+    } catch (err) {
+      console.error(err);
+      toast({ title: "Erreur", description: "Impossible d'ajouter la note écrite.", variant: "destructive" });
+    } finally {
+      setIsAppending(false);
+    }
+  };
+
   useEffect(() => {
     async function fetchConsultation() {
       if (!params.id) return;
@@ -415,16 +519,48 @@ export default function ConsultationDetail() {
   return (
     <main className="min-h-screen py-8 px-4 sm:px-6 mb-12 flex justify-center">
 
-      {/* MODAL AUDIO GÉRÉ GLOBALEMENT POUR EVITER LES DOUBLONS SUR MOBILE/DESKTOP */}
-      <Dialog open={isRecordingModalOpen} onOpenChange={setIsRecordingModalOpen}>
-        <DialogContent className="sm:max-w-xl bg-white border-[#ebd9c8]/30">
+      {/* Modal d'enregistrement audio */}
+      <Dialog open={isRecordingModalOpen} onOpenChange={(open) => !open && !isAppending ? setIsRecordingModalOpen(false) : null}>
+        <DialogContent className="sm:max-w-2xl bg-white border-[#ebd9c8]/30">
           <DialogHeader>
-            <DialogTitle className="font-bebas tracking-wide text-3xl text-[#bd613c] uppercase text-center mb-4">
-              Ajouter au dossier
+            <DialogTitle className="font-bebas tracking-wide text-3xl text-[#bd613c] uppercase text-center">
+              {appendMode === 'bilan' ? 'Mettre à jour le Bilan' : 'Nouvelle Séance de Suivi'}
             </DialogTitle>
           </DialogHeader>
-          <div className="py-2">
-            <AudioRecorder onRecordingComplete={handleAppendRecording} isProcessing={isAppending} />
+          <div className="py-4">
+            <AudioRecorder
+              onRecordingComplete={handleAppendRecording}
+              isProcessing={isAppending}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal d'ajout de texte manuel */}
+      <Dialog open={isTextModalOpen} onOpenChange={(open) => !open && !isAppending ? setIsTextModalOpen(false) : null}>
+        <DialogContent className="sm:max-w-2xl bg-white border-[#ebd9c8]/30">
+          <DialogHeader>
+            <DialogTitle className="font-bebas tracking-wide text-3xl text-[#bd613c] uppercase text-center">
+              {appendMode === 'bilan' ? 'Mettre à jour le Bilan' : 'Nouvelle Note Manuelle'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <textarea
+              value={textContent}
+              onChange={(e) => setTextContent(e.target.value)}
+              placeholder="Saisissez ici les informations de votre consultation..."
+              className="w-full min-h-[200px] p-4 font-inter text-base rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none resize-none transition-shadow"
+              disabled={isAppending}
+            />
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="ghost" onClick={() => setIsTextModalOpen(false)} disabled={isAppending} className="text-[#4a3f35]/60 hover:text-[#4a3f35] hover:bg-[#ebd9c8]/20">
+                Annuler
+              </Button>
+              <Button onClick={handleAppendText} disabled={!textContent.trim() || isAppending} className="bg-[#e25822] hover:bg-[#bd613c] text-white px-6">
+                {isAppending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Check className="w-5 h-5 mr-2" />}
+                Traiter & Enregistrer
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -522,7 +658,7 @@ export default function ConsultationDetail() {
                 </div>
               </div>
 
-              {/* --- MOBILE ONLY CONTROLS (Comme avant le refactoring) --- */}
+              {/* --- MOBILE ONLY CONTROLS --- */}
               <div className="flex flex-col lg:hidden mt-8 gap-8" data-html2canvas-ignore="true">
 
                 {/* Actions Centrales Horizontales */}
@@ -538,6 +674,23 @@ export default function ConsultationDetail() {
                         <span className="font-medium">Mettre à jour le Bilan</span>
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => { setAppendMode('suivi'); setIsRecordingModalOpen(true); }} className="cursor-pointer py-3 text-[#bd613c]">
+                        <span className="font-medium">📝 Nouvelle Note de Suivi</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  {/* Nouveau bouton Texte */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className="h-10 px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending}>
+                        <Pencil className="w-4 h-4 mr-2" /> <span className="font-medium text-[13px]">Texte</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="center" className="w-56 bg-white border-[#ebd9c8]">
+                      <DropdownMenuItem onClick={() => { setAppendMode('bilan'); setIsTextModalOpen(true); }} className="cursor-pointer py-3">
+                        <span className="font-medium">Mettre à jour le Bilan</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => { setAppendMode('suivi'); setIsTextModalOpen(true); }} className="cursor-pointer py-3 text-[#bd613c]">
                         <span className="font-medium">📝 Nouvelle Note de Suivi</span>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -751,6 +904,23 @@ export default function ConsultationDetail() {
                         <span className="font-medium text-base">Mettre à jour le Bilan</span>
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => { setAppendMode('suivi'); setIsRecordingModalOpen(true); }} className="cursor-pointer py-3 rounded-lg text-[#bd613c] mt-1 bg-[#ebd9c8]/10">
+                        <span className="font-medium text-base">📝 Nouvelle Note de Suivi</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start text-left h-12 px-4 rounded-xl text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending}>
+                        <Pencil className="w-5 h-5 mr-3 text-[#bd613c]" />
+                        <span className="font-medium text-base">Ajouter un Texte</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-64 p-2 bg-white border-[#ebd9c8]">
+                      <DropdownMenuItem onClick={() => { setAppendMode('bilan'); setIsTextModalOpen(true); }} className="cursor-pointer py-3 rounded-lg">
+                        <span className="font-medium text-base">Mettre à jour le Bilan</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => { setAppendMode('suivi'); setIsTextModalOpen(true); }} className="cursor-pointer py-3 rounded-lg text-[#bd613c] mt-1 bg-[#ebd9c8]/10">
                         <span className="font-medium text-base">📝 Nouvelle Note de Suivi</span>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
