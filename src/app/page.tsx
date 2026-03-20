@@ -57,6 +57,7 @@ function Home() {
   const [recorderMode, setRecorderMode] = useState('standard');
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [activeProcessingIds, setActiveProcessingIds] = useState<string[]>([]);
+  const [textContent, setTextContent] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [consultations, setConsultations] = useState<SupabaseConsultation[] | null>(null);
 
@@ -499,7 +500,7 @@ function Home() {
         if (deleteError) throw deleteError;
 
         toast({ title: "Fusion réussie", description: "Le bilan a été fusionné au dossier cible avec succès." });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (err: any) {
         console.error(err);
         toast({ title: "Erreur", description: err.message || "Impossible de fusionner.", variant: "destructive" });
@@ -795,10 +796,11 @@ function Home() {
 
             {/* Sélection du Mode d'Enregistrement */}
             <Tabs value={recorderMode} onValueChange={setRecorderMode} className="w-full">
-              <TabsList className="grid w-full grid-cols-3 mb-6">
+              <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 mb-6">
                 <TabsTrigger value="standard" className="text-xs sm:text-sm">Mode Standard</TabsTrigger>
                 <TabsTrigger value="bilingual" className="text-xs sm:text-sm">Mode Bilingue</TabsTrigger>
                 <TabsTrigger value="import" className="text-xs sm:text-sm">Importer Audio</TabsTrigger>
+                <TabsTrigger value="text" className="text-xs sm:text-sm">Saisir Texte</TabsTrigger>
               </TabsList>
 
               <div className="min-h-[350px] lg:min-h-[420px] flex flex-col justify-center">
@@ -880,12 +882,39 @@ function Home() {
                       <div className="w-16 h-16 rounded-full bg-[#ebd9c8]/20 flex items-center justify-center mb-4 group-hover:bg-[#ebd9c8]/50 group-hover:scale-110 transition-all">
                         <ArrowRight className="w-8 h-8 rotate-90" />
                       </div>
-                      <p className="text-xl font-bebas tracking-widest uppercase mb-2">Glisser-déposer ou Taper ici</p>
+                      <p className="text-xl font-bebas tracking-widest uppercase mb-2">Glisser-déposer ou Parcourir</p>
                       <p className="text-sm opacity-70 text-center max-w-sm">
                         Formats supportés : m4a, mp3, mp4, wav, webm...<br />
                         Les fichiers seront automatiquement compressés.
                       </p>
                     </div>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value="text">
+                  <Card className="w-full max-w-4xl mx-auto border-[#bd613c]/30 shadow-sm bg-white p-6 md:p-8 min-h-[350px] flex flex-col">
+                    <h3 className="font-bebas tracking-wide text-2xl text-[#bd613c] uppercase mb-2 text-center">Nouveau Patient par Saisie</h3>
+                    <p className="text-sm text-[#4a3f35]/70 mb-6 text-center">
+                      Collez vos anciennes notes ou rédigez votre brouillon. L'IA s'occupera d'en extraire le bilan complet.
+                    </p>
+                    <textarea
+                      className="flex-1 w-full min-h-[200px] p-4 font-inter text-base rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none resize-none mb-6"
+                      placeholder="Exemple : Patient Jean Dupont, 45 ans. Douleur cervicale depuis 5 jours. Antécédents d'entorse en 2018..."
+                      value={textContent}
+                      onChange={(e) => setTextContent(e.target.value)}
+                    />
+                    <Button
+                      className="w-full sm:w-auto self-center bg-[#e25822] hover:bg-[#bd613c] text-white px-10 h-11 rounded-full text-base font-medium shadow-md transition-transform hover:scale-105"
+                      disabled={!textContent.trim()}
+                      onClick={() => {
+                        const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
+                        const file = new File([blob], `bilan_manuel_${Date.now()}.txt`, { type: 'text/plain' });
+                        handleRecordingComplete(file);
+                        setTextContent("");
+                      }}
+                    >
+                      Générer le Dossier Patient
+                    </Button>
                   </Card>
                 </TabsContent>
               </div>
