@@ -137,14 +137,14 @@ Ton objectif est d'ajouter les nouveaux éléments à la synthèse précédente,
 Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme ceci :
 {
   "patientName": "Nom et Prénom trouvés (ou chaîne vide si aucun)",
-  "transcription": "Génère la retranscription EXACTE, littérale et intégrale de tout le dialogue de ce nouvel audio (ou le contenu du document). Formate ce texte proprement avec Markdown et HTML : ajoute toujours un **double saut de ligne** entre chaque prise de parole, et écris le nom de l'interlocuteur exactement avec cette balise HTML : **<span style=\\"color: #bd613c;\\">Praticien Philippe Guillaume :</span>** ou **<span style=\\"color: #bd613c;\\">Patient [Nom et Prénom] :</span>**. Ne mets pas juste en gras.",
+  "transcription": "Génère la retranscription EXACTE, LITTÉRALE (Verbatim) et INTÉGRALE de tout le dialogue de ce nouvel audio (ou document). RÈGLE ABSOLUE : Tu ne dois AUCUNEMENT corriger la grammaire, tu ne dois PAS supprimer les hésitations ('euh', 'ah', 'ben', répétitions). Retranscris CHAQUE MOT tel qu'il a été prononcé. Formate ce texte avec Markdown : ajoute toujours un **double saut de ligne** entre chaque prise de parole, et identifie l'interlocuteur avec : **<span style=\\"color: #bd613c;\\">Praticien :</span>** ou **<span style=\\"color: #bd613c;\\">Patient :</span>**.",
   "resume": "Un résumé narratif en 3 à 5 phrases, sous forme d'un paragraphe continu unique (AUCUNE liste, AUCUN tiret, AUCUNE puce). Intègre l'essentiel de façon fluide.",
   "synthese": "La synthèse médicale formatée en Markdown"
 }
 
 Règles impératives :
 1. "patientName" : Nom du patient (ex:"Jean DUPONT"). Laisse vide "" si absent.
-2. "transcription" : Intégralité du texte brut reçu en entrée (nouveau vocal ou document). Tu dois IMPÉRATIVEMENT structurer le dialogue en identifiant chaque prise de parole avec la balise **<span style=\\"color: #bd613c;\\">... :</span>** et en séparant les répliques par des sauts de ligne.
+2. "transcription" : Intégralité du texte brut reçu en entrée (nouveau vocal ou document). RÈGLE D'OR : Mot pour mot (Verbatim), incluant les erreurs, faux-départs et hésitations.
 3. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil.
 4. "synthese" : Applique strictement la structure Markdown ci-dessous UNIQUEMENT si l'information est présente (ou fusionne à l'existant en ajoutant la section "Ajout du ..." si en mise à jour) :
 
