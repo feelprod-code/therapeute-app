@@ -127,8 +127,8 @@ export default function CalendarPage() {
                         </Link>
                     </div>
 
-                    <div className="text-center hidden sm:block absolute left-1/2 -translate-x-1/2">
-                        <h1 className="font-inter font-semibold tracking-tight text-[#4a3f35] text-lg lg:text-xl mb-0.5">
+                    <div className="text-center hidden lg:block absolute left-1/2 -translate-x-1/2">
+                        <h1 className="font-inter font-semibold tracking-tight text-[#4a3f35] text-lg mb-0.5">
                             Agenda des Consultations
                         </h1>
                     </div>
@@ -258,9 +258,9 @@ export default function CalendarPage() {
                             <div className="min-w-[1000px]">
                                 {/* En-tête des jours */}
                                 <div className="grid grid-cols-[60px_repeat(6,1fr)] border-b border-[#ebd9c8]/50 bg-[#ebd9c8]/10 text-center">
-                                    <div className="p-3 border-r border-[#ebd9c8]/30"></div>
+                                    <div className="p-3 border-r border-[#ebd9c8]/30 sticky left-0 z-20 bg-[#fdfcfb]"></div>
                                     {weekDays.map((day, i) => (
-                                        <div key={i} className={`p-3 border-r border-[#ebd9c8]/30 last:border-r-0 ${isSameDay(day, new Date()) ? 'bg-[#bd613c]/10' : ''}`}>
+                                        <div key={i} className={`min-w-0 p-3 border-r border-[#ebd9c8]/30 last:border-r-0 ${isSameDay(day, new Date()) ? 'bg-[#bd613c]/10' : ''}`}>
                                             <div className="text-xs uppercase tracking-widest font-semibold text-[#8c7b6d]">{format(day, "EEEE", { locale: fr })}</div>
                                             <div className={`text-xl font-bebas tracking-wide mt-1 ${isSameDay(day, new Date()) ? 'text-[#bd613c]' : 'text-[#4a3f35]'}`}>
                                                 {format(day, "d MMM", { locale: fr })}
@@ -275,7 +275,7 @@ export default function CalendarPage() {
                                         <div key={slot.id} className="grid grid-cols-[60px_repeat(6,1fr)] border-b border-[#ebd9c8]/30 last:border-b-0 h-[68px]">
 
                                             {/* Colonne de l'heure */}
-                                            <div className="flex items-center justify-end p-2 border-r border-[#ebd9c8]/30 text-xs font-semibold text-[#8c7b6d] bg-[#fdfcfb]">
+                                            <div className="sticky left-0 z-10 flex items-center justify-end p-2 border-r border-[#ebd9c8]/30 text-xs font-semibold text-[#8c7b6d] bg-[#fdfcfb]">
                                                 {slot.label}
                                             </div>
 
@@ -295,7 +295,7 @@ export default function CalendarPage() {
                                                 });
 
                                                 return (
-                                                    <div key={`${rowIdx}-${colIdx}`} className={`relative p-1 border-r border-[#ebd9c8]/30 last:border-r-0 hover:bg-[#ebd9c8]/5 transition-colors ${isSameDay(day, new Date()) ? 'bg-[#bd613c]/5' : ''}`}>
+                                                    <div key={`${rowIdx}-${colIdx}`} className={`min-w-0 relative p-1 border-r border-[#ebd9c8]/30 last:border-r-0 hover:bg-[#ebd9c8]/5 transition-colors ${isSameDay(day, new Date()) ? 'bg-[#bd613c]/5' : ''}`}>
                                                         <div className="w-full h-full relative overflow-hidden">
                                                             {cellEvents.map(evt => (
                                                                 <Link
