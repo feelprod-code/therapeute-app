@@ -178,10 +178,13 @@ export default function ConsultationDetail() {
         };
 
         const currentFollowUps = data.follow_ups || [];
-        const { data: updatedData } = await supabase.from('consultations').update({
+        const { data: updatedData, error: updateError } = await supabase.from('consultations').update({
           follow_ups: [newFollowUp, ...currentFollowUps]
         }).eq('id', params.id).select().single();
-
+        if (updateError) {
+          console.error("Supabase update error:", updateError);
+          throw new Error("Erreur de sauvegarde dans la base de données.");
+        }
         if (updatedData) setData(updatedData);
       }
 
@@ -278,10 +281,13 @@ export default function ConsultationDetail() {
         };
 
         const currentFollowUps = data.follow_ups || [];
-        const { data: updatedData } = await supabase.from('consultations').update({
+        const { data: updatedData, error: updateError } = await supabase.from('consultations').update({
           follow_ups: [newFollowUp, ...currentFollowUps]
         }).eq('id', params.id).select().single();
-
+        if (updateError) {
+          console.error("Supabase update error:", updateError);
+          throw new Error("Erreur de sauvegarde dans la base de données.");
+        }
         if (updatedData) setData(updatedData);
       }
 
@@ -637,6 +643,60 @@ export default function ConsultationDetail() {
                     </ReactMarkdown>
                   ) : "Aucune transcription disponible."}
                 </div>
+              </TabsContent>
+
+              <TabsContent value="suivi" className="mt-8 lg:border-t border-[#ebd9c8]/50 lg:pt-8 print:block">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-6 h-6 text-[#bd613c]" />
+                    <h2 className="font-bebas text-3xl tracking-wide text-[#bd613c] uppercase mb-0">
+                      Notes de Suivi Chronologique
+                    </h2>
+                  </div>
+                </div>
+
+                {!data.follow_ups || data.follow_ups.length === 0 ? (
+                  <div className="text-center py-12 bg-[#ebd9c8]/10 rounded-2xl border border-dashed border-[#ebd9c8]">
+                    <Activity className="w-12 h-12 text-[#bd613c]/40 mx-auto mb-3" />
+                    <p className="text-[#4a3f35]/60 font-medium">Aucune note de suivi pour le moment.</p>
+                    <p className="text-sm text-[#4a3f35]/40 mt-1">Ajoutez un audio ou document pour créer le premier suivi.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-8 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-[#ebd9c8] before:to-transparent">
+                    {data.follow_ups.map((note: any, idx: number) => (
+                      <div key={note.id || idx} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                        {/* Timeline Marker */}
+                        <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-white bg-[#bd613c] shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10">
+                          <Check className="w-4 h-4 text-white" />
+                        </div>
+
+                        {/* Card */}
+                        <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border border-[#ebd9c8]/50 bg-white shadow-sm hover:shadow-md transition-shadow">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                            <time className="text-sm font-medium text-[#bd613c] bg-[#ebd9c8]/20 px-2.5 py-1 rounded-md inline-block">
+                              {format(new Date(note.date), "d MMM yyyy, HH:mm", { locale: fr })}
+                            </time>
+                          </div>
+                          <div className="prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c]">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                              {note.content}
+                            </ReactMarkdown>
+                          </div>
+                          {note.transcription && (
+                            <details className="mt-4 pt-3 border-t border-[#ebd9c8]/30 group/details">
+                              <summary className="text-xs font-medium text-slate-400 hover:text-[#bd613c] cursor-pointer list-none flex items-center gap-1 select-none transition-colors">
+                                <span className="group-open/details:hidden">▶</span><span className="hidden group-open/details:inline">▼</span> Voir la transcription source
+                              </summary>
+                              <div className="mt-2 p-3 bg-slate-50 rounded-lg text-xs font-mono text-slate-500 whitespace-pre-wrap">
+                                {note.transcription}
+                              </div>
+                            </details>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </TabsContent>
 
             </div>
