@@ -147,7 +147,7 @@ export default function ConsultationDetail() {
 
       } else {
         // SUIVI
-        const analyzeResp = await fetch('/api/analyze-transcript', {
+        const analyzeResp = await fetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -247,7 +247,7 @@ export default function ConsultationDetail() {
       } else {
         toast({ title: "Analyse en cours...", description: "Création de la note de suivi chronologique..." });
 
-        const analyzeResp = await fetch('/api/analyze-transcript', {
+        const analyzeResp = await fetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
