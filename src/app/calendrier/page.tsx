@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase, SupabaseConsultation } from "@/lib/supabaseClient";
-import { format, startOfWeek, addDays, subWeeks, addWeeks, isSameDay, getHours } from "date-fns";
+import { format, startOfWeek, addDays, subWeeks, addWeeks, isSameDay } from "date-fns";
 import { fr } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ChevronLeft, ChevronRight, CalendarDays, Loader2 } from "lucide-react";
@@ -24,6 +24,7 @@ export default function CalendarPage() {
     const [consultations, setConsultations] = useState<SupabaseConsultation[]>([]);
     const [loading, setLoading] = useState(true);
     const [currentWeekStart, setCurrentWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
+    const [mobileView, setMobileView] = useState<'liste' | 'semaine'>('liste'); // Par défaut Liste sur mobile
 
     useEffect(() => {
         async function fetchConsultations() {
@@ -149,14 +150,32 @@ export default function CalendarPage() {
                         Semaine du {format(weekDays[0], "d MMMM", { locale: fr })} au {format(weekDays[5], "d MMMM yyyy", { locale: fr })}
                     </h2>
 
-                    <div className="flex items-center gap-4 text-xs font-medium uppercase tracking-wider">
-                        <div className="flex items-center gap-2 text-orange-600">
-                            <div className="w-3 h-3 rounded-sm bg-orange-100 border border-orange-200"></div>
-                            Bilans
+                    <div className="flex flex-col items-center sm:items-end gap-3">
+                        {/* Toggle Vue Mobile (uniquement visible sur md:hidden) */}
+                        <div className="flex md:hidden bg-[#ebd9c8]/20 p-1 rounded-lg">
+                            <button
+                                onClick={() => setMobileView('liste')}
+                                className={`px-3 py-1.5 text-xs font-medium uppercase tracking-wider rounded-md transition-all ${mobileView === 'liste' ? 'bg-white shadow-sm text-[#bd613c]' : 'text-[#8c7b6d] hover:text-[#bd613c]'}`}
+                            >
+                                Liste
+                            </button>
+                            <button
+                                onClick={() => setMobileView('semaine')}
+                                className={`px-3 py-1.5 text-xs font-medium uppercase tracking-wider rounded-md transition-all ${mobileView === 'semaine' ? 'bg-white shadow-sm text-[#bd613c]' : 'text-[#8c7b6d] hover:text-[#bd613c]'}`}
+                            >
+                                Semaine
+                            </button>
                         </div>
-                        <div className="flex items-center gap-2 text-yellow-600">
-                            <div className="w-3 h-3 rounded-sm bg-yellow-100 border border-yellow-200"></div>
-                            Suivis
+
+                        <div className="flex items-center gap-4 text-xs font-medium uppercase tracking-wider">
+                            <div className="flex items-center gap-2 text-orange-600">
+                                <div className="w-3 h-3 rounded-sm bg-orange-100 border border-orange-200"></div>
+                                Bilans
+                            </div>
+                            <div className="flex items-center gap-2 text-yellow-600">
+                                <div className="w-3 h-3 rounded-sm bg-yellow-100 border border-yellow-200"></div>
+                                Suivis
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -170,7 +189,7 @@ export default function CalendarPage() {
                 ) : (
                     <>
                         {/* Vue Mobile (Liste verticale) */}
-                        <div className="md:hidden space-y-6">
+                        <div className={`md:hidden space-y-6 ${mobileView === 'liste' ? 'block' : 'hidden'}`}>
                             {weekDays.map((day, i) => {
                                 const dayEvents = events
                                     .filter((evt) => isSameDay(evt.date, day))
@@ -221,9 +240,9 @@ export default function CalendarPage() {
                             )}
                         </div>
 
-                        {/* Vue Tablette/Desktop (Grille classique) */}
-                        <div className="hidden md:block bg-white rounded-2xl border border-[#ebd9c8]/50 shadow-sm overflow-x-auto">
-                            <div className="min-w-[900px]">
+                        {/* Vue Tablette/Desktop (Grille classique) OR Vue Semaine Mobile */}
+                        <div className={`${mobileView === 'semaine' ? 'block' : 'hidden'} md:block bg-white rounded-2xl border border-[#ebd9c8]/50 shadow-sm overflow-x-auto`}>
+                            <div className="min-w-[1000px]">
                                 {/* En-tête des jours */}
                                 <div className="grid grid-cols-[60px_repeat(6,1fr)] border-b border-[#ebd9c8]/50 bg-[#ebd9c8]/10 text-center">
                                     <div className="p-3 border-r border-[#ebd9c8]/30"></div>
