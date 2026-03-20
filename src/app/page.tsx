@@ -737,8 +737,8 @@ function Home() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start w-full">
-          <div className="lg:col-span-5 flex flex-col gap-6 lg:sticky lg:top-8">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-8 md:gap-12 items-start w-full">
+          <div className="md:col-span-5 flex flex-col gap-6 md:sticky md:top-8">
             {/* Upload de documents locaux (IRM, Radio, etc.) */}
             {/* Upload de documents externes */}
             <div
@@ -815,7 +815,7 @@ function Home() {
                 </TabsTrigger>
               </TabsList>
 
-              <div className="min-h-[350px] lg:min-h-[420px] flex flex-col justify-center">
+              <div className="min-h-[350px] md:min-h-[420px] flex flex-col justify-center">
                 <TabsContent value="standard">
                   <AudioRecorder onRecordingComplete={handleRecordingComplete} />
                 </TabsContent>
@@ -934,10 +934,10 @@ function Home() {
           </div>
 
           {/* Historique des consultations */}
-          <div className="lg:col-span-7 space-y-6 pt-4 lg:pt-0">
+          <div className="md:col-span-7 space-y-6 pt-4 md:pt-0">
 
             <Tabs defaultValue="date" className="w-full">
-              <div className="flex items-center justify-between border-b border-[#bd613c]/20 mb-6 mt-8 lg:mt-0 gap-4">
+              <div className="flex items-center justify-between border-b border-[#bd613c]/20 mb-6 mt-8 md:mt-0 gap-4">
                 <TabsList className="bg-transparent p-0 w-auto flex items-center gap-6 h-auto">
                   <TabsTrigger value="date" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-[#bd613c] border-b-2 border-transparent data-[state=active]:border-[#bd613c] rounded-none px-1 py-3 text-[#4a3f35]/60 hover:text-[#bd613c] transition-all font-medium text-sm sm:text-base translate-y-[1px]">Par date</TabsTrigger>
                   <TabsTrigger value="name" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-[#bd613c] border-b-2 border-transparent data-[state=active]:border-[#bd613c] rounded-none px-1 py-3 text-[#4a3f35]/60 hover:text-[#bd613c] transition-all font-medium text-sm sm:text-base translate-y-[1px]">Par nom</TabsTrigger>
