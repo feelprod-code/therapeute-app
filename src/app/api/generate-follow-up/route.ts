@@ -17,7 +17,7 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Aucune transcription fournie." }, { status: 400 });
         }
 
-        const systemPrompt = `Tu es un assistant médical clinique expert. Ton rôle est de rédiger une brève note de suivi chronologique (1 à 3 paragraphes maximum) basée sur la transcription d'un audio ou document récent.
+        const systemPrompt = `Tu es un assistant médical clinique expert. Ton rôle est de rédiger une note de suivi chronologique basée sur la transcription d'un audio ou document récent.
         
 Voici la transcription complète de la consultation d'aujourd'hui (ou le document fourni) :
 """
@@ -29,14 +29,25 @@ Voici la synthèse globale du dossier patient (pour contexte, ne la modifie pas,
 ${previousSynthese || 'Aucun dossier patient existant.'}
 """
 
-Instructions:
-Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme ceci :
-{
-  "content": "La note de suivi formatée en Markdown, rédigée de manière claire et professionnelle. Résume les points clés abordés lors de la séance."
-}
+Instructions OBLIGATOIRES:
+Tu dois IMPÉRATIVEMENT répondre avec un objet JSON contenant la clé "content".
+Le "content" DOIT être formaté de manière très structurée (listing / puces), utilisant le Markdown.
+N'écris PAS de longs paragraphes. Utilise uniquement des listes à puces avec des petits tirets (-) pour organiser clairement l'information.
 
-Règles :
-1. "content" : Ne rédige que la note de synthèse elle-même, pas de titre global ni de date (l'interface le fait). Concentre-toi sur l'évolution, le motif du jour, ce qui a été dit ou fait, et les prochaines étapes. Rédige de façon clinique et concise. Tu peux utiliser des *bullet points* ou du gras si nécessaire.`;
+Fais la distinction claire en utilisant ces titres de sections (ajoute le titre uniquement si l'information est présente dans la transcription) :
+### 🗣️ Ressenti du patient
+- (Ce que le patient exprime, ses symptômes, son évolution, ses retours)
+
+### 🩺 Intervention / Travail en séance
+- (Ce que tu as fait, les zones traitées, les tests effectués, tes propres observations cliniques)
+
+### 📌 À suivre / Plan d'action
+- (Recommandations données, exercices, prochain rendez-vous)
+
+Va droit au but, sois très précis et visuel. Ne fais aucune introduction de type "Voici la note :".
+{
+  "content": "Ta réponse formatée en Markdown ici..."
+}`;
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-pro',

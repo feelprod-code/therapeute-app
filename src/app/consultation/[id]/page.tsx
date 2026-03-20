@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import ReactMarkdown from "react-markdown";
@@ -40,6 +40,27 @@ export default function ConsultationDetail() {
   const fileInputRefSuiviDesktop = useRef<HTMLInputElement>(null);
 
   const [attachedDocs, setAttachedDocs] = useState<{ name: string, originalName: string, url: string, type: 'image' | 'pdf' | 'other' }[] | null>(null);
+
+  const handleDeleteFollowUp = async (followUpId: string) => {
+    if (!confirm("Voulez-vous vraiment supprimer cette note de suivi ?")) return;
+
+    try {
+      const currentFollowUps = data.follow_ups || [];
+      const updatedFollowUps = currentFollowUps.filter((note: any) => note.id !== followUpId);
+
+      const { data: updatedData, error } = await supabase.from('consultations').update({
+        follow_ups: updatedFollowUps
+      }).eq('id', params.id).select().single();
+
+      if (error) throw error;
+
+      setData(updatedData);
+      toast({ title: "Note supprimée", description: "La note de suivi a bien été retirée du dossier." });
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Erreur", description: "Impossible de supprimer la note.", variant: "destructive" });
+    }
+  };
 
   const handleSaveName = async () => {
     if (!editName.trim()) return;
@@ -676,6 +697,15 @@ export default function ConsultationDetail() {
                             <time className="text-sm font-medium text-[#bd613c] bg-[#ebd9c8]/20 px-2.5 py-1 rounded-md inline-block">
                               {format(new Date(note.date), "d MMM yyyy, HH:mm", { locale: fr })}
                             </time>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-slate-400 hover:text-red-500 hover:bg-red-50 h-8 px-2"
+                              onClick={() => handleDeleteFollowUp(note.id)}
+                              title="Supprimer la note"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
                           </div>
                           <div className="prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c]">
                             <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
