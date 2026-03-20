@@ -796,11 +796,23 @@ function Home() {
 
             {/* Sélection du Mode d'Enregistrement */}
             <Tabs value={recorderMode} onValueChange={setRecorderMode} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 mb-6">
-                <TabsTrigger value="standard" className="text-xs sm:text-sm">Mode Standard</TabsTrigger>
-                <TabsTrigger value="bilingual" className="text-xs sm:text-sm">Mode Bilingue</TabsTrigger>
-                <TabsTrigger value="import" className="text-xs sm:text-sm">Importer Audio</TabsTrigger>
-                <TabsTrigger value="text" className="text-xs sm:text-sm">Saisir Texte</TabsTrigger>
+              <TabsList className="grid w-full grid-cols-4 mb-6 h-auto p-1 sm:h-10">
+                <TabsTrigger value="standard" className="text-[10px] sm:text-sm py-2 px-1 sm:py-1.5 leading-tight">
+                  <span className="sm:hidden">Audio</span>
+                  <span className="hidden sm:inline">Mode Standard</span>
+                </TabsTrigger>
+                <TabsTrigger value="bilingual" className="text-[10px] sm:text-sm py-2 px-1 sm:py-1.5 leading-tight">
+                  <span className="sm:hidden">Bilingue</span>
+                  <span className="hidden sm:inline">Mode Bilingue</span>
+                </TabsTrigger>
+                <TabsTrigger value="import" className="text-[10px] sm:text-sm py-2 px-1 sm:py-1.5 leading-tight">
+                  <span className="sm:hidden">Import</span>
+                  <span className="hidden sm:inline">Importer Audio</span>
+                </TabsTrigger>
+                <TabsTrigger value="text" className="text-[10px] sm:text-sm py-2 px-1 sm:py-1.5 leading-tight">
+                  <span className="sm:hidden">Texte</span>
+                  <span className="hidden sm:inline">Saisir Texte</span>
+                </TabsTrigger>
               </TabsList>
 
               <div className="min-h-[350px] lg:min-h-[420px] flex flex-col justify-center">
