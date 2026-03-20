@@ -93,8 +93,21 @@ export default function CalendarPage() {
     // Afficher de Lundi (0) à Samedi (5)
     const weekDays = Array.from({ length: 6 }).map((_, i) => addDays(currentWeekStart, i));
 
-    // Plage horaire 09:00 - 20:00 (index 0 = 9h, index 11 = 20h)
-    const HOURS = Array.from({ length: 12 }).map((_, i) => i + 9);
+    // Plages horaires personnalisées : le matin à partir de 9h15 jusqu'à 13h15 (donc slots 9->12), 
+    // et l'après-midi fin à 20h.
+    const TIME_SLOTS = [
+        { id: 9, label: "09h15" },
+        { id: 10, label: "10h15" },
+        { id: 11, label: "11h15" },
+        { id: 12, label: "12h15" },
+        { id: 13, label: "13h00" }, // Gardé au cas où une interaction tombe sur 13h
+        { id: 14, label: "14h00" },
+        { id: 15, label: "15h00" },
+        { id: 16, label: "16h00" },
+        { id: 17, label: "17h00" },
+        { id: 18, label: "18h00" },
+        { id: 19, label: "19h00" } // Fini à 20h
+    ];
 
     return (
         <div className="min-h-screen bg-[#fdfcfb]">
@@ -258,12 +271,12 @@ export default function CalendarPage() {
 
                                 {/* Corps de la grille (Heures) */}
                                 <div className="relative">
-                                    {HOURS.map((hour, rowIdx) => (
-                                        <div key={hour} className="grid grid-cols-[60px_repeat(6,1fr)] border-b border-[#ebd9c8]/30 last:border-b-0 min-h-[80px]">
+                                    {TIME_SLOTS.map((slot, rowIdx) => (
+                                        <div key={slot.id} className="grid grid-cols-[60px_repeat(6,1fr)] border-b border-[#ebd9c8]/30 last:border-b-0 h-[68px]">
 
                                             {/* Colonne de l'heure */}
-                                            <div className="p-2 border-r border-[#ebd9c8]/30 text-right text-xs font-semibold text-[#8c7b6d] bg-[#fdfcfb]">
-                                                {hour}h00
+                                            <div className="flex items-center justify-end p-2 border-r border-[#ebd9c8]/30 text-xs font-semibold text-[#8c7b6d] bg-[#fdfcfb]">
+                                                {slot.label}
                                             </div>
 
                                             {/* Cellules des jours pour cette heure */}
@@ -273,31 +286,33 @@ export default function CalendarPage() {
                                                     if (!isSameD) return false;
 
                                                     let displayHour = evt.hour;
+                                                    // Ramener les heures hors-pistes au créneau le plus proche pour affichage
                                                     if (displayHour < 9) displayHour = 9;
-                                                    if (displayHour > 20) displayHour = 20;
+                                                    if (displayHour > 19) displayHour = 19;
+                                                    // Cas spécial : si c'est 13h, ça tombe bien dans slot.id 13 (pause)
 
-                                                    return displayHour === hour;
+                                                    return displayHour === slot.id;
                                                 });
 
                                                 return (
-                                                    <div key={`${rowIdx}-${colIdx}`} className={`relative p-1.5 border-r border-[#ebd9c8]/30 last:border-r-0 hover:bg-[#ebd9c8]/5 transition-colors ${isSameDay(day, new Date()) ? 'bg-[#ebd9c8]/5' : ''}`}>
-                                                        <div className="flex flex-col gap-1.5 relative h-full">
+                                                    <div key={`${rowIdx}-${colIdx}`} className={`relative p-1 border-r border-[#ebd9c8]/30 last:border-r-0 hover:bg-[#ebd9c8]/5 transition-colors ${isSameDay(day, new Date()) ? 'bg-[#bd613c]/5' : ''}`}>
+                                                        <div className="w-full h-full relative overflow-hidden">
                                                             {cellEvents.map(evt => (
                                                                 <Link
                                                                     href={`/consultation/${evt.consultationId}`}
                                                                     key={evt.id}
                                                                     className={`
-                                      block p-2 rounded-lg text-xs leading-tight shadow-sm border transition-transform hover:scale-[1.02] hover:shadow-md cursor-pointer 
+                                      flex flex-col justify-center w-full h-full px-2 rounded-lg text-xs leading-tight shadow-sm border transition-all hover:shadow-md cursor-pointer overflow-hidden
                                       ${evt.type === 'bilan'
                                                                             ? 'bg-orange-50 border-orange-200 text-orange-900 hover:bg-orange-100'
                                                                             : 'bg-yellow-50 border-yellow-200 text-yellow-900 hover:bg-yellow-100'
                                                                         }
                                     `}
                                                                 >
-                                                                    <div className="font-semibold uppercase tracking-wide truncate mb-0.5">{evt.title}</div>
-                                                                    <div className="flex items-center gap-1 opacity-80 text-[10px] font-medium">
-                                                                        <CalendarDays className="w-3 h-3" />
-                                                                        {format(evt.date, "HH:mm")} - {evt.type === 'bilan' ? 'Bilan' : 'Suivi'}
+                                                                    <div className="font-semibold uppercase tracking-wide truncate w-full">{evt.title}</div>
+                                                                    <div className="flex items-center gap-1 opacity-80 text-[10px] font-medium w-full">
+                                                                        <CalendarDays className="w-3 h-3 shrink-0" />
+                                                                        <span className="truncate">{format(evt.date, "HH:mm")} - {evt.type === 'bilan' ? 'Bilan' : 'Suivi'}</span>
                                                                     </div>
                                                                 </Link>
                                                             ))}
