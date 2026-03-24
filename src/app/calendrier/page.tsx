@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, ChevronLeft, ChevronRight, CalendarDays, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useToast } from "@/hooks/use-toast";
 
 // Représente un événement dans le calendrier
 interface CalendarEvent {
@@ -23,6 +24,7 @@ interface CalendarEvent {
 
 export default function CalendarPage() {
     const router = useRouter();
+    const { toast } = useToast();
     const [consultations, setConsultations] = useState<SupabaseConsultation[]>([]);
     const [loading, setLoading] = useState(true);
     const [currentWeekStart, setCurrentWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
@@ -174,13 +176,18 @@ export default function CalendarPage() {
             newDate.setHours(targetHour, minutes, 0, 0);
 
             const consultation = consultations.find(c => c.id === eventData.consultationId);
-            if (!consultation) return;
+            if (!consultation) {
+                toast({ title: "Erreur", description: "Consultation introuvable.", variant: "destructive" });
+                return;
+            }
 
             // Optimistic UI update could be added here, but fetching is safer
             setLoading(true);
+            toast({ title: "Déplacement en cours...", description: "Mise à jour de l'horaire." });
 
             if (eventData.type === 'bilan') {
-                await supabase.from('consultations').update({ date: newDate.toISOString() }).eq('id', consultation.id);
+                const { error: updateError } = await supabase.from('consultations').update({ date: newDate.toISOString() }).eq('id', consultation.id);
+                if (updateError) throw updateError;
             } else {
                 const targetDayStr = eventData.dayStr;
                 const updatedFollowUps = consultation.follow_ups?.map((f: any) => {
@@ -190,16 +197,21 @@ export default function CalendarPage() {
                     }
                     return f;
                 });
-                await supabase.from('consultations').update({ follow_ups: updatedFollowUps }).eq('id', consultation.id);
+                const { error: fError } = await supabase.from('consultations').update({ follow_ups: updatedFollowUps }).eq('id', consultation.id);
+                if (fError) throw fError;
             }
 
             const { data, error } = await supabase.from('consultations').select('*').order('date', { ascending: false });
             if (!error && data) {
                 setConsultations(data);
+                toast({ title: "Succès", description: "Le rendez-vous a été déplacé." });
+            } else {
+                throw new Error("Erreur de rechargement des données");
             }
             setLoading(false);
         } catch (e) {
             console.error("Erreur l'ors du déplacement du rendez-vous", e);
+            toast({ title: "Échec du déplacement", description: "Une erreur serveur est survenue.", variant: "destructive" });
             setLoading(false);
         }
     };
@@ -418,15 +430,21 @@ export default function CalendarPage() {
                                                     <div
                                                         key={`${rowIdx}-${colIdx}`}
                                                         className={`min-w-0 relative p-1 border-r border-[#ebd9c8]/30 last:border-r-0 hover:bg-[#ebd9c8]/10 transition-colors ${isSameDay(day, new Date()) ? 'bg-[#bd613c]/5' : ''}`}
-                                                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; }}
                                                         onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                                         onDrop={(e) => {
                                                             e.preventDefault();
                                                             e.stopPropagation();
                                                             try {
                                                                 const eventData = JSON.parse(e.dataTransfer.getData('text/plain'));
+                                                                if (!eventData || !eventData.id) {
+                                                                    toast({ title: "Erreur", description: "Données de glisser-déposer invalides.", variant: "destructive" });
+                                                                    return;
+                                                                }
                                                                 handleDropEvent(eventData, day, slot.id);
-                                                            } catch (err) { }
+                                                            } catch (err) {
+                                                                toast({ title: "Erreur", description: "Impossible de lire l'événement glissé.", variant: "destructive" });
+                                                            }
                                                         }}
                                                     >
                                                         <div className="w-full h-full relative overflow-hidden flex flex-col gap-1 min-h-[50px]">
@@ -441,6 +459,7 @@ export default function CalendarPage() {
                                                                     draggable
                                                                     onDragStart={(e) => {
                                                                         e.stopPropagation();
+                                                                        e.dataTransfer.effectAllowed = 'move';
                                                                         e.dataTransfer.setData('text/plain', JSON.stringify({
                                                                             id: evt.id,
                                                                             type: evt.type,
