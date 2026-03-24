@@ -259,29 +259,34 @@ export default function ConsultationDetail() {
 
     setIsAppending(true);
     try {
-      toast({ title: "Compression", description: "Allègement de l'image en cours..." });
+      const isPDF = file.type === 'application/pdf';
+      let finalFile: File | Blob = file;
+      let finalType = isPDF ? 'pdf' : 'image';
 
-      const options = {
-        maxSizeMB: 1, // Max 1MB
-        maxWidthOrHeight: 1920,
-        useWebWorker: true
-      };
+      if (!isPDF) {
+        toast({ title: "Compression", description: "Allègement de l'image en cours..." });
+        const options = {
+          maxSizeMB: 1, // Max 1MB
+          maxWidthOrHeight: 1920,
+          useWebWorker: true
+        };
+        finalFile = await imageCompression(file, options);
+      }
 
-      const compressedFile = await imageCompression(file, options);
-      const safeName = compressedFile.name ? compressedFile.name.replace(/[^a-zA-Z0-9.\-_]/g, '_') : 'image.jpg';
-      const fileName = `img_${Date.now()}_${params.id}_${safeName}`;
+      const safeName = file.name ? file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_') : (isPDF ? 'document.pdf' : 'image.jpg');
+      const fileName = `archive_${Date.now()}_${params.id}_${safeName}`;
 
-      toast({ title: "Upload", description: "Envoi de l'image sécurisé..." });
-      const { error: uploadError } = await supabase.storage.from('tdt_uploads').upload(fileName, compressedFile, {
-        contentType: compressedFile.type
+      toast({ title: "Upload", description: `Envoi du ${isPDF ? 'PDF' : 'fichier'} sécurisé...` });
+      const { error: uploadError } = await supabase.storage.from('tdt_uploads').upload(fileName, finalFile, {
+        contentType: isPDF ? 'application/pdf' : (finalFile as File).type
       });
 
-      if (uploadError) throw new Error("Erreur lors de l'upload de l'image");
+      if (uploadError) throw new Error("Erreur lors de l'upload.");
 
       const newFollowUp = {
         id: crypto.randomUUID(),
         date: new Date().toISOString(),
-        type: 'image',
+        type: finalType,
         content: file.name,
         url: fileName
       };
@@ -964,12 +969,12 @@ export default function ConsultationDetail() {
 
                   {/* Nouveau bouton Image Mobile */}
                   <Button variant="outline" className="h-10 px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending} onClick={() => fileInputRefImageMobile.current?.click()}>
-                    <ImageIcon className="w-4 h-4 mr-2" /> <span className="font-medium text-[13px]">Image</span>
+                    <ImageIcon className="w-4 h-4 mr-2" /> <span className="font-medium text-[13px]">Doc Visuel</span>
                   </Button>
 
                   <input type="file" ref={fileInputRefBilanMobile} className="hidden" onChange={(e) => handleAppendFile(e, 'bilan')} multiple />
                   <input type="file" ref={fileInputRefSuiviMobile} className="hidden" onChange={(e) => handleAppendFile(e, 'suivi')} multiple />
-                  <input type="file" ref={fileInputRefImageMobile} className="hidden" accept="image/*" onChange={(e) => handleAppendImage(e)} />
+                  <input type="file" ref={fileInputRefImageMobile} className="hidden" accept="image/*,application/pdf" onChange={(e) => handleAppendImage(e)} />
                 </div>
 
                 {/* Documents Associés Mobile */}
@@ -1282,6 +1287,18 @@ export default function ConsultationDetail() {
                                       />
                                       {note.content && <p className="text-xs text-slate-500 mt-2">{note.content}</p>}
                                     </div>
+                                  ) : note.type === 'pdf' ? (
+                                    <div className="mt-2 flex flex-col items-center w-full">
+                                      <div className="bg-[#ebd9c8]/10 border border-[#ebd9c8]/50 rounded-xl p-4 w-full sm:w-2/3 flex flex-col items-center justify-center gap-3">
+                                        <FileText className="w-10 h-10 text-[#bd613c]/70" />
+                                        <p className="text-sm font-medium text-slate-600 text-center line-clamp-2">{note.content}</p>
+                                        <div className="flex mt-2 w-full justify-center">
+                                          <Button variant="outline" size="sm" className="text-[#bd613c] border-[#ebd9c8] bg-white w-full max-w-[160px]" onClick={() => window.open(supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl, "_blank")}>
+                                            Ouvrir le PDF
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    </div>
                                   ) : (
                                     <div className="prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c]">
                                       <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
@@ -1385,12 +1402,12 @@ export default function ConsultationDetail() {
                   {/* Nouveau bouton Image Desktop */}
                   <Button variant="outline" className="w-full justify-start text-left h-12 px-4 rounded-xl text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending} onClick={() => fileInputRefImageDesktop.current?.click()}>
                     {isAppending ? <Loader2 className="w-5 h-5 mr-3 animate-spin text-[#bd613c]" /> : <ImageIcon className="w-5 h-5 mr-3 text-[#bd613c]" />}
-                    <span className="font-medium text-base">{isAppending ? "Traitement..." : "Ajouter une Image / Radio"}</span>
+                    <span className="font-medium text-base">{isAppending ? "Traitement..." : "Doc Visuel (Image / PDF)"}</span>
                   </Button>
 
                   <input type="file" ref={fileInputRefBilanDesktop} className="hidden" onChange={(e) => handleAppendFile(e, 'bilan')} multiple />
                   <input type="file" ref={fileInputRefSuiviDesktop} className="hidden" onChange={(e) => handleAppendFile(e, 'suivi')} multiple />
-                  <input type="file" ref={fileInputRefImageDesktop} className="hidden" accept="image/*" onChange={(e) => handleAppendImage(e)} />
+                  <input type="file" ref={fileInputRefImageDesktop} className="hidden" accept="image/*,application/pdf" onChange={(e) => handleAppendImage(e)} />
                 </div>
               </div>
 
