@@ -262,6 +262,35 @@ export default function ConsultationDetail() {
       const isPDF = file.type === 'application/pdf';
       let finalFile: File | Blob = file;
       let finalType = isPDF ? 'pdf' : 'image';
+      let orientation: 'vertical' | 'horizontal' = 'vertical';
+
+      // Détecter l'orientation
+      if (isPDF) {
+        try {
+          const buffer = await file.slice(0, 8192).arrayBuffer();
+          const text = new TextDecoder().decode(buffer);
+          // Chercher le MediaBox du PDF
+          const mediaBoxRegex = /\/MediaBox\s*\[\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\]/;
+          const match = text.match(mediaBoxRegex);
+          if (match) {
+            const w = Math.abs(parseFloat(match[3]) - parseFloat(match[1]));
+            const h = Math.abs(parseFloat(match[4]) - parseFloat(match[2]));
+            if (w > h) orientation = 'horizontal';
+          }
+        } catch (e) {
+          console.error("Erreur de lecture PDF", e);
+        }
+      } else {
+        await new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            if (img.width > img.height) orientation = 'horizontal';
+            resolve(null);
+          };
+          img.onerror = resolve; // En cas d'erreur de lecture
+          img.src = URL.createObjectURL(file);
+        });
+      }
 
       if (!isPDF) {
         toast({ title: "Compression", description: "Allègement de l'image en cours..." });
@@ -288,7 +317,8 @@ export default function ConsultationDetail() {
         date: new Date().toISOString(),
         type: finalType,
         content: file.name,
-        url: fileName
+        url: fileName,
+        orientation: orientation
       };
 
       const currentFollowUps = data.follow_ups || [];
@@ -1289,10 +1319,12 @@ export default function ConsultationDetail() {
                                     </div>
                                   ) : note.type === 'pdf' ? (
                                     <div className="mt-2 flex flex-col items-center w-full">
-                                      <div className="w-full sm:w-2/3 lg:w-1/2 rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-sm relative group bg-white">
+                                      <div className={note.orientation === 'horizontal'
+                                        ? "w-full md:w-3/4 aspect-video rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-sm relative group bg-white"
+                                        : "w-full sm:w-2/3 lg:w-1/2 aspect-[3/4] max-h-[600px] rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-sm relative group bg-white"}>
                                         <iframe
                                           src={`${supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-                                          className="w-full h-48 sm:h-64 border-none pointer-events-none"
+                                          className="w-full h-full border-none pointer-events-none"
                                           title={note.content || "Document PDF"}
                                         />
                                         {/* Overlay cliquable pour agrandir facilement */}
