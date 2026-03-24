@@ -34,6 +34,38 @@ export default function ConsultationDetail() {
   const [isTextModalOpen, setIsTextModalOpen] = useState(false);
   const [textContent, setTextContent] = useState("");
 
+  // Nouveaux états pour l'override de séance
+  const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
+  const [editingSessionDay, setEditingSessionDay] = useState("");
+  const [customSessionNumber, setCustomSessionNumber] = useState<number | "">("");
+
+  const handleSaveSessionOverride = async () => {
+    if (customSessionNumber === "") return;
+    try {
+      const currentFollowUps = data.follow_ups || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const filtered = currentFollowUps.filter((n: any) => !(n.type === 'session_override' && n.date && n.date.startsWith(editingSessionDay)));
+
+      const overrideNote = {
+        id: crypto.randomUUID(),
+        date: editingSessionDay + "T00:00:00.000Z",
+        type: 'session_override',
+        value: customSessionNumber
+      };
+
+      const updatedFollowUps = [...filtered, overrideNote];
+      const { data: updatedData, error } = await supabase.from('consultations').update({ follow_ups: updatedFollowUps }).eq('id', params.id).select().single();
+
+      if (error) throw error;
+      setData(updatedData);
+      setIsSessionModalOpen(false);
+      toast({ title: "Séance modifiée", description: "Le numéro de séance a bien été mis à jour." });
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Erreur", description: "Impossible de modifier la séance.", variant: "destructive" });
+    }
+  };
+
   // Nouveaux états pour le suivi chronologique
   const [appendMode, setAppendMode] = useState<'bilan' | 'suivi'>('bilan');
   const fileInputRefBilanMobile = useRef<HTMLInputElement>(null);
@@ -664,6 +696,38 @@ export default function ConsultationDetail() {
         </DialogContent>
       </Dialog>
 
+      {/* Modal de changement de séance */}
+      <Dialog open={isSessionModalOpen} onOpenChange={setIsSessionModalOpen}>
+        <DialogContent className="sm:max-w-md bg-white border-[#ebd9c8]/30">
+          <DialogHeader>
+            <DialogTitle className="font-bebas tracking-wide text-2xl text-[#bd613c] uppercase text-center">
+              Modifier le numéro de séance
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="flex flex-col items-center gap-3">
+              <label className="text-sm font-medium text-[#4a3f35]/80">Nouveau numéro (ex: 15) :</label>
+              <input
+                type="number"
+                min="1"
+                value={customSessionNumber}
+                onChange={(e) => setCustomSessionNumber(e.target.value ? parseInt(e.target.value, 10) : "")}
+                className="w-24 text-center font-bebas text-3xl text-[#bd613c] border-b-2 border-[#ebd9c8] focus:border-[#bd613c] outline-none bg-transparent"
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-center gap-3 pt-4">
+              <Button variant="ghost" onClick={() => setIsSessionModalOpen(false)} className="text-[#4a3f35]/60 hover:bg-[#ebd9c8]/20">
+                Annuler
+              </Button>
+              <Button onClick={handleSaveSessionOverride} className="bg-[#e25822] hover:bg-[#bd613c] text-white">
+                <Check className="w-4 h-4 mr-2" /> Enregistrer
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <div className="w-full max-w-5xl space-y-8 xl:space-y-10">
 
         <Button
@@ -986,6 +1050,8 @@ export default function ConsultationDetail() {
                           const num = parseInt(match[1], 10);
                           const isSpelledOut = /(?:séance|seance)/i.test(match[0]);
                           // Avoid S1-S5 (sacrum) false positives unless explicitly "séance"
+                          // Ignore 1900-2100 matching as a year (e.g. S 1991)
+                          if (num >= 1900 && num <= 2100 && !isSpelledOut) return null;
                           if (num > 5 || isSpelledOut) return num;
                         }
                         return null;
@@ -1015,8 +1081,14 @@ export default function ConsultationDetail() {
                       // Pass 2: check follow-ups for explicit session markers
                       Object.keys(grouped).forEach(dayStr => {
                         const dIdx = sortedAllDates.indexOf(dayStr);
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         grouped[dayStr].forEach((note: any) => {
-                          const num = extractExplicitSession(note.title) || extractExplicitSession(note.content);
+                          let num = null;
+                          if (note.type === 'session_override') {
+                            num = note.value;
+                          } else {
+                            num = extractExplicitSession(note.title) || extractExplicitSession(note.content);
+                          }
                           if (num && num > maxExplicitOffset) {
                             maxExplicitOffset = num;
                             maxExplicitIndex = dIdx;
@@ -1045,14 +1117,31 @@ export default function ConsultationDetail() {
                           <div className="flex-1 min-w-0 p-5 rounded-2xl border border-[#ebd9c8]/50 bg-white shadow-sm hover:shadow-md transition-shadow">
                             <h3 className="font-bebas tracking-wide text-lg sm:text-xl text-[#bd613c] mb-3 pb-2 border-b border-[#ebd9c8]/30 flex items-center overflow-hidden">
                               <span className="capitalize truncate flex-1">{format(new Date(dayStr), "EEEE d MMMM yyyy", { locale: fr })}</span>
-                              <span className="shrink-0 text-sm sm:text-base opacity-70 border-l border-[#bd613c]/30 pl-2 ml-2">SÉANCE {getSessionNumberForDay(dayStr)}</span>
+                              <div className="shrink-0 flex items-center border-l border-[#bd613c]/30 pl-2 ml-2">
+                                <span className="text-sm sm:text-base opacity-70">SÉANCE {getSessionNumberForDay(dayStr)}</span>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 ml-1 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-[#bd613c] print:hidden"
+                                  onClick={() => {
+                                    setEditingSessionDay(dayStr);
+                                    setCustomSessionNumber(getSessionNumberForDay(dayStr));
+                                    setIsSessionModalOpen(true);
+                                  }}
+                                  title="Modifier la séance"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                </Button>
+                              </div>
                               <span className="shrink-0 text-sm sm:text-base opacity-60 border-l border-[#bd613c]/30 pl-2 ml-2">
                                 à {format(new Date(Math.min(...grouped[dayStr].map((n: any) => new Date(n.date).getTime()))), "HH:mm")}
                               </span>
                             </h3>
 
                             <div className="space-y-6">
-                              {grouped[dayStr].map((note: any, noteIdx: number) => (
+                              {grouped[dayStr].filter((n: any) => n.type !== 'session_override').length === 0 ? (
+                                <p className="text-xs text-slate-400 italic">Aucune note pour ce jour (Séance enregistrée via l'historique).</p>
+                              ) : grouped[dayStr].filter((n: any) => n.type !== 'session_override').map((note: any, noteIdx: number, arr: any[]) => (
                                 <div key={note.id || noteIdx} className="relative">
                                   <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-2 mb-2">
                                     <div className="flex items-center -mr-2">
@@ -1115,7 +1204,7 @@ export default function ConsultationDetail() {
                                   )}
 
                                   {/* Separator between notes of the same day, except the last one */}
-                                  {noteIdx < grouped[dayStr].length - 1 && (
+                                  {noteIdx < arr.length - 1 && (
                                     <div className="w-full h-px bg-gradient-to-r from-transparent via-[#ebd9c8]/50 to-transparent my-6" />
                                   )}
                                 </div>

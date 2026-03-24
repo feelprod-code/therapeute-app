@@ -658,7 +658,9 @@ function Home() {
       if (match) {
         const num = parseInt(match[1], 10);
         const isSpelledOut = /(?:séance|seance)/i.test(match[0]);
-        // If it's just "S1" to "S5", ignore to avoid Sacral Vertebrae. If spelled out, keep it.
+        // Avoid S1-S5 (sacrum) false positives unless explicitly "séance"
+        // Ignore 1900-2100 matching as a year (e.g. S 1991)
+        if (num >= 1900 && num <= 2100 && !isSpelledOut) return null;
         if (num > 5 || isSpelledOut) return num;
       }
       return null;
@@ -701,7 +703,12 @@ function Home() {
             try {
               const dStr = new Date(note.date).toISOString().split('T')[0];
               const dIdx = sortedAllDates.indexOf(dStr);
-              const num = extractExplicitSession(note.title) || extractExplicitSession(note.content);
+              let num = null;
+              if (note.type === 'session_override') {
+                num = note.value;
+              } else {
+                num = extractExplicitSession(note.title) || extractExplicitSession(note.content);
+              }
               if (num && num > maxExplicitOffset) {
                 // Keep the largest explicit offset we find to set the baseline
                 maxExplicitOffset = num;

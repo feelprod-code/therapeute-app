@@ -17,6 +17,7 @@ interface CalendarEvent {
     type: 'bilan' | 'suivi';
     date: Date;
     hour: number;
+    sessionNumber?: number;
 }
 
 export default function CalendarPage() {
@@ -43,24 +44,84 @@ export default function CalendarPage() {
         fetchConsultations();
     }, []);
 
+    const extractExplicitSession = (text: string | null | undefined): number | null => {
+        if (!text) return null;
+        const match = text.match(/\b(?:s|séance|seance)\s*([0-9]+)\b/i);
+        if (match) {
+            const num = parseInt(match[1], 10);
+            const isSpelledOut = /(?:séance|seance)/i.test(match[0]);
+            if (num >= 1900 && num <= 2100 && !isSpelledOut) return null;
+            if (num > 5 || isSpelledOut) return num;
+        }
+        return null;
+    };
+
     // Générer tous les événements (un par jour unique par patient)
     const events: CalendarEvent[] = [];
     consultations.forEach(c => {
         // 1. Collecter toutes les interactions (bilan + suivis)
         const interactions: { date: Date, type: 'bilan' | 'suivi' }[] = [];
+        const allDates = new Set<string>();
 
         if (c.date) {
-            interactions.push({ date: new Date(c.date), type: 'bilan' });
+            const d = new Date(c.date);
+            interactions.push({ date: d, type: 'bilan' });
+            allDates.add(d.toISOString().split('T')[0]);
         }
 
         if (c.follow_ups && Array.isArray(c.follow_ups)) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             c.follow_ups.forEach((f: any) => {
                 if (f.date || f.created_at) {
-                    interactions.push({ date: new Date(f.date || f.created_at), type: 'suivi' });
+                    const d = new Date(f.date || f.created_at);
+                    if (f.type !== 'session_override') {
+                        interactions.push({ date: d, type: 'suivi' });
+                    }
+                    allDates.add(d.toISOString().split('T')[0]);
                 }
             });
         }
+
+        const sortedAllDates = Array.from(allDates).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+
+        let maxExplicitOffset = 0;
+        let maxExplicitIndex = -1;
+
+        if (c.date) {
+            const num = extractExplicitSession(c.resume) || extractExplicitSession(c.synthese);
+            if (num) {
+                maxExplicitOffset = num;
+                maxExplicitIndex = 0;
+            }
+        }
+
+        if (c.follow_ups && Array.isArray(c.follow_ups)) {
+            c.follow_ups.forEach((note: any) => {
+                const dateVal = note.date || note.created_at;
+                if (dateVal) {
+                    const dStr = new Date(dateVal).toISOString().split('T')[0];
+                    const dIdx = sortedAllDates.indexOf(dStr);
+                    let num = null;
+                    if (note.type === 'session_override') {
+                        num = note.value;
+                    } else {
+                        num = extractExplicitSession(note.title) || extractExplicitSession(note.content);
+                    }
+                    if (num && num > maxExplicitOffset) {
+                        maxExplicitOffset = num;
+                        maxExplicitIndex = dIdx;
+                    }
+                }
+            });
+        }
+
+        const getSessionNumberForDay = (dayStr: string) => {
+            const idx = sortedAllDates.indexOf(dayStr);
+            if (maxExplicitOffset > 0 && maxExplicitIndex >= 0) {
+                return maxExplicitOffset + (idx - maxExplicitIndex);
+            }
+            return idx + 1;
+        };
 
         // 2. Grouper par jour (YYYY-MM-DD)
         const groupedByDay: Record<string, { date: Date, type: 'bilan' | 'suivi' }[]> = {};
@@ -82,6 +143,7 @@ export default function CalendarPage() {
                 type: isBilan ? 'bilan' : 'suivi',
                 date: earliestDate,
                 hour: earliestDate.getHours(), // use local hour
+                sessionNumber: getSessionNumberForDay(dayStr)
             });
         });
     });
@@ -237,7 +299,9 @@ export default function CalendarPage() {
                                                             {format(evt.date, "HH:mm")}
                                                         </div>
                                                     </div>
-                                                    <div className="text-xs opacity-70 font-medium uppercase tracking-wider">{evt.type === 'bilan' ? 'Consultation Bilan' : 'Note de Suivi'}</div>
+                                                    <div className="text-xs opacity-70 font-medium uppercase tracking-wider">
+                                                        {evt.type === 'bilan' ? 'Bilan' : 'Suivi'} - S{evt.sessionNumber}
+                                                    </div>
                                                 </Link>
                                             ))}
                                         </div>
@@ -312,7 +376,7 @@ export default function CalendarPage() {
                                                                     <div className="font-semibold uppercase tracking-wide truncate w-full">{evt.title}</div>
                                                                     <div className="flex items-center gap-1 opacity-80 text-[10px] font-medium w-full">
                                                                         <CalendarDays className="w-3 h-3 shrink-0" />
-                                                                        <span className="truncate">{format(evt.date, "HH:mm")} - {evt.type === 'bilan' ? 'Bilan' : 'Suivi'}</span>
+                                                                        <span className="truncate">{format(evt.date, "HH:mm")} - S{evt.sessionNumber}</span>
                                                                     </div>
                                                                 </Link>
                                                             ))}
