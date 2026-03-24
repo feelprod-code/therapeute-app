@@ -220,7 +220,7 @@ function Home() {
       const { data: newConsultation, error: insertError } = await supabase.from('consultations').insert({
         user_id: user?.id || "00000000-0000-0000-0000-000000000000",
         date: new Date().toISOString(),
-        patient_name: "Patient Anonyme", // Temporaire
+        patient_name: `Patient Anonyme (${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })})`, // Temporaire avec heure pour éviter les erreurs de suppression
         synthese: "",
         transcription: "",
         resume: "",
@@ -887,9 +887,9 @@ function Home() {
               </AlertDialogTrigger>
               <AlertDialogContent className="w-[90vw] rounded-xl sm:w-[400px]">
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Supprimer ce bilan ?</AlertDialogTitle>
+                  <AlertDialogTitle className="text-[#bd613c]">Supprimer {consult.patientName} ?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Cette action est irréversible. Toutes les données seront supprimées définitivement de votre appareil.
+                    Êtes-vous sûr de vouloir supprimer définitivement ce dossier et toutes ses données associées (audios, images, textes) ? Cette action est totalement irréversible.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
