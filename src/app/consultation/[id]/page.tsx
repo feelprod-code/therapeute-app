@@ -16,6 +16,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AudioRecorder } from "@/components/AudioRecorder";
 import { useToast } from "@/hooks/use-toast";
+import imageCompression from 'browser-image-compression';
 
 export default function ConsultationDetail() {
   const params = useParams();
@@ -72,6 +73,8 @@ export default function ConsultationDetail() {
   const fileInputRefSuiviMobile = useRef<HTMLInputElement>(null);
   const fileInputRefBilanDesktop = useRef<HTMLInputElement>(null);
   const fileInputRefSuiviDesktop = useRef<HTMLInputElement>(null);
+  const fileInputRefImageMobile = useRef<HTMLInputElement>(null);
+  const fileInputRefImageDesktop = useRef<HTMLInputElement>(null);
 
   const [attachedDocs, setAttachedDocs] = useState<{ name: string, originalName: string, url: string, type: 'image' | 'pdf' | 'other' }[] | null>(null);
 
@@ -81,6 +84,9 @@ export default function ConsultationDetail() {
 
   const [editingFollowUpId, setEditingFollowUpId] = useState<string | null>(null);
   const [editFollowUpContent, setEditFollowUpContent] = useState("");
+
+  // Image Viewer State
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const handleDeleteFollowUp = async (followUpId: string) => {
     if (!confirm("Voulez-vous vraiment supprimer cette note de suivi ?")) return;
@@ -244,6 +250,59 @@ export default function ConsultationDetail() {
     } catch (e) {
       console.error(e);
       toast({ title: "Erreur", description: "Une erreur est survenue lors de la génération du PDF.", variant: "destructive" });
+    }
+  };
+
+  const handleAppendImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsAppending(true);
+    try {
+      toast({ title: "Compression", description: "Allègement de l'image en cours..." });
+
+      const options = {
+        maxSizeMB: 1, // Max 1MB
+        maxWidthOrHeight: 1920,
+        useWebWorker: true
+      };
+
+      const compressedFile = await imageCompression(file, options);
+      const safeName = compressedFile.name ? compressedFile.name.replace(/[^a-zA-Z0-9.\-_]/g, '_') : 'image.jpg';
+      const fileName = `img_${Date.now()}_${params.id}_${safeName}`;
+
+      toast({ title: "Upload", description: "Envoi de l'image sécurisé..." });
+      const { error: uploadError } = await supabase.storage.from('tdt_uploads').upload(fileName, compressedFile, {
+        contentType: compressedFile.type
+      });
+
+      if (uploadError) throw new Error("Erreur lors de l'upload de l'image");
+
+      const newFollowUp = {
+        id: crypto.randomUUID(),
+        date: new Date().toISOString(),
+        type: 'image',
+        content: file.name,
+        url: fileName
+      };
+
+      const currentFollowUps = data.follow_ups || [];
+      const { data: updatedData, error: updateError } = await supabase.from('consultations').update({
+        follow_ups: [newFollowUp, ...currentFollowUps]
+      }).eq('id', params.id).select().single();
+
+      if (updateError) throw updateError;
+
+      if (updatedData) setData(updatedData);
+      toast({ title: "Succès", description: "L'image a bien été ajoutée au dossier." });
+
+    } catch (err) {
+      console.error(err);
+      toast({ title: "Erreur", description: "Impossible d'ajouter l'image.", variant: "destructive" });
+    } finally {
+      setIsAppending(false);
+      // Reset input
+      e.target.value = '';
     }
   };
 
@@ -728,6 +787,27 @@ export default function ConsultationDetail() {
         </DialogContent>
       </Dialog>
 
+      {/* Modal d'affichage Image Plein Écran */}
+      <Dialog open={!!selectedImage} onOpenChange={() => setSelectedImage(null)}>
+        <DialogContent className="max-w-[95vw] lg:max-w-[80vw] max-h-[95vh] p-1 md:p-6 bg-black/95 sm:bg-white border-none sm:border-[#ebd9c8]/30 flex flex-col items-center justify-center">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute top-2 right-2 text-white sm:text-slate-500 hover:bg-white/20 sm:hover:bg-slate-100 z-50 rounded-full"
+            onClick={() => setSelectedImage(null)}
+          >
+            <XIcon className="w-6 h-6" />
+          </Button>
+          {selectedImage && (
+            <img
+              src={supabase.storage.from('tdt_uploads').getPublicUrl(selectedImage).data.publicUrl}
+              alt="Image plein écran"
+              className="w-auto h-auto max-w-full max-h-[85vh] object-contain rounded-md"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
       <div className="w-full max-w-5xl space-y-8 xl:space-y-10">
 
         <Button
@@ -825,7 +905,7 @@ export default function ConsultationDetail() {
               <div className="flex flex-col lg:hidden mt-8 gap-8" data-html2canvas-ignore="true">
 
                 {/* Actions Centrales Horizontales */}
-                <div className="flex justify-center items-center gap-4">
+                <div className="flex flex-wrap justify-center items-center gap-2 sm:gap-4">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="outline" className="h-10 px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending}>
@@ -881,8 +961,15 @@ export default function ConsultationDetail() {
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
+
+                  {/* Nouveau bouton Image Mobile */}
+                  <Button variant="outline" className="h-10 px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending} onClick={() => fileInputRefImageMobile.current?.click()}>
+                    <ImageIcon className="w-4 h-4 mr-2" /> <span className="font-medium text-[13px]">Image</span>
+                  </Button>
+
                   <input type="file" ref={fileInputRefBilanMobile} className="hidden" onChange={(e) => handleAppendFile(e, 'bilan')} multiple />
                   <input type="file" ref={fileInputRefSuiviMobile} className="hidden" onChange={(e) => handleAppendFile(e, 'suivi')} multiple />
+                  <input type="file" ref={fileInputRefImageMobile} className="hidden" accept="image/*" onChange={(e) => handleAppendImage(e)} />
                 </div>
 
                 {/* Documents Associés Mobile */}
@@ -1185,6 +1272,16 @@ export default function ConsultationDetail() {
                                       onChange={(e) => setEditFollowUpContent(e.target.value)}
                                       className="w-full min-h-[150px] p-3 font-mono text-sm rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none"
                                     />
+                                  ) : note.type === 'image' ? (
+                                    <div className="mt-2 flex flex-col items-center">
+                                      <img
+                                        src={supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl}
+                                        alt={note.content || "Image attachée"}
+                                        className="cursor-pointer max-h-64 object-contain rounded-xl border border-[#ebd9c8]/50 shadow-sm hover:shadow transition-shadow"
+                                        onClick={() => setSelectedImage(note.url)}
+                                      />
+                                      {note.content && <p className="text-xs text-slate-500 mt-2">{note.content}</p>}
+                                    </div>
                                   ) : (
                                     <div className="prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c]">
                                       <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
@@ -1284,8 +1381,16 @@ export default function ConsultationDetail() {
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
+
+                  {/* Nouveau bouton Image Desktop */}
+                  <Button variant="outline" className="w-full justify-start text-left h-12 px-4 rounded-xl text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending} onClick={() => fileInputRefImageDesktop.current?.click()}>
+                    {isAppending ? <Loader2 className="w-5 h-5 mr-3 animate-spin text-[#bd613c]" /> : <ImageIcon className="w-5 h-5 mr-3 text-[#bd613c]" />}
+                    <span className="font-medium text-base">{isAppending ? "Traitement..." : "Ajouter une Image / Radio"}</span>
+                  </Button>
+
                   <input type="file" ref={fileInputRefBilanDesktop} className="hidden" onChange={(e) => handleAppendFile(e, 'bilan')} multiple />
                   <input type="file" ref={fileInputRefSuiviDesktop} className="hidden" onChange={(e) => handleAppendFile(e, 'suivi')} multiple />
+                  <input type="file" ref={fileInputRefImageDesktop} className="hidden" accept="image/*" onChange={(e) => handleAppendImage(e)} />
                 </div>
               </div>
 
