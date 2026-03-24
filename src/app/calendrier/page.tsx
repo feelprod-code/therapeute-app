@@ -401,21 +401,25 @@ export default function CalendarPage() {
                                                     <div
                                                         key={`${rowIdx}-${colIdx}`}
                                                         className={`min-w-0 relative p-1 border-r border-[#ebd9c8]/30 last:border-r-0 hover:bg-[#ebd9c8]/10 transition-colors ${isSameDay(day, new Date()) ? 'bg-[#bd613c]/5' : ''}`}
-                                                        onDragOver={(e) => e.preventDefault()}
+                                                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                                        onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                                         onDrop={(e) => {
                                                             e.preventDefault();
+                                                            e.stopPropagation();
                                                             try {
                                                                 const eventData = JSON.parse(e.dataTransfer.getData('application/json'));
                                                                 handleDropEvent(eventData, day, slot.id);
                                                             } catch (err) { }
                                                         }}
                                                     >
-                                                        <div className="w-full h-full relative overflow-hidden flex flex-col gap-1">
+                                                        <div className="w-full h-full relative overflow-hidden flex flex-col gap-1 min-h-[50px]">
                                                             {cellEvents.map(evt => (
-                                                                <div
+                                                                <Link
                                                                     key={evt.id}
+                                                                    href={`/consultation/${evt.consultationId}`}
                                                                     draggable
                                                                     onDragStart={(e) => {
+                                                                        e.stopPropagation();
                                                                         e.dataTransfer.setData('application/json', JSON.stringify({
                                                                             id: evt.id,
                                                                             type: evt.type,
@@ -423,25 +427,20 @@ export default function CalendarPage() {
                                                                             dayStr: evt.dayStr
                                                                         }));
                                                                     }}
-                                                                    className="w-full h-full cursor-move"
+                                                                    className={`
+                                                                      flex flex-col justify-center w-full h-full px-2 py-1 rounded-lg text-xs leading-tight shadow-sm border transition-all hover:shadow-md overflow-hidden min-h-[50px] cursor-move
+                                                                      ${evt.type === 'bilan'
+                                                                            ? 'bg-orange-50 border-orange-200 text-orange-900 hover:bg-orange-100'
+                                                                            : 'bg-yellow-50 border-yellow-200 text-yellow-900 hover:bg-yellow-100'
+                                                                        }
+                                                                    `}
                                                                 >
-                                                                    <Link
-                                                                        href={`/consultation/${evt.consultationId}`}
-                                                                        className={`
-                                                                          flex flex-col justify-center w-full h-full px-2 py-1 rounded-lg text-xs leading-tight shadow-sm border transition-all hover:shadow-md overflow-hidden min-h-[50px]
-                                                                          ${evt.type === 'bilan'
-                                                                                ? 'bg-orange-50 border-orange-200 text-orange-900 hover:bg-orange-100'
-                                                                                : 'bg-yellow-50 border-yellow-200 text-yellow-900 hover:bg-yellow-100'
-                                                                            }
-                                                                        `}
-                                                                    >
-                                                                        <div className="font-semibold uppercase tracking-wide truncate w-full">{evt.title}</div>
-                                                                        <div className="flex items-center gap-1 opacity-80 text-[10px] font-medium w-full">
-                                                                            <CalendarDays className="w-3 h-3 shrink-0" />
-                                                                            <span className="truncate">{format(evt.date, "HH:mm")} - S{evt.sessionNumber}</span>
-                                                                        </div>
-                                                                    </Link>
-                                                                </div>
+                                                                    <div className="font-semibold uppercase tracking-wide truncate w-full">{evt.title}</div>
+                                                                    <div className="flex items-center gap-1 opacity-80 text-[10px] font-medium w-full">
+                                                                        <CalendarDays className="w-3 h-3 shrink-0" />
+                                                                        <span className="truncate">{format(evt.date, "HH:mm")} - S{evt.sessionNumber}</span>
+                                                                    </div>
+                                                                </Link>
                                                             ))}
                                                         </div>
                                                     </div>
