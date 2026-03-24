@@ -1319,25 +1319,20 @@ export default function ConsultationDetail() {
                                     </div>
                                   ) : note.type === 'pdf' ? (
                                     <div className="mt-2 flex flex-col items-center w-full">
-                                      <div className={note.orientation === 'horizontal'
-                                        ? "w-full md:w-3/4 aspect-video rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-sm relative group bg-white"
-                                        : "w-full sm:w-2/3 lg:w-1/2 aspect-[3/4] max-h-[600px] rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-sm relative group bg-white"}>
+                                      <div className="w-full sm:w-3/4 lg:w-2/3 rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-sm relative bg-white flex flex-col">
+                                        <div className="bg-slate-50 p-2 px-3 flex justify-between items-center border-b border-[#ebd9c8]/50 z-10">
+                                          <span className="text-xs font-medium text-slate-600 flex items-center gap-2">
+                                            <FileText className="w-4 h-4 text-[#bd613c]" /> Aperçu du PDF
+                                          </span>
+                                          <Button variant="outline" size="sm" className="h-7 text-xs bg-white text-[#bd613c] border-[#ebd9c8] hover:bg-slate-50" onClick={() => window.open(supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl, "_blank")}>
+                                            <ExternalLink className="w-3 h-3 mr-1" /> Agrandir
+                                          </Button>
+                                        </div>
                                         <iframe
-                                          src={`${supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-                                          className="w-full h-full border-none pointer-events-none"
+                                          src={`${supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl}#toolbar=0&navpanes=0&view=FitH`}
+                                          className="w-full h-[350px] border-none bg-zinc-100"
                                           title={note.content || "Document PDF"}
                                         />
-                                        {/* Overlay cliquable pour agrandir facilement */}
-                                        <div
-                                          className="absolute inset-0 cursor-pointer flex items-center justify-center bg-black/0 group-hover:bg-black/5 transition-colors"
-                                          onClick={() => window.open(supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl, "_blank")}
-                                        >
-                                          <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <Button variant="secondary" size="sm" className="shadow-md h-8 bg-white hover:bg-slate-50 text-[#bd613c] border border-[#ebd9c8]" onClick={(e) => { e.stopPropagation(); window.open(supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl, "_blank"); }}>
-                                              <ExternalLink className="w-4 h-4 mr-2" /> Agrandir
-                                            </Button>
-                                          </div>
-                                        </div>
                                       </div>
                                       {note.content && <p className="text-xs text-slate-500 mt-2">{note.content}</p>}
                                     </div>
