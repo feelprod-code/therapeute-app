@@ -1289,16 +1289,22 @@ export default function ConsultationDetail() {
                                     </div>
                                   ) : note.type === 'pdf' ? (
                                     <div className="mt-2 flex flex-col items-center w-full">
-                                      <div className="w-full sm:w-5/6 lg:w-3/4 rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-sm relative group bg-white">
+                                      <div className="w-full sm:w-2/3 lg:w-1/2 rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-sm relative group bg-white">
                                         <iframe
                                           src={`${supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-                                          className="w-full h-[350px] sm:h-[450px] border-none"
+                                          className="w-full h-48 sm:h-64 border-none pointer-events-none"
                                           title={note.content || "Document PDF"}
                                         />
-                                        <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                                          <Button variant="secondary" size="sm" className="shadow-md h-8 bg-white hover:bg-slate-50 text-[#bd613c] border border-[#ebd9c8]" onClick={() => window.open(supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl, "_blank")}>
-                                            <ExternalLink className="w-4 h-4 mr-2" /> Agrandir
-                                          </Button>
+                                        {/* Overlay cliquable pour agrandir facilement */}
+                                        <div
+                                          className="absolute inset-0 cursor-pointer flex items-center justify-center bg-black/0 group-hover:bg-black/5 transition-colors"
+                                          onClick={() => window.open(supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl, "_blank")}
+                                        >
+                                          <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <Button variant="secondary" size="sm" className="shadow-md h-8 bg-white hover:bg-slate-50 text-[#bd613c] border border-[#ebd9c8]" onClick={(e) => { e.stopPropagation(); window.open(supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl, "_blank"); }}>
+                                              <ExternalLink className="w-4 h-4 mr-2" /> Agrandir
+                                            </Button>
+                                          </div>
                                         </div>
                                       </div>
                                       {note.content && <p className="text-xs text-slate-500 mt-2">{note.content}</p>}
