@@ -99,6 +99,7 @@ function Home() {
   const [textContent, setTextContent] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [consultations, setConsultations] = useState<SupabaseConsultation[] | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const [isDictating, setIsDictating] = useState(false);
   const recognitionRef = useRef<any>(null);
@@ -526,19 +527,22 @@ function Home() {
     } catch (error: unknown) {
       console.log(error);
       toast({
-        title: "Échec de l'analyse",
-        description: error instanceof Error ? error.message : "Erreur inattendue",
-        variant: "destructive",
       });
     } finally {
       setActiveProcessingIds(prev => prev.filter(id => id !== consult.id));
     }
   };
 
-  const sortByDate = [...(consultations || [])].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  const sortByName = [...(consultations || [])].sort((a, b) => {
-    const nameA = a.patientName || `Patient #${a.id}`;
-    const nameB = b.patientName || `Patient #${b.id}`;
+  const filteredConsultations = (consultations || []).filter(c => {
+    if (!searchTerm) return true;
+    const name = c.patientName || c.patient_name || "";
+    return name.toLowerCase().includes(searchTerm.toLowerCase().trim());
+  });
+
+  const sortByDate = [...filteredConsultations].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const sortByName = [...filteredConsultations].sort((a, b) => {
+    const nameA = a.patientName || a.patient_name || `Patient #${a.id}`;
+    const nameB = b.patientName || b.patient_name || `Patient #${b.id}`;
     return nameA.localeCompare(nameB);
   });
 
@@ -1139,21 +1143,43 @@ function Home() {
           <div className="md:col-span-7 space-y-6 pt-4 md:pt-0 md:h-full md:overflow-y-auto md:pr-2 pb-12 custom-scrollbar">
 
             <Tabs defaultValue="date" className="w-full">
-              <div className="flex items-center justify-between border-b border-[#bd613c]/20 mb-6 mt-8 md:mt-0 gap-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-[#bd613c]/20 mb-6 mt-8 md:mt-0 gap-4">
                 <TabsList className="bg-transparent p-0 w-auto flex items-center gap-6 h-auto">
                   <TabsTrigger value="date" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-[#bd613c] border-b-2 border-transparent data-[state=active]:border-[#bd613c] rounded-none px-1 py-3 text-[#4a3f35]/60 hover:text-[#bd613c] transition-all font-medium text-sm sm:text-base translate-y-[1px]">Par date</TabsTrigger>
                   <TabsTrigger value="name" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-[#bd613c] border-b-2 border-transparent data-[state=active]:border-[#bd613c] rounded-none px-1 py-3 text-[#4a3f35]/60 hover:text-[#bd613c] transition-all font-medium text-sm sm:text-base translate-y-[1px]">Par nom</TabsTrigger>
                 </TabsList>
 
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleExportAll}
-                  className="shrink-0 text-[#bd613c] hover:bg-[#ebd9c8]/30 h-10 w-10 sm:h-12 sm:w-12 rounded-lg"
-                  title="Sauvegarder en local (JSON)"
-                >
-                  <Download className="w-6 h-6" />
-                </Button>
+                <div className="flex items-center justify-end w-full sm:w-auto gap-2">
+                  <div className="relative w-full sm:w-64 max-w-sm">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Search className="h-4 w-4 text-[#bd613c]/60" />
+                    </div>
+                    <input
+                      type="text"
+                      className="block w-full pl-10 pr-3 py-2 border border-[#ebd9c8] rounded-xl leading-5 bg-white/50 placeholder-[#4a3f35]/50 focus:outline-none focus:ring-1 focus:ring-[#bd613c] focus:border-[#bd613c] sm:text-sm text-[#4a3f35] transition-colors"
+                      placeholder="Rechercher par nom..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                    {searchTerm && (
+                      <button
+                        onClick={() => setSearchTerm("")}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-[#bd613c]"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleExportAll}
+                    className="shrink-0 text-[#bd613c] hover:bg-[#ebd9c8]/30 h-10 w-10 sm:h-12 w-12 rounded-lg"
+                    title="Sauvegarder en local (JSON)"
+                  >
+                    <Download className="w-5 h-5 sm:w-6 sm:h-6" />
+                  </Button>
+                </div>
               </div>
 
               <div className="mt-6">
