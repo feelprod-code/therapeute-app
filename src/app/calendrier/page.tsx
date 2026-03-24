@@ -407,20 +407,24 @@ export default function CalendarPage() {
                                                             e.preventDefault();
                                                             e.stopPropagation();
                                                             try {
-                                                                const eventData = JSON.parse(e.dataTransfer.getData('application/json'));
+                                                                const eventData = JSON.parse(e.dataTransfer.getData('text/plain'));
                                                                 handleDropEvent(eventData, day, slot.id);
                                                             } catch (err) { }
                                                         }}
                                                     >
                                                         <div className="w-full h-full relative overflow-hidden flex flex-col gap-1 min-h-[50px]">
                                                             {cellEvents.map(evt => (
-                                                                <Link
+                                                                <div
                                                                     key={evt.id}
-                                                                    href={`/consultation/${evt.consultationId}`}
+                                                                    onClick={(e) => {
+                                                                        // Prevent navigation if we are dragging
+                                                                        e.stopPropagation();
+                                                                        router.push(`/consultation/${evt.consultationId}`);
+                                                                    }}
                                                                     draggable
                                                                     onDragStart={(e) => {
                                                                         e.stopPropagation();
-                                                                        e.dataTransfer.setData('application/json', JSON.stringify({
+                                                                        e.dataTransfer.setData('text/plain', JSON.stringify({
                                                                             id: evt.id,
                                                                             type: evt.type,
                                                                             consultationId: evt.consultationId,
@@ -435,12 +439,12 @@ export default function CalendarPage() {
                                                                         }
                                                                     `}
                                                                 >
-                                                                    <div className="font-semibold uppercase tracking-wide truncate w-full">{evt.title}</div>
-                                                                    <div className="flex items-center gap-1 opacity-80 text-[10px] font-medium w-full">
+                                                                    <div className="font-semibold uppercase tracking-wide truncate w-full pointer-events-none">{evt.title}</div>
+                                                                    <div className="flex items-center gap-1 opacity-80 text-[10px] font-medium w-full pointer-events-none">
                                                                         <CalendarDays className="w-3 h-3 shrink-0" />
                                                                         <span className="truncate">{format(evt.date, "HH:mm")} - S{evt.sessionNumber}</span>
                                                                     </div>
-                                                                </Link>
+                                                                </div>
                                                             ))}
                                                         </div>
                                                     </div>
