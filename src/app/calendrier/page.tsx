@@ -65,20 +65,28 @@ export default function CalendarPage() {
         const allDates = new Set<string>();
 
         if (c.date) {
-            const d = new Date(c.date);
-            interactions.push({ date: d, type: 'bilan' });
-            allDates.add(d.toISOString().split('T')[0]);
+            try {
+                const d = new Date(c.date);
+                if (!isNaN(d.getTime())) {
+                    interactions.push({ date: d, type: 'bilan' });
+                    allDates.add(d.toISOString().split('T')[0]);
+                }
+            } catch (err) { }
         }
 
         if (c.follow_ups && Array.isArray(c.follow_ups)) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             c.follow_ups.forEach((f: any) => {
                 if (f.date || f.created_at) {
-                    const d = new Date(f.date || f.created_at);
-                    if (f.type !== 'session_override') {
-                        interactions.push({ date: d, type: 'suivi' });
-                    }
-                    allDates.add(d.toISOString().split('T')[0]);
+                    try {
+                        const d = new Date(f.date || f.created_at);
+                        if (!isNaN(d.getTime())) {
+                            if (f.type !== 'session_override') {
+                                interactions.push({ date: d, type: 'suivi' });
+                            }
+                            allDates.add(d.toISOString().split('T')[0]);
+                        }
+                    } catch (err) { }
                 }
             });
         }
@@ -100,18 +108,23 @@ export default function CalendarPage() {
             c.follow_ups.forEach((note: any) => {
                 const dateVal = note.date || note.created_at;
                 if (dateVal) {
-                    const dStr = new Date(dateVal).toISOString().split('T')[0];
-                    const dIdx = sortedAllDates.indexOf(dStr);
-                    let num = null;
-                    if (note.type === 'session_override') {
-                        num = note.value;
-                    } else {
-                        num = extractExplicitSession(note.title) || extractExplicitSession(note.content);
-                    }
-                    if (num && num > maxExplicitOffset) {
-                        maxExplicitOffset = num;
-                        maxExplicitIndex = dIdx;
-                    }
+                    try {
+                        const dTest = new Date(dateVal);
+                        if (!isNaN(dTest.getTime())) {
+                            const dStr = dTest.toISOString().split('T')[0];
+                            const dIdx = sortedAllDates.indexOf(dStr);
+                            let num = null;
+                            if (note.type === 'session_override') {
+                                num = note.value;
+                            } else {
+                                num = extractExplicitSession(note.title) || extractExplicitSession(note.content);
+                            }
+                            if (num && num > maxExplicitOffset) {
+                                maxExplicitOffset = num;
+                                maxExplicitIndex = dIdx;
+                            }
+                        }
+                    } catch (err) { }
                 }
             });
         }
@@ -127,9 +140,13 @@ export default function CalendarPage() {
         // 2. Grouper par jour (YYYY-MM-DD)
         const groupedByDay: Record<string, { date: Date, type: 'bilan' | 'suivi' }[]> = {};
         interactions.forEach(int => {
-            const dayStr = int.date.toISOString().split('T')[0];
-            if (!groupedByDay[dayStr]) groupedByDay[dayStr] = [];
-            groupedByDay[dayStr].push(int);
+            try {
+                if (!isNaN(int.date.getTime())) {
+                    const dayStr = int.date.toISOString().split('T')[0];
+                    if (!groupedByDay[dayStr]) groupedByDay[dayStr] = [];
+                    groupedByDay[dayStr].push(int);
+                }
+            } catch (err) { }
         });
 
         // 3. Créer un seul événement par jour avec l'heure la plus ancienne
