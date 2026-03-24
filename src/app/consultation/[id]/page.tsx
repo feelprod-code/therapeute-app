@@ -82,6 +82,12 @@ export default function ConsultationDetail() {
   const [isEditingBilan, setIsEditingBilan] = useState(false);
   const [editBilanContent, setEditBilanContent] = useState("");
 
+  const [isEditingResume, setIsEditingResume] = useState(false);
+  const [editResumeContent, setEditResumeContent] = useState("");
+
+  const [isEditingTranscription, setIsEditingTranscription] = useState(false);
+  const [editTranscriptionContent, setEditTranscriptionContent] = useState("");
+
   const [editingFollowUpId, setEditingFollowUpId] = useState<string | null>(null);
   const [editFollowUpContent, setEditFollowUpContent] = useState("");
 
@@ -120,6 +126,34 @@ export default function ConsultationDetail() {
     } catch (e) {
       console.error(e);
       toast({ title: "Erreur", description: "Impossible de sauvegarder le bilan.", variant: "destructive" });
+    }
+  };
+
+  const handleSaveResume = async () => {
+    try {
+      const { error } = await supabase.from('consultations').update({ resume: editResumeContent }).eq('id', params.id);
+      if (error) throw error;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setData((prev: any) => ({ ...prev, resume: editResumeContent }));
+      setIsEditingResume(false);
+      toast({ title: "Résumé mis à jour", description: "Vos modifications ont été enregistrées." });
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Erreur", description: "Impossible de sauvegarder le résumé.", variant: "destructive" });
+    }
+  };
+
+  const handleSaveTranscription = async () => {
+    try {
+      const { error } = await supabase.from('consultations').update({ transcription: editTranscriptionContent }).eq('id', params.id);
+      if (error) throw error;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setData((prev: any) => ({ ...prev, transcription: editTranscriptionContent }));
+      setIsEditingTranscription(false);
+      toast({ title: "Dialogue mis à jour", description: "Vos modifications ont été enregistrées." });
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Erreur", description: "Impossible de sauvegarder le dialogue.", variant: "destructive" });
     }
   };
 
@@ -881,17 +915,13 @@ export default function ConsultationDetail() {
                     </div>
                   ) : (
                     <div className="flex items-center gap-3 relative group">
-                      <h1 className="font-bebas text-4xl sm:text-5xl text-[#bd613c] tracking-wide uppercase">
+                      <h1
+                        className="font-bebas text-4xl sm:text-5xl text-[#bd613c] tracking-wide uppercase cursor-pointer hover:bg-[#ebd9c8]/20 transition-colors px-2 -mx-2 rounded-lg"
+                        onDoubleClick={() => setIsEditing(true)}
+                        title="Double-clic pour modifier"
+                      >
                         {data.patient_name || data.patientName || `Patient #${data.id}`}
                       </h1>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-[#bd613c] print:hidden"
-                        onClick={() => setIsEditing(true)}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
                     </div>
                   )}
                 </div>
@@ -915,22 +945,18 @@ export default function ConsultationDetail() {
                     </div>
                   ) : (
                     <>
-                      <p className="text-[#4a3f35]/80 font-medium mb-0">
-                        {format(new Date(data.date), "EEEE d MMMM yyyy 'à' HH:mm", { locale: fr })}
-                      </p>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-[#bd613c] print:hidden h-6 w-6 ml-1"
-                        onClick={() => {
+                      <p
+                        className="text-[#4a3f35]/80 font-medium mb-0 cursor-pointer hover:bg-[#ebd9c8]/20 transition-colors px-2 -mx-2 rounded-lg"
+                        onDoubleClick={() => {
                           const d = new Date(data.date);
                           const localIso = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
                           setEditDate(localIso);
                           setIsEditingDate(true);
                         }}
+                        title="Double-clic pour modifier l'heure"
                       >
-                        <Pencil className="w-3 h-3" />
-                      </Button>
+                        {format(new Date(data.date), "EEEE d MMMM yyyy 'à' HH:mm", { locale: fr })}
+                      </p>
                     </>
                   )}
                 </div>
@@ -1052,9 +1078,6 @@ export default function ConsultationDetail() {
                   <div className="flex items-center gap-2">
                     {data.synthese && !isEditingBilan && (
                       <>
-                        <Button variant="ghost" size="sm" onClick={() => { setEditBilanContent(data.synthese); setIsEditingBilan(true); }} className="text-slate-400 hover:text-[#bd613c] hover:bg-[#ebd9c8]/30 print:hidden h-8 px-3 rounded-lg">
-                          <Pencil className="w-4 h-4 sm:mr-2" /> <span className="hidden sm:inline text-sm font-medium">Modifier</span>
-                        </Button>
                         <Button variant="ghost" size="sm" onClick={() => handleExportPDF(`bilan_${data.patient_name || 'patient'}`)} className="text-[#bd613c] hover:bg-[#ebd9c8]/30 print:hidden h-8 px-3 rounded-lg" data-html2canvas-ignore="true">
                           <Share className="w-4 h-4 sm:mr-2" /> <span className="hidden sm:inline text-sm font-medium">Exporter PDF</span>
                         </Button>
@@ -1077,10 +1100,14 @@ export default function ConsultationDetail() {
                   <textarea
                     value={editBilanContent}
                     onChange={(e) => setEditBilanContent(e.target.value)}
-                    className="w-full min-h-[500px] p-4 font-mono text-sm sm:text-base rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none"
+                    className="w-full min-h-[500px] p-4 font-mono text-sm sm:text-base rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
                   />
                 ) : (
-                  <div className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#bd613c] prose-headings:tracking-wide prose-p:text-[#4a3f35]/90 prose-strong:text-[#bd613c] prose-li:text-[#4a3f35]/90 prose-h1:text-2xl sm:prose-h1:text-4xl">
+                  <div
+                    className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#bd613c] prose-headings:tracking-wide prose-p:text-[#4a3f35]/90 prose-strong:text-[#bd613c] prose-li:text-[#4a3f35]/90 prose-h1:text-2xl sm:prose-h1:text-4xl cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-4 -m-4 rounded-xl"
+                    onDoubleClick={() => { setEditBilanContent(data.synthese); setIsEditingBilan(true); }}
+                    title="Double-clic pour modifier"
+                  >
                     {data.synthese ? (
                       <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
                         {data.synthese}
@@ -1104,13 +1131,31 @@ export default function ConsultationDetail() {
                     </Button>
                   )}
                 </div>
-                <div className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#bd613c] prose-headings:tracking-wide prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c]">
-                  {data.resume ? (
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {data.resume}
-                    </ReactMarkdown>
-                  ) : "Aucun résumé disponible."}
-                </div>
+                {isEditingResume ? (
+                  <div className="space-y-4">
+                    <textarea
+                      value={editResumeContent}
+                      onChange={(e) => setEditResumeContent(e.target.value)}
+                      className="w-full min-h-[300px] p-4 font-mono text-sm sm:text-base rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <Button variant="ghost" size="sm" onClick={() => setIsEditingResume(false)} className="text-slate-400 hover:text-red-500 hover:bg-red-50 h-8 px-3 rounded-lg">Annuler</Button>
+                      <Button size="sm" onClick={handleSaveResume} className="bg-green-600 hover:bg-green-700 text-white h-8 px-4 rounded-lg">Sauvegarder</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#bd613c] prose-headings:tracking-wide prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-4 -m-4 rounded-xl"
+                    onDoubleClick={() => { setEditResumeContent(data.resume || ""); setIsEditingResume(true); }}
+                    title="Double-clic pour modifier"
+                  >
+                    {data.resume ? (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {data.resume}
+                      </ReactMarkdown>
+                    ) : "Aucun résumé disponible."}
+                  </div>
+                )}
               </TabsContent>
 
               <TabsContent value="transcription" className="mt-8 lg:border-t border-[#ebd9c8]/50 lg:pt-8 print:block">
@@ -1127,13 +1172,31 @@ export default function ConsultationDetail() {
                     </Button>
                   )}
                 </div>
-                <div className="prose prose-sm max-w-none text-[#4a3f35]/80 whitespace-pre-wrap font-mono text-xs prose-strong:text-[#bd613c]">
-                  {data.transcription ? (
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
-                      {data.transcription}
-                    </ReactMarkdown>
-                  ) : "Aucune transcription disponible."}
-                </div>
+                {isEditingTranscription ? (
+                  <div className="space-y-4">
+                    <textarea
+                      value={editTranscriptionContent}
+                      onChange={(e) => setEditTranscriptionContent(e.target.value)}
+                      className="w-full min-h-[500px] p-4 font-mono text-sm rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <Button variant="ghost" size="sm" onClick={() => setIsEditingTranscription(false)} className="text-slate-400 hover:text-red-500 hover:bg-red-50 h-8 px-3 rounded-lg">Annuler</Button>
+                      <Button size="sm" onClick={handleSaveTranscription} className="bg-green-600 hover:bg-green-700 text-white h-8 px-4 rounded-lg">Sauvegarder</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    className="prose prose-sm max-w-none text-[#4a3f35]/80 whitespace-pre-wrap font-mono text-xs prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-4 -m-4 rounded-xl"
+                    onDoubleClick={() => { setEditTranscriptionContent(data.transcription || ""); setIsEditingTranscription(true); }}
+                    title="Double-clic pour modifier"
+                  >
+                    {data.transcription ? (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                        {data.transcription}
+                      </ReactMarkdown>
+                    ) : "Aucune transcription disponible."}
+                  </div>
+                )}
               </TabsContent>
 
               <TabsContent value="suivi" className="mt-8 lg:border-t border-[#ebd9c8]/50 lg:pt-8 print:block">
@@ -1281,15 +1344,6 @@ export default function ConsultationDetail() {
                                           <Button
                                             variant="ghost"
                                             size="sm"
-                                            className="text-slate-400 hover:text-[#bd613c] hover:bg-[#ebd9c8]/30 h-8 px-2"
-                                            onClick={() => { setEditFollowUpContent(note.content); setEditingFollowUpId(note.id); }}
-                                            title="Modifier la note"
-                                          >
-                                            <Pencil className="w-4 h-4" />
-                                          </Button>
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
                                             className="text-slate-400 hover:text-red-500 hover:bg-red-50 h-8 px-2"
                                             onClick={() => handleDeleteFollowUp(note.id)}
                                             title="Supprimer la note"
@@ -1305,7 +1359,7 @@ export default function ConsultationDetail() {
                                     <textarea
                                       value={editFollowUpContent}
                                       onChange={(e) => setEditFollowUpContent(e.target.value)}
-                                      className="w-full min-h-[150px] p-3 font-mono text-sm rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none"
+                                      className="w-full min-h-[150px] p-3 font-mono text-sm rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
                                     />
                                   ) : note.type === 'image' ? (
                                     <div className="mt-2 flex flex-col items-center">
@@ -1337,7 +1391,11 @@ export default function ConsultationDetail() {
                                       {note.content && <p className="text-xs text-slate-500 mt-2">{note.content}</p>}
                                     </div>
                                   ) : (
-                                    <div className="prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c]">
+                                    <div
+                                      className="prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-3 -m-3 rounded-xl"
+                                      onDoubleClick={() => { setEditFollowUpContent(note.content); setEditingFollowUpId(note.id); }}
+                                      title="Double-clic pour modifier la note"
+                                    >
                                       <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
                                         {note.content}
                                       </ReactMarkdown>

@@ -18,6 +18,7 @@ interface CalendarEvent {
     date: Date;
     hour: number;
     sessionNumber?: number;
+    dayStr?: string;
 }
 
 export default function CalendarPage() {
@@ -143,10 +144,48 @@ export default function CalendarPage() {
                 type: isBilan ? 'bilan' : 'suivi',
                 date: earliestDate,
                 hour: earliestDate.getHours(), // use local hour
-                sessionNumber: getSessionNumberForDay(dayStr)
+                sessionNumber: getSessionNumberForDay(dayStr),
+                dayStr: dayStr
             });
         });
     });
+
+    const handleDropEvent = async (eventData: any, targetDay: Date, targetHour: number) => {
+        try {
+            const minutes = (targetHour >= 9 && targetHour <= 12) ? 15 : 0;
+            const newDate = new Date(targetDay);
+            newDate.setHours(targetHour, minutes, 0, 0);
+
+            const consultation = consultations.find(c => c.id === eventData.consultationId);
+            if (!consultation) return;
+
+            // Optimistic UI update could be added here, but fetching is safer
+            setLoading(true);
+
+            if (eventData.type === 'bilan') {
+                await supabase.from('consultations').update({ date: newDate.toISOString() }).eq('id', consultation.id);
+            } else {
+                const targetDayStr = eventData.dayStr;
+                const updatedFollowUps = consultation.follow_ups?.map((f: any) => {
+                    const fDate = f.date || f.created_at;
+                    if (fDate && new Date(fDate).toISOString().split('T')[0] === targetDayStr) {
+                        return { ...f, date: newDate.toISOString() };
+                    }
+                    return f;
+                });
+                await supabase.from('consultations').update({ follow_ups: updatedFollowUps }).eq('id', consultation.id);
+            }
+
+            const { data, error } = await supabase.from('consultations').select('*').order('date', { ascending: false });
+            if (!error && data) {
+                setConsultations(data);
+            }
+            setLoading(false);
+        } catch (e) {
+            console.error("Erreur l'ors du déplacement du rendez-vous", e);
+            setLoading(false);
+        }
+    };
 
     const nextWeek = () => setCurrentWeekStart(addWeeks(currentWeekStart, 1));
     const prevWeek = () => setCurrentWeekStart(subWeeks(currentWeekStart, 1));
@@ -359,26 +398,50 @@ export default function CalendarPage() {
                                                 });
 
                                                 return (
-                                                    <div key={`${rowIdx}-${colIdx}`} className={`min-w-0 relative p-1 border-r border-[#ebd9c8]/30 last:border-r-0 hover:bg-[#ebd9c8]/5 transition-colors ${isSameDay(day, new Date()) ? 'bg-[#bd613c]/5' : ''}`}>
-                                                        <div className="w-full h-full relative overflow-hidden">
+                                                    <div
+                                                        key={`${rowIdx}-${colIdx}`}
+                                                        className={`min-w-0 relative p-1 border-r border-[#ebd9c8]/30 last:border-r-0 hover:bg-[#ebd9c8]/10 transition-colors ${isSameDay(day, new Date()) ? 'bg-[#bd613c]/5' : ''}`}
+                                                        onDragOver={(e) => e.preventDefault()}
+                                                        onDrop={(e) => {
+                                                            e.preventDefault();
+                                                            try {
+                                                                const eventData = JSON.parse(e.dataTransfer.getData('application/json'));
+                                                                handleDropEvent(eventData, day, slot.id);
+                                                            } catch (err) { }
+                                                        }}
+                                                    >
+                                                        <div className="w-full h-full relative overflow-hidden flex flex-col gap-1">
                                                             {cellEvents.map(evt => (
-                                                                <Link
-                                                                    href={`/consultation/${evt.consultationId}`}
+                                                                <div
                                                                     key={evt.id}
-                                                                    className={`
-                                      flex flex-col justify-center w-full h-full px-2 rounded-lg text-xs leading-tight shadow-sm border transition-all hover:shadow-md cursor-pointer overflow-hidden
-                                      ${evt.type === 'bilan'
-                                                                            ? 'bg-orange-50 border-orange-200 text-orange-900 hover:bg-orange-100'
-                                                                            : 'bg-yellow-50 border-yellow-200 text-yellow-900 hover:bg-yellow-100'
-                                                                        }
-                                    `}
+                                                                    draggable
+                                                                    onDragStart={(e) => {
+                                                                        e.dataTransfer.setData('application/json', JSON.stringify({
+                                                                            id: evt.id,
+                                                                            type: evt.type,
+                                                                            consultationId: evt.consultationId,
+                                                                            dayStr: evt.dayStr
+                                                                        }));
+                                                                    }}
+                                                                    className="w-full h-full cursor-move"
                                                                 >
-                                                                    <div className="font-semibold uppercase tracking-wide truncate w-full">{evt.title}</div>
-                                                                    <div className="flex items-center gap-1 opacity-80 text-[10px] font-medium w-full">
-                                                                        <CalendarDays className="w-3 h-3 shrink-0" />
-                                                                        <span className="truncate">{format(evt.date, "HH:mm")} - S{evt.sessionNumber}</span>
-                                                                    </div>
-                                                                </Link>
+                                                                    <Link
+                                                                        href={`/consultation/${evt.consultationId}`}
+                                                                        className={`
+                                                                          flex flex-col justify-center w-full h-full px-2 py-1 rounded-lg text-xs leading-tight shadow-sm border transition-all hover:shadow-md overflow-hidden min-h-[50px]
+                                                                          ${evt.type === 'bilan'
+                                                                                ? 'bg-orange-50 border-orange-200 text-orange-900 hover:bg-orange-100'
+                                                                                : 'bg-yellow-50 border-yellow-200 text-yellow-900 hover:bg-yellow-100'
+                                                                            }
+                                                                        `}
+                                                                    >
+                                                                        <div className="font-semibold uppercase tracking-wide truncate w-full">{evt.title}</div>
+                                                                        <div className="flex items-center gap-1 opacity-80 text-[10px] font-medium w-full">
+                                                                            <CalendarDays className="w-3 h-3 shrink-0" />
+                                                                            <span className="truncate">{format(evt.date, "HH:mm")} - S{evt.sessionNumber}</span>
+                                                                        </div>
+                                                                    </Link>
+                                                                </div>
                                                             ))}
                                                         </div>
                                                     </div>
