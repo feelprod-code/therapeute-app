@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon, Trash2, Square } from "lucide-react";
+import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon, Trash2, Square, ExternalLink } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import ReactMarkdown from "react-markdown";
@@ -1289,15 +1289,19 @@ export default function ConsultationDetail() {
                                     </div>
                                   ) : note.type === 'pdf' ? (
                                     <div className="mt-2 flex flex-col items-center w-full">
-                                      <div className="bg-[#ebd9c8]/10 border border-[#ebd9c8]/50 rounded-xl p-4 w-full sm:w-2/3 flex flex-col items-center justify-center gap-3">
-                                        <FileText className="w-10 h-10 text-[#bd613c]/70" />
-                                        <p className="text-sm font-medium text-slate-600 text-center line-clamp-2">{note.content}</p>
-                                        <div className="flex mt-2 w-full justify-center">
-                                          <Button variant="outline" size="sm" className="text-[#bd613c] border-[#ebd9c8] bg-white w-full max-w-[160px]" onClick={() => window.open(supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl, "_blank")}>
-                                            Ouvrir le PDF
+                                      <div className="w-full sm:w-5/6 lg:w-3/4 rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-sm relative group bg-white">
+                                        <iframe
+                                          src={`${supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl}#toolbar=0&navpanes=0&scrollbar=0`}
+                                          className="w-full h-[350px] sm:h-[450px] border-none"
+                                          title={note.content || "Document PDF"}
+                                        />
+                                        <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                          <Button variant="secondary" size="sm" className="shadow-md h-8 bg-white hover:bg-slate-50 text-[#bd613c] border border-[#ebd9c8]" onClick={() => window.open(supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl, "_blank")}>
+                                            <ExternalLink className="w-4 h-4 mr-2" /> Agrandir
                                           </Button>
                                         </div>
                                       </div>
+                                      {note.content && <p className="text-xs text-slate-500 mt-2">{note.content}</p>}
                                     </div>
                                   ) : (
                                     <div className="prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c]">
