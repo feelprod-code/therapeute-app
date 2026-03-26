@@ -133,7 +133,10 @@ ${newTranscriptionText}
         }
 
         textPrompt += `\n\nConsigne absolue :
-Reformule ENTIÈREMENT le bilan final mis à jour et unifié, sans indiquer explicitement "le médecin a rajouté". Tu dois extraire ou corriger le NOM du patient si cela est spécifié dans les nouveaux éléments.
+Reformule ENTIÈREMENT le bilan final mis à jour et unifié. 
+FUSIONNE intelligemment les nouvelles informations dans les sections Markdown appropriées du bilan existant. Par exemple, si une nouvelle douleur est mentionnée, intègre sa description, son intensité et sa localisation directement dans la section "Histoire de la Maladie / Douleur".
+INTERDICTION: NE CRÉE SURTOUT PAS une section spéciale "Ajout d'information" ou "Informations complémentaires" en bas de page. Le document doit être fluide et cohérent, comme s'il avait été rédigé en une seule fois.
+Tu dois extraire ou corriger le NOM du patient si cela est spécifié dans les nouveaux éléments.
 Format JSON attendu EXACTEMENT COMME CECI UNIQUEMENT :
 {
   "patientName": "Nom et Prénom du patient (conservé, ajouté ou corrigé)",

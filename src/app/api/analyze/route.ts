@@ -132,10 +132,10 @@ ${previousContext.synthese || 'Aucune synthèse précédente.'}
 """
 
 Instructions de MISE A JOUR:
-Ton objectif est d'ajouter les nouveaux éléments à la synthèse précédente, SANS MODIFIER LE RESTE DE L'EXISTANT.
-- RÈGLE GÉNÉRALE: Ne modifie PAS la structure de la synthèse précédente.
-- EXCEPTION (NOM DU PATIENT): Si les nouveaux documents/audios te permettent de découvrir le VRAI nom et prénom du patient (et que la synthèse précédente disait "Patient Anonyme" ou était incomplète), tu as l'OBLIGATION de corriger son nom dans la section "Informations Patient" -> "**Nom/Prénom :**" de ta synthèse finale. N'oubliez pas non plus de renseigner le champ "patientName" de ta réponse JSON.
-- Ajoute SIMPLEMENT à la fin de la synthèse précédente la date de la nouvelle information sous format "### Ajout du [Date]" puis le compte rendu des nouveaux éléments fournis.
+Ton objectif est de mettre à jour la synthèse PRÉCÉDENTE en FUSIONNANT de manière cohérente les nouveaux éléments issus de l'audio/document dans les sections appropriées existantes.
+- RÈGLE GÉNÉRALE: Maintiens la structure globale de la synthèse médicale. Intègre intelligemment les nouvelles plaintes, symptômes, ou examens complèmentaires DANS les sections pertinentes (par exemple, rajoute la localisation d'une nouvelle douleur dans "Histoire de la Maladie / Douleur"). 
+- INTERDICTION: NE CRÉE SURTOUT PAS EN BAS DE PAGE une section "Ajout d'informations" ou "Nouvelles informations". Le bilan doit rester un document unifié, écrit de façon fluide comme s'il avait été rédigé en une seule fois.
+- EXCEPTION (NOM DU PATIENT): Si les nouveaux documents/audios te permettent de découvrir le VRAI nom et prénom du patient (et que la synthèse précédente disait "Patient Anonyme" ou était incomplète), tu as l'OBLIGATION de le mettre à jour. N'oublie pas non plus de renseigner le champ "patientName" de ta réponse JSON.
 - Pour la transcription : Génère UNIQUEMENT la retranscription/description des NOUVEAUX éléments (nouveau vocal ou nouveau document). NE RECOPIE PAS l'ancienne transcription, le système s'en chargera automatiquement.
 `;
         }
