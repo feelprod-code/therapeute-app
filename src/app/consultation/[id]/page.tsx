@@ -594,10 +594,12 @@ export default function ConsultationDetail() {
       }
 
       toast({ title: "Bilan mis à jour", description: "L'enregistrement a bien été ajouté au dossier." });
+      return true;
 
     } catch (err) {
       console.error(err);
       toast({ title: "Erreur", description: "Impossible d'ajouter l'enregistrement.", variant: "destructive" });
+      return false;
     } finally {
       setIsAppending(false);
     }
