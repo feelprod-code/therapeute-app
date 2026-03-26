@@ -980,7 +980,7 @@ export default function ConsultationDetail() {
                   ) : (
                     <>
                       <p
-                        className="text-[#4a3f35]/80 text-sm font-medium mb-0 cursor-pointer hover:bg-[#ebd9c8]/20 transition-colors px-2 -mx-2 rounded-lg capitalize"
+                        className="text-[#4a3f35]/80 text-xs font-medium mb-0 cursor-pointer hover:bg-[#ebd9c8]/20 transition-colors px-2 -mx-2 rounded-lg capitalize"
                         onDoubleClick={() => {
                           if (!data?.date) return;
                           const d = new Date(data.date);
@@ -1139,7 +1139,7 @@ export default function ConsultationDetail() {
                   />
                 ) : (
                   <div
-                    className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#594c42] prose-headings:tracking-wide prose-p:text-[#4a3f35]/90 prose-strong:text-[#594c42] prose-li:text-[#4a3f35]/90 prose-h1:text-2xl sm:prose-h1:text-4xl cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-4 -m-4 rounded-xl"
+                    className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#594c42] prose-headings:tracking-wide prose-p:text-[#4a3f35]/90 prose-strong:text-[#bd613c] prose-li:text-[#4a3f35]/90 prose-h1:text-2xl sm:prose-h1:text-4xl cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-4 -m-4 rounded-xl"
                     onDoubleClick={() => { setEditBilanContent(data.synthese); setIsEditingBilan(true); }}
                     title="Double-clic pour modifier"
                   >
@@ -1180,7 +1180,7 @@ export default function ConsultationDetail() {
                   </div>
                 ) : (
                   <div
-                    className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#594c42] prose-headings:tracking-wide prose-p:text-[#4a3f35]/80 prose-strong:text-[#594c42] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-4 -m-4 rounded-xl"
+                    className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#594c42] prose-headings:tracking-wide prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-4 -m-4 rounded-xl"
                     onDoubleClick={() => { setEditResumeContent(data.resume || ""); setIsEditingResume(true); }}
                     title="Double-clic pour modifier"
                   >
