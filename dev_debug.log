@@ -1,0 +1,32 @@
+
+> therapeute-app@0.1.0 dev
+> next dev -p 3001
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3001
+  - Environments: .env.local
+
+ ✓ Starting...
+> [PWA] PWA support is disabled
+> [PWA] PWA support is disabled
+ ✓ Ready in 1852ms
+ ○ Compiling / ...
+ ✓ Compiled / in 2.6s (2052 modules)
+ GET / 200 in 2810ms
+ ✓ Compiled in 216ms (1035 modules)
+ ○ Compiling /consultation/[id] ...
+ ✓ Compiled /consultation/[id] in 2.5s (2667 modules)
+ GET /consultation/1234 200 in 3018ms
+ GET / 200 in 168ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 1088ms (2382 modules)
+ GET /favicon.ico 200 in 1193ms
+ GET /apple-touch-icon.png 404 in 1138ms
+ ✓ Compiled in 586ms (2396 modules)
+ GET /favicon.ico 200 in 151ms
+ GET /apple-touch-icon.png 404 in 151ms
+ GET /favicon.ico 200 in 11ms
+ GET /favicon.ico 200 in 9ms
+ ✓ Compiled in 245ms (1346 modules)
+ ✓ Compiled /consultation/[id] in 247ms (1370 modules)
+ GET /apple-touch-icon.png 404 in 50ms
