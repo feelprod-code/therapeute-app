@@ -294,7 +294,6 @@ export default function ConsultationDetail() {
 
     toast({ title: "Génération du PDF...", description: "Veuillez patienter..." });
     try {
-      // @ts-expect-error - html2pdf.js has poor typing without @types/html2pdf.js but works perfectly
       const html2pdf = (await import('html2pdf.js')).default;
       const opt = {
         margin: [15, 15, 15, 15],
