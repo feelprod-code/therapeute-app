@@ -937,7 +937,7 @@ export default function ConsultationDetail() {
                         type="text"
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
-                        className="font-bebas text-3xl sm:text-4xl text-[#bd613c] tracking-wide uppercase bg-transparent border-b-2 border-[#bd613c] focus:outline-none w-full max-w-sm"
+                        className="font-bebas text-3xl sm:text-4xl text-[#594c42] tracking-wide uppercase bg-transparent border-b-2 border-[#594c42] focus:outline-none w-full max-w-sm"
                         autoFocus
                       />
                       <Button size="icon" variant="ghost" className="text-green-600 hover:bg-green-50" onClick={handleSaveName}>
@@ -950,7 +950,7 @@ export default function ConsultationDetail() {
                   ) : (
                     <div className="flex items-center gap-3 relative group">
                       <h1
-                        className="font-bebas text-4xl sm:text-5xl text-[#bd613c] tracking-wide uppercase cursor-pointer hover:bg-[#ebd9c8]/20 transition-colors px-2 -mx-2 rounded-lg"
+                        className="font-bebas text-4xl sm:text-5xl text-[#594c42] tracking-wide uppercase cursor-pointer hover:bg-[#ebd9c8]/20 transition-colors px-2 -mx-2 rounded-lg"
                         onDoubleClick={() => setIsEditing(true)}
                         title="Double-clic pour modifier"
                       >
@@ -980,7 +980,7 @@ export default function ConsultationDetail() {
                   ) : (
                     <>
                       <p
-                        className="text-[#4a3f35]/80 font-medium mb-0 cursor-pointer hover:bg-[#ebd9c8]/20 transition-colors px-2 -mx-2 rounded-lg capitalize"
+                        className="text-[#4a3f35]/80 text-sm font-medium mb-0 cursor-pointer hover:bg-[#ebd9c8]/20 transition-colors px-2 -mx-2 rounded-lg capitalize"
                         onDoubleClick={() => {
                           if (!data?.date) return;
                           const d = new Date(data.date);
@@ -1105,8 +1105,8 @@ export default function ConsultationDetail() {
               <TabsContent value="synthese" className="mt-8 lg:border-t border-[#ebd9c8]/50 lg:pt-8 print:border-none print:mt-4 print:pt-4">
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-2">
-                    <FileText className="w-6 h-6 text-[#bd613c]" />
-                    <h2 className="font-bebas text-3xl tracking-wide text-[#bd613c] uppercase mb-0">
+                    <FileText className="w-6 h-6 text-[#594c42]" />
+                    <h2 className="font-bebas text-3xl tracking-wide text-[#594c42] uppercase mb-0">
                       Synthèse
                     </h2>
                   </div>
@@ -1139,7 +1139,7 @@ export default function ConsultationDetail() {
                   />
                 ) : (
                   <div
-                    className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#bd613c] prose-headings:tracking-wide prose-p:text-[#4a3f35]/90 prose-strong:text-[#bd613c] prose-li:text-[#4a3f35]/90 prose-h1:text-2xl sm:prose-h1:text-4xl cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-4 -m-4 rounded-xl"
+                    className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#594c42] prose-headings:tracking-wide prose-p:text-[#4a3f35]/90 prose-strong:text-[#594c42] prose-li:text-[#4a3f35]/90 prose-h1:text-2xl sm:prose-h1:text-4xl cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-4 -m-4 rounded-xl"
                     onDoubleClick={() => { setEditBilanContent(data.synthese); setIsEditingBilan(true); }}
                     title="Double-clic pour modifier"
                   >
@@ -1155,8 +1155,8 @@ export default function ConsultationDetail() {
               <TabsContent value="notes" className="mt-8 lg:border-t border-[#ebd9c8]/50 lg:pt-8 print:hidden">
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-2">
-                    <Activity className="w-6 h-6 text-[#bd613c]" />
-                    <h2 className="font-bebas text-3xl tracking-wide text-[#bd613c] uppercase mb-0">
+                    <Activity className="w-6 h-6 text-[#594c42]" />
+                    <h2 className="font-bebas text-3xl tracking-wide text-[#594c42] uppercase mb-0">
                       Résumé Rapide
                     </h2>
                   </div>
@@ -1180,7 +1180,7 @@ export default function ConsultationDetail() {
                   </div>
                 ) : (
                   <div
-                    className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#bd613c] prose-headings:tracking-wide prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-4 -m-4 rounded-xl"
+                    className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#594c42] prose-headings:tracking-wide prose-p:text-[#4a3f35]/80 prose-strong:text-[#594c42] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-4 -m-4 rounded-xl"
                     onDoubleClick={() => { setEditResumeContent(data.resume || ""); setIsEditingResume(true); }}
                     title="Double-clic pour modifier"
                   >
@@ -1196,8 +1196,8 @@ export default function ConsultationDetail() {
               <TabsContent value="transcription" className="mt-8 lg:border-t border-[#ebd9c8]/50 lg:pt-8 print:block">
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-2">
-                    <MessageSquare className="w-6 h-6 text-[#bd613c]" />
-                    <h2 className="font-bebas text-3xl tracking-wide text-[#bd613c] uppercase mb-0">
+                    <MessageSquare className="w-6 h-6 text-[#594c42]" />
+                    <h2 className="font-bebas text-3xl tracking-wide text-[#594c42] uppercase mb-0">
                       Dialogue Brut
                     </h2>
                   </div>
