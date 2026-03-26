@@ -174,12 +174,16 @@ export default function BilingualRecorder({
                     streamRef.current = null;
                 }
 
+                let success = true;
                 if (audioBlob.size > 0) {
-                    await handleTranslation(audioBlob, role);
+                    success = await handleTranslation(audioBlob, role);
                 }
 
-                // Clear draft on successful stop
-                await db.drafts.delete('bilingual');
+                // Clear draft only on successful translation
+                if (success) {
+                    await db.drafts.delete('bilingual');
+                    setDraftExists(false);
+                }
             };
 
             // Collect data every 1 second to safeguard against memory loss
@@ -205,7 +209,7 @@ export default function BilingualRecorder({
         }
     };
 
-    const handleTranslation = async (audioBlob: Blob, role: 'therapeut' | 'patient') => {
+    const handleTranslation = async (audioBlob: Blob, role: 'therapeut' | 'patient'): Promise<boolean> => {
         setIsTranslating(true);
         try {
             const base64Audio = await new Promise<string>((resolve) => {
@@ -241,13 +245,16 @@ export default function BilingualRecorder({
             // Auto Play Speech
             speakText(data.translation, role === 'therapeut' ? patientLang.tts : 'fr-FR');
 
+            return true;
+
         } catch (e) {
             console.error(e);
             toast({
                 title: "Erreur",
-                description: "La traduction a échoué. Veuillez réessayer.",
+                description: "La traduction a échoué. L'audio a été conservé en brouillon.",
                 variant: "destructive"
             });
+            return false;
         } finally {
             setIsTranslating(false);
         }

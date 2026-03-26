@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { supabase, SupabaseConsultation } from "@/lib/supabaseClient";
 import { format, startOfWeek, addDays, subWeeks, addWeeks, isSameDay } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -29,6 +29,7 @@ export default function CalendarPage() {
     const [loading, setLoading] = useState(true);
     const [currentWeekStart, setCurrentWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
     const [mobileView, setMobileView] = useState<'liste' | 'semaine'>('liste'); // Par défaut Liste sur mobile
+    const isDraggingEventRef = useRef(false);
 
     useEffect(() => {
         async function fetchConsultations() {
@@ -452,13 +453,15 @@ export default function CalendarPage() {
                                                                 <div
                                                                     key={evt.id}
                                                                     onClick={(e) => {
-                                                                        // Prevent navigation if we are dragging
+                                                                        // Prevent navigation if we are dragging or just finished dragging
                                                                         e.stopPropagation();
+                                                                        if (isDraggingEventRef.current) return;
                                                                         router.push(`/consultation/${evt.consultationId}`);
                                                                     }}
                                                                     draggable
                                                                     onDragStart={(e) => {
                                                                         e.stopPropagation();
+                                                                        isDraggingEventRef.current = true;
                                                                         e.dataTransfer.effectAllowed = 'move';
                                                                         e.dataTransfer.setData('text/plain', JSON.stringify({
                                                                             id: evt.id,
@@ -466,6 +469,10 @@ export default function CalendarPage() {
                                                                             consultationId: evt.consultationId,
                                                                             dayStr: evt.dayStr
                                                                         }));
+                                                                    }}
+                                                                    onDragEnd={() => {
+                                                                        // Give click event enough time to be swallowed if it triggers
+                                                                        setTimeout(() => { isDraggingEventRef.current = false; }, 50);
                                                                     }}
                                                                     className={`
                                                                       flex flex-col justify-center w-full h-full px-2 py-1 rounded-lg text-xs leading-tight shadow-sm border transition-all hover:shadow-md overflow-hidden min-h-[50px] cursor-move

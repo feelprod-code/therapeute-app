@@ -204,7 +204,7 @@ function Home() {
     setAttachedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleRecordingComplete = async (inputBlob: Blob | File) => {
+  const handleRecordingComplete = async (inputBlob: Blob | File): Promise<boolean> => {
     let newConsultationId: string | undefined = undefined;
 
     try {
@@ -338,6 +338,7 @@ function Home() {
         title: "Bilan terminé",
         description: "Le bilan a été généré avec succès.",
       });
+      return true;
 
     } catch (error: unknown) {
       console.error("Erreur gérée dans handleRecordingComplete:", error);
@@ -345,7 +346,6 @@ function Home() {
 
       if (newConsultationId !== undefined) {
         setActiveProcessingIds(prev => prev.filter(id => id !== newConsultationId));
-        toast({ title: "Erreur détectée", description: errorMessage, variant: "destructive" });
       }
 
       toast({
@@ -353,6 +353,7 @@ function Home() {
         description: errorMessage,
         variant: "destructive",
       });
+      return false;
     }
   };
 
@@ -549,6 +550,7 @@ function Home() {
   const ConsultationCard = ({ consult }: { consult: SupabaseConsultation }) => {
     const [isRecordingModalOpen, setIsRecordingModalOpen] = useState(false);
     const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [isAppending, setIsAppending] = useState(false);
 
     if (!consult) return null;
@@ -611,7 +613,7 @@ function Home() {
       }
     };
 
-    const handleAppendRecording = async (audioBlob: Blob) => {
+    const handleAppendRecording = async (audioBlob: Blob): Promise<boolean> => {
       setIsAppending(true);
       setIsRecordingModalOpen(false);
       try {
@@ -646,10 +648,12 @@ function Home() {
         }).eq('id', consult.id);
 
         toast({ title: "Bilan mis à jour", description: "L'enregistrement a bien été ajouté au dossier." });
+        return true;
 
       } catch (err) {
         console.error(err);
         toast({ title: "Erreur", description: "Impossible d'ajouter l'enregistrement.", variant: "destructive" });
+        return false;
       } finally {
         setIsAppending(false);
       }
@@ -740,15 +744,15 @@ function Home() {
           <div className="absolute top-0 left-0 w-full h-1 bg-[#e25822] animate-pulse" />
         )}
         <div className="flex flex-row items-center justify-between p-4 sm:p-5 gap-2 sm:gap-4">
-          <div className="flex-1 min-w-0 pr-2">
-            <h3 className="text-lg sm:text-xl font-bebas tracking-wide text-[#bd613c] uppercase mb-1 truncate">
+          <div className="flex-1 min-w-0 pr-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h3 className="text-lg sm:text-xl font-bebas tracking-wide text-[#594c42] font-medium uppercase leading-tight">
               {consult.patientName || `Patient #${consult.id}`}
             </h3>
-            <div className="flex flex-row items-center flex-wrap gap-2 text-xs sm:text-sm text-[#4a3f35]/70">
-              <span className="truncate">
-                {format(new Date(consult.date), "EEEE d MMMM yyyy 'à' HH:mm", { locale: fr })}
+            <div className="flex flex-row items-center gap-2 text-[10px] sm:text-[11px] text-[#4a3f35]/80 shrink-0">
+              <span className="font-medium whitespace-nowrap">
+                {format(new Date(consult.date), "dd/MM/yy '•' HH:mm", { locale: fr })}
               </span>
-              <div className="flex items-center gap-1 px-1.5 py-0.5 bg-[#ebd9c8]/30 text-[#bd613c]/80 text-[10px] sm:text-[11px] font-medium rounded-sm">
+              <div className="flex items-center gap-1 px-1.5 py-0.5 bg-[#ebd9c8]/30 text-[#bd613c]/80 text-[10px] font-medium rounded-sm whitespace-nowrap">
                 <CalendarDays className="w-2.5 h-2.5 opacity-80" />
                 <span>S{sessionCount}</span>
               </div>
@@ -756,92 +760,21 @@ function Home() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 sm:gap-2 shrink-0">
-            {isProcessing ? (
-              <div className="flex items-center gap-2 text-sm text-[#e25822]">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span className="hidden sm:inline">Traitement...</span>
-              </div>
-            ) : (
-              <>
-                {!consult.synthese && (
-                  <>
-                    <Button
-                      variant="outline"
-                      className="text-xs h-9"
-                      onClick={() => retryAnalysis(consult)}
-                    >
-                      Relancer l&apos;IA
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      className="text-xs h-9 text-blue-600 hover:bg-blue-50"
-                      onClick={() => handleDownloadAudio(consult)}
-                      title="Télécharger l'audio"
-                    >
-                      Récupérer Audio
-                    </Button>
-                  </>
-                )}
-                {consult.synthese && (
-                  <div className="flex items-center gap-1 sm:gap-2">
-                    <Dialog open={isRecordingModalOpen} onOpenChange={setIsRecordingModalOpen}>
-                      <DialogTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-[#bd613c] hover:bg-[#bd613c]/10 h-9 w-9"
-                          disabled={isAppending}
-                          title="Ajouter Audio"
-                        >
-                          <Mic className="w-4 h-4" />
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="sm:max-w-xl bg-white border-[#ebd9c8]/30">
-                        <DialogHeader>
-                          <DialogTitle className="font-bebas tracking-wide text-3xl text-[#bd613c] uppercase text-center mb-4">
-                            Ajout Rapide d'Informations
-                          </DialogTitle>
-                        </DialogHeader>
-                        <div className="py-2">
-                          <AudioRecorder onRecordingComplete={handleAppendRecording} isProcessing={isAppending} />
-                        </div>
-                      </DialogContent>
-                    </Dialog>
-
-                    <Button asChild variant="default" className="bg-[#bd613c]/90 hover:bg-[#bd613c] text-white h-9 px-3" size="sm">
-                      <Link href={`/consultation/${consult.id}`}>
-                        Voir
-                        <ArrowRight className="hidden sm:inline-block w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
-                      </Link>
-                    </Button>
-                  </div>
-                )}
-              </>
-            )}
-
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-slate-400 hover:text-blue-500 hover:bg-blue-50 h-9 w-9"
-              title="Régénérer le bilan par l'IA (Re-transcription)"
-              onClick={() => retryAnalysis(consult)}
-              disabled={isAppending || activeProcessingIds.includes(consult.id)}
-            >
-              <RefreshCw className="w-4 h-4" />
-            </Button>
+            {/* Les modales cachées */}
+            <Dialog open={isRecordingModalOpen} onOpenChange={setIsRecordingModalOpen}>
+              <DialogContent className="sm:max-w-xl bg-white border-[#ebd9c8]/30">
+                <DialogHeader>
+                  <DialogTitle className="font-bebas tracking-wide text-3xl text-[#bd613c] uppercase text-center mb-4">
+                    Ajout Rapide d&apos;Informations
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="py-2">
+                  <AudioRecorder onRecordingComplete={handleAppendRecording} isProcessing={isAppending} />
+                </div>
+              </DialogContent>
+            </Dialog>
 
             <Dialog open={isMergeModalOpen} onOpenChange={setIsMergeModalOpen}>
-              <DialogTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-slate-400 hover:text-[#bd613c] hover:bg-[#ebd9c8]/20 h-9 w-9"
-                  title="Fusionner vers un autre bilan"
-                  disabled={isAppending}
-                >
-                  <Combine className="w-4 h-4" />
-                </Button>
-              </DialogTrigger>
               <DialogContent className="sm:max-w-xl bg-white border-[#ebd9c8]/30">
                 <DialogHeader>
                   <DialogTitle className="font-bebas tracking-wide text-2xl text-[#bd613c] uppercase mb-2">
@@ -878,17 +811,7 @@ function Home() {
               </DialogContent>
             </Dialog>
 
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-slate-400 hover:text-red-500 hover:bg-red-50 h-9 w-9"
-                  title="Supprimer"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </AlertDialogTrigger>
+            <AlertDialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
               <AlertDialogContent className="w-[90vw] rounded-xl sm:w-[400px]">
                 <AlertDialogHeader>
                   <AlertDialogTitle className="text-[#bd613c]">Supprimer {consult.patientName} ?</AlertDialogTitle>
@@ -897,13 +820,81 @@ function Home() {
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Annuler</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => consult.id && handleDelete(consult.id)} className="bg-red-500 text-white hover:bg-red-600 border-0 focus:ring-red-500">
+                  <AlertDialogCancel onClick={() => setIsDeleteModalOpen(false)}>Annuler</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => { setIsDeleteModalOpen(false); consult.id && handleDelete(consult.id); }} className="bg-red-500 text-white hover:bg-red-600 border-0 focus:ring-red-500">
                     Supprimer
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+
+            {isProcessing ? (
+              <div className="flex items-center gap-2 text-sm text-[#e25822]">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="hidden sm:inline">Traitement...</span>
+              </div>
+            ) : (
+              <>
+                {!consult.synthese && (
+                  <div className="flex items-center gap-1 sm:gap-2">
+                    <Button
+                      variant="outline"
+                      className="text-xs h-9"
+                      onClick={() => retryAnalysis(consult)}
+                    >
+                      Relancer l&apos;IA
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="text-xs h-9 text-blue-600 hover:bg-blue-50"
+                      onClick={() => handleDownloadAudio(consult)}
+                      title="Télécharger l'audio"
+                    >
+                      Récupérer Audio
+                    </Button>
+                  </div>
+                )}
+                {consult.synthese && (
+                  <Button asChild variant="default" className="bg-[#bd613c]/90 hover:bg-[#bd613c] text-white h-9 px-4 rounded-lg shadow-sm" size="sm">
+                    <Link href={`/consultation/${consult.id}`}>
+                      <span className="mr-1">Voir</span>
+                      <ArrowRight className="w-4 h-4 ml-1" />
+                    </Link>
+                  </Button>
+                )}
+
+                {/* Dropdown 3 petits points */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-9 w-9 text-slate-400 hover:text-slate-600 hover:bg-[#ebd9c8]/30">
+                      <MoreHorizontal className="w-5 h-5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-[200px] bg-white border-[#ebd9c8]/50 shadow-md rounded-xl p-1">
+                    {consult.synthese && (
+                      <DropdownMenuItem onClick={() => setIsRecordingModalOpen(true)} className="cursor-pointer gap-2 text-[#4a3f35] py-2.5 focus:bg-[#ebd9c8]/20 transition-colors">
+                        <Mic className="w-4 h-4 text-[#bd613c]" />
+                        <span className="font-medium">Ajouter un audio</span>
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onClick={() => retryAnalysis(consult)} disabled={isAppending || activeProcessingIds.includes(consult.id)} className="cursor-pointer gap-2 text-[#4a3f35] py-2.5 focus:bg-[#ebd9c8]/20 transition-colors">
+                      <RefreshCw className={`w-4 h-4 text-blue-500`} />
+                      <span className="font-medium">Régénérer par l&apos;IA</span>
+                    </DropdownMenuItem>
+                    {consult.synthese && (
+                      <DropdownMenuItem onClick={() => setIsMergeModalOpen(true)} className="cursor-pointer gap-2 text-[#4a3f35] py-2.5 focus:bg-[#ebd9c8]/20 transition-colors">
+                        <Combine className="w-4 h-4 text-emerald-600" />
+                        <span className="font-medium">Fusionner le dossier</span>
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onClick={() => setIsDeleteModalOpen(true)} className="cursor-pointer gap-2 text-red-600 focus:bg-red-50 focus:text-red-700 py-2.5 transition-colors mt-1 border-t border-slate-100">
+                      <Trash2 className="w-4 h-4" />
+                      <span className="font-medium">Supprimer</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )}
           </div>
         </div>
       </Card>
@@ -914,24 +905,25 @@ function Home() {
     <main className="min-h-[100dvh] md:h-[100dvh] md:overflow-hidden flex flex-col py-4 sm:py-8 px-4 sm:px-6 mb-12 md:mb-0">
       <div className="max-w-7xl mx-auto w-full flex flex-col relative md:h-full">
 
-        {/* Bouton Agenda (Top Right) */}
-        <div className="absolute top-0 right-0 sm:top-2 z-20">
-          <Button asChild variant="outline" className="text-[#bd613c] border-[#bd613c]/30 hover:bg-[#ebd9c8]/30 rounded-xl h-10 px-4 shadow-sm">
-            <Link href="/calendrier">
-              <CalendarDays className="w-5 h-5 sm:mr-2" />
-              <span className="hidden sm:inline font-medium">Mon Agenda</span>
-            </Link>
-          </Button>
-        </div>
+        {/* Bouton Agenda et En-tête */}
+        <div className="relative mt-8 sm:mt-6 md:mt-4 mb-6 sm:mb-8 flex flex-col items-center justify-center pt-8 sm:pt-0">
+          <div className="absolute top-0 right-0 z-20">
+            <Button asChild variant="outline" className="text-[#bd613c] border-[#bd613c]/30 hover:bg-[#ebd9c8]/30 rounded-xl h-9 sm:h-10 px-3 sm:px-4 shadow-sm bg-white/50 backdrop-blur-sm">
+              <Link href="/calendrier">
+                <CalendarDays className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                <span className="hidden sm:inline font-medium">Mon Agenda</span>
+              </Link>
+            </Button>
+          </div>
 
-        {/* En-tête de l'application (Identité TDT) - Fixe en Desktop */}
-        <div className="text-center mt-8 sm:mt-4 mb-6 sm:mb-8 shrink-0">
-          <h1 className="font-bebas text-3xl sm:text-5xl md:text-6xl text-[#bd613c] tracking-wide uppercase leading-none mb-1 text-balance mt-4 sm:mt-0">
-            Techniques Douces Tissulaires
-          </h1>
-          <p className="mt-2 text-lg sm:text-xl md:text-2xl tracking-[0.2em] text-[#4a3f35] uppercase font-light">
-            Consultation Bilan
-          </p>
+          <div className="text-center shrink-0 w-full px-2 sm:px-[140px] md:px-[180px] pt-2 sm:pt-0">
+            <h1 className="font-bebas text-3xl sm:text-5xl md:text-6xl text-[#bd613c] tracking-wide uppercase leading-tight md:leading-none mb-1 text-balance">
+              Techniques Douces Tissulaires
+            </h1>
+            <p className="mt-2 text-base sm:text-xl md:text-2xl tracking-[0.1em] sm:tracking-[0.2em] text-[#4a3f35] uppercase font-light">
+              Consultation Bilan
+            </p>
+          </div>
         </div>
 
         {/* Grille Flex pour prendre le reste de l'écran en Desktop */}

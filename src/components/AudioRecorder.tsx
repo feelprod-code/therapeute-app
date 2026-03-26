@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/db";
 
 interface AudioRecorderProps {
-    onRecordingComplete: (audioBlob: Blob) => void;
+    onRecordingComplete: (audioBlob: Blob) => Promise<boolean> | void;
     isProcessing?: boolean;
 }
 
@@ -226,10 +226,6 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                 const finalMimeType = options.mimeType || 'audio/webm';
                 const audioBlob = new Blob(audioChunksRef.current, { type: finalMimeType });
 
-                // Supprimer le brouillon une fois l'enregistrement terminé avec succès
-                await db.drafts.delete('standard');
-                setDraftExists(false);
-
                 if (streamRef.current) {
                     streamRef.current.getTracks().forEach((track) => track.stop());
                     streamRef.current = null;
@@ -244,7 +240,20 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                     return;
                 }
 
-                onRecordingComplete(audioBlob);
+                // Attend la fin de la création du bilan. Ne retourne `false` que si ça crashe côté backend
+                const success = await onRecordingComplete(audioBlob);
+
+                if (success !== false) {
+                    // Supprimer le brouillon SEULEMENT une fois l'enregistrement terminé avec succès
+                    await db.drafts.delete('standard');
+                    setDraftExists(false);
+                } else {
+                    toast({
+                        title: "Erreur détectée",
+                        description: "L'enregistrement a été sauvegardé en tant que brouillon local.",
+                        variant: "destructive",
+                    });
+                }
             };
 
             const analyser = audioContext.createAnalyser();
@@ -306,8 +315,7 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
             stopTimer();
             cleanupAudioContext();
 
-            // Delete draft as the recording is successfully finished
-            await db.drafts.delete('standard');
+            // La suppression du draft est maintenant gérée intelligemment dans mediaRecorder.onstop
 
             // Feedback visuel (Toast) uniquement
             toast({

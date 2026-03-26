@@ -39,28 +39,39 @@ export default function ConsultationDetail() {
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
   const [editingSessionDay, setEditingSessionDay] = useState("");
   const [customSessionNumber, setCustomSessionNumber] = useState<number | "">("");
+  const [customSessionDate, setCustomSessionDate] = useState("");
 
   const handleSaveSessionOverride = async () => {
     if (customSessionNumber === "") return;
     try {
       const currentFollowUps = data.follow_ups || [];
+      const parsedNewDate = customSessionDate ? new Date(customSessionDate) : null;
+
+      // Override the actual date of all notes for that day if a new date/time was picked
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const filtered = currentFollowUps.filter((n: any) => !(n.type === 'session_override' && n.date && n.date.startsWith(editingSessionDay)));
 
       const overrideNote = {
         id: crypto.randomUUID(),
-        date: editingSessionDay + "T00:00:00.000Z",
+        date: parsedNewDate ? parsedNewDate.toISOString() : editingSessionDay + "T00:00:00.000Z",
         type: 'session_override',
         value: customSessionNumber
       };
 
-      const updatedFollowUps = [...filtered, overrideNote];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updatedFollowUps = [...filtered, overrideNote].map((n: any) => {
+        if (n.date && n.date.startsWith(editingSessionDay)) {
+          return { ...n, date: parsedNewDate ? parsedNewDate.toISOString() : n.date };
+        }
+        return n;
+      });
+
       const { data: updatedData, error } = await supabase.from('consultations').update({ follow_ups: updatedFollowUps }).eq('id', params.id).select().single();
 
       if (error) throw error;
       setData(updatedData);
       setIsSessionModalOpen(false);
-      toast({ title: "Séance modifiée", description: "Le numéro de séance a bien été mis à jour." });
+      toast({ title: "Séance modifiée", description: "La séance a bien été mise à jour." });
     } catch (e) {
       console.error(e);
       toast({ title: "Erreur", description: "Impossible de modifier la séance.", variant: "destructive" });
@@ -90,6 +101,7 @@ export default function ConsultationDetail() {
 
   const [editingFollowUpId, setEditingFollowUpId] = useState<string | null>(null);
   const [editFollowUpContent, setEditFollowUpContent] = useState("");
+  const [editFollowUpDate, setEditFollowUpDate] = useState("");
 
   // Image Viewer State
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -207,9 +219,21 @@ export default function ConsultationDetail() {
   const handleSaveFollowUp = async (followUpId: string) => {
     try {
       const currentFollowUps = data.follow_ups || [];
+
+      const existingNote = currentFollowUps.find((n: any) => n.id === followUpId);
+      let newDateIso = existingNote?.date;
+      if (editFollowUpDate && newDateIso) {
+        const [hours, minutes] = editFollowUpDate.split(':').map(Number);
+        if (!isNaN(hours) && !isNaN(minutes)) {
+          const d = new Date(newDateIso);
+          d.setHours(hours, minutes, 0, 0);
+          newDateIso = d.toISOString();
+        }
+      }
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const updatedFollowUps = currentFollowUps.map((n: any) =>
-        n.id === followUpId ? { ...n, content: editFollowUpContent } : n
+        n.id === followUpId ? { ...n, content: editFollowUpContent, date: newDateIso } : n
       );
       const { error } = await supabase.from('consultations').update({ follow_ups: updatedFollowUps }).eq('id', params.id);
       if (error) throw error;
@@ -829,10 +853,10 @@ export default function ConsultationDetail() {
         <DialogContent className="sm:max-w-md bg-white border-[#ebd9c8]/30">
           <DialogHeader>
             <DialogTitle className="font-bebas tracking-wide text-2xl text-[#bd613c] uppercase text-center">
-              Modifier le numéro de séance
+              Modifier la séance
             </DialogTitle>
           </DialogHeader>
-          <div className="py-4 space-y-4">
+          <div className="py-4 space-y-6">
             <div className="flex flex-col items-center gap-3">
               <label className="text-sm font-medium text-[#4a3f35]/80">Nouveau numéro (ex: 15) :</label>
               <input
@@ -841,7 +865,15 @@ export default function ConsultationDetail() {
                 value={customSessionNumber}
                 onChange={(e) => setCustomSessionNumber(e.target.value ? parseInt(e.target.value, 10) : "")}
                 className="w-24 text-center font-bebas text-3xl text-[#bd613c] border-b-2 border-[#ebd9c8] focus:border-[#bd613c] outline-none bg-transparent"
-                autoFocus
+              />
+            </div>
+            <div className="flex flex-col items-center gap-3">
+              <label className="text-sm font-medium text-[#4a3f35]/80">Date et Heure :</label>
+              <input
+                type="datetime-local"
+                value={customSessionDate}
+                onChange={(e) => setCustomSessionDate(e.target.value)}
+                className="text-[#bd613c] font-medium border-b-2 border-[#ebd9c8] focus:border-[#bd613c] outline-none bg-transparent p-1"
               />
             </div>
             <div className="flex justify-center gap-3 pt-4">
@@ -946,8 +978,9 @@ export default function ConsultationDetail() {
                   ) : (
                     <>
                       <p
-                        className="text-[#4a3f35]/80 font-medium mb-0 cursor-pointer hover:bg-[#ebd9c8]/20 transition-colors px-2 -mx-2 rounded-lg"
+                        className="text-[#4a3f35]/80 font-medium mb-0 cursor-pointer hover:bg-[#ebd9c8]/20 transition-colors px-2 -mx-2 rounded-lg capitalize"
                         onDoubleClick={() => {
+                          if (!data?.date) return;
                           const d = new Date(data.date);
                           const localIso = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
                           setEditDate(localIso);
@@ -955,7 +988,7 @@ export default function ConsultationDetail() {
                         }}
                         title="Double-clic pour modifier l'heure"
                       >
-                        {format(new Date(data.date), "EEEE d MMMM yyyy 'à' HH:mm", { locale: fr })}
+                        {format(new Date(data.date), "EEEE d MMMM yyyy • HH:mm", { locale: fr })}
                       </p>
                     </>
                   )}
@@ -1311,6 +1344,17 @@ export default function ConsultationDetail() {
                                   onClick={() => {
                                     setEditingSessionDay(dayStr);
                                     setCustomSessionNumber(getSessionNumberForDay(dayStr));
+
+                                    // Prepare the custom date to pre-fill the form
+                                    try {
+                                      const minTimeMs = Math.min(...grouped[dayStr].map((n: any) => new Date(n.date).getTime()));
+                                      const d = new Date(minTimeMs);
+                                      const localIso = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+                                      setCustomSessionDate(localIso);
+                                    } catch (e) {
+                                      setCustomSessionDate("");
+                                    }
+
                                     setIsSessionModalOpen(true);
                                   }}
                                   title="Modifier la séance"
@@ -1328,7 +1372,12 @@ export default function ConsultationDetail() {
                                 <p className="text-xs text-slate-400 italic">Aucune note pour ce jour (Séance enregistrée via l'historique).</p>
                               ) : grouped[dayStr].filter((n: any) => n.type !== 'session_override').map((note: any, noteIdx: number, arr: any[]) => (
                                 <div key={note.id || noteIdx} className="relative">
-                                  <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-2 mb-2">
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                                    <div className="flex items-center">
+                                      <div className="text-xs font-semibold text-[#8c7b6d] bg-[#ebd9c8]/20 px-2 py-0.5 rounded-sm">
+                                        {format(new Date(note.date), "HH:mm")}
+                                      </div>
+                                    </div>
                                     <div className="flex items-center -mr-2">
                                       {editingFollowUpId === note.id ? (
                                         <>
@@ -1344,6 +1393,19 @@ export default function ConsultationDetail() {
                                           <Button
                                             variant="ghost"
                                             size="sm"
+                                            className="text-slate-400 hover:text-[#bd613c] hover:bg-[#ebd9c8]/20 h-8 px-2"
+                                            onClick={() => {
+                                              setEditFollowUpContent(note.content);
+                                              setEditFollowUpDate(format(new Date(note.date), "HH:mm"));
+                                              setEditingFollowUpId(note.id);
+                                            }}
+                                            title="Modifier la note"
+                                          >
+                                            <Pencil className="w-4 h-4" />
+                                          </Button>
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
                                             className="text-slate-400 hover:text-red-500 hover:bg-red-50 h-8 px-2"
                                             onClick={() => handleDeleteFollowUp(note.id)}
                                             title="Supprimer la note"
@@ -1356,11 +1418,22 @@ export default function ConsultationDetail() {
                                   </div>
 
                                   {editingFollowUpId === note.id ? (
-                                    <textarea
-                                      value={editFollowUpContent}
-                                      onChange={(e) => setEditFollowUpContent(e.target.value)}
-                                      className="w-full min-h-[150px] p-3 font-mono text-sm rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
-                                    />
+                                    <div className="space-y-3">
+                                      <div className="flex items-center gap-2">
+                                        <label className="text-xs font-medium text-[#4a3f35]/80">Heure :</label>
+                                        <input
+                                          type="time"
+                                          value={editFollowUpDate}
+                                          onChange={(e) => setEditFollowUpDate(e.target.value)}
+                                          className="text-sm text-[#bd613c] font-medium border-b border-[#ebd9c8] focus:border-[#bd613c] outline-none bg-transparent py-0.5"
+                                        />
+                                      </div>
+                                      <textarea
+                                        value={editFollowUpContent}
+                                        onChange={(e) => setEditFollowUpContent(e.target.value)}
+                                        className="w-full min-h-[150px] p-3 font-mono text-sm rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+                                      />
+                                    </div>
                                   ) : note.type === 'image' ? (
                                     <div className="mt-2 flex flex-col items-center">
                                       <img
@@ -1393,7 +1466,11 @@ export default function ConsultationDetail() {
                                   ) : (
                                     <div
                                       className="prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-3 -m-3 rounded-xl"
-                                      onDoubleClick={() => { setEditFollowUpContent(note.content); setEditingFollowUpId(note.id); }}
+                                      onDoubleClick={() => {
+                                        setEditFollowUpContent(note.content);
+                                        setEditFollowUpDate(format(new Date(note.date), "HH:mm"));
+                                        setEditingFollowUpId(note.id);
+                                      }}
                                       title="Double-clic pour modifier la note"
                                     >
                                       <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
