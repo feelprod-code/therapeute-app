@@ -932,59 +932,7 @@ function Home() {
 
           {/* Colonne de Gauche : Outils d'Enregistrement (Fixe ou scroll indépendant) */}
           <div className="md:col-span-5 flex flex-col gap-6 md:h-full md:overflow-y-auto custom-scrollbar md:pr-2 pb-4">
-            {/* Upload de documents externes */}
-            <div
-              className="bg-white/40 p-2 sm:p-3 rounded-lg border border-[#bd613c]/10 shadow-sm mb-4 flex flex-row justify-between items-center gap-3 transition-colors duration-200 hover:border-[#bd613c]/30 w-full"
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.currentTarget.classList.add('bg-[#ebd9c8]/20', 'border-[#bd613c]');
-              }}
-              onDragLeave={(e) => {
-                e.preventDefault();
-                e.currentTarget.classList.remove('bg-[#ebd9c8]/20', 'border-[#bd613c]');
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                e.currentTarget.classList.remove('bg-[#ebd9c8]/20', 'border-[#bd613c]');
-                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                  setAttachedFiles(prev => [...prev, ...Array.from(e.dataTransfer.files)]);
-                }
-              }}
-            >
-              <div className="flex-1 flex items-center gap-2">
-                <Paperclip className="w-4 h-4 text-[#bd613c]" />
-                <span className="text-[#4a3f35] text-xs font-medium">Joindre documents (IRM, Bilans...)</span>
-              </div>
 
-              <div className="flex items-center gap-2">
-                <input
-                  type="file"
-                  className="hidden"
-                  multiple
-                  onChange={handleFileChange}
-                  ref={fileInputRef}
-                  accept=".pdf,image/*"
-                />
-                <Button variant="secondary" size="sm" className="h-7 text-xs px-3" onClick={() => fileInputRef.current?.click()}>
-                  Parcourir
-                </Button>
-              </div>
-            </div>
-
-            {/* Fichiers attachés (Affichés dynamiquement) */}
-            {attachedFiles.length > 0 && (
-              <div className="mx-auto flex flex-wrap justify-center gap-2 mb-6">
-                {attachedFiles.map((f, i) => (
-                  <div key={i} className="flex items-center gap-1.5 bg-[#ebd9c8]/30 border border-[#bd613c]/20 rounded-full px-3 py-1.5 text-xs text-[#4a3f35] shadow-sm">
-                    {f.type.includes('pdf') ? <FileText className="w-3.5 h-3.5 text-red-500" /> : <ImageIcon className="w-3.5 h-3.5 text-blue-500" />}
-                    <span className="truncate max-w-[200px]">{f.name}</span>
-                    <button onClick={() => removeFile(i)} className="text-slate-400 hover:text-red-500 ml-1">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
 
             {/* Sélection du Mode d'Enregistrement */}
             <Tabs value={recorderMode} onValueChange={setRecorderMode} className="w-full">

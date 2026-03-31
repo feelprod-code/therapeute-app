@@ -48,7 +48,15 @@ export default function ConsultationDetail() {
       const currentFollowUps = data.follow_ups || [];
       const parsedNewDate = customSessionDate ? new Date(customSessionDate) : null;
 
-      // Override the actual date of all notes for that day if a new date/time was picked
+      // Find original min time to calculate the shift
+      const sessionNotes = currentFollowUps.filter((n: any) => n.date && n.date.startsWith(editingSessionDay));
+      const originalMinTimeMs = sessionNotes.length > 0
+        ? Math.min(...sessionNotes.map((n: any) => new Date(n.date).getTime()))
+        : Date.now();
+
+      const timeDiff = parsedNewDate ? parsedNewDate.getTime() - originalMinTimeMs : 0;
+
+      // Remove existing override note for this day
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const filtered = currentFollowUps.filter((n: any) => !(n.type === 'session_override' && n.date && n.date.startsWith(editingSessionDay)));
 
@@ -59,13 +67,19 @@ export default function ConsultationDetail() {
         value: customSessionNumber
       };
 
+      // Shift all other notes for that day
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const updatedFollowUps = [...filtered, overrideNote].map((n: any) => {
+      const updatedFiltered = filtered.map((n: any) => {
         if (n.date && n.date.startsWith(editingSessionDay)) {
-          return { ...n, date: parsedNewDate ? parsedNewDate.toISOString() : n.date };
+          if (parsedNewDate) {
+            const newNoteDateMs = new Date(n.date).getTime() + timeDiff;
+            return { ...n, date: new Date(newNoteDateMs).toISOString() };
+          }
         }
         return n;
       });
+
+      const updatedFollowUps = [...updatedFiltered, overrideNote];
 
       const { data: updatedData, error } = await supabase.from('consultations').update({ follow_ups: updatedFollowUps }).eq('id', params.id).select().single();
 

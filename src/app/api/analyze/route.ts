@@ -136,6 +136,7 @@ Ton objectif est de mettre à jour la synthèse PRÉCÉDENTE en FUSIONNANT de ma
 - RÈGLE GÉNÉRALE: Maintiens la structure globale de la synthèse médicale. Intègre intelligemment les nouvelles plaintes, symptômes, ou examens complèmentaires DANS les sections pertinentes (par exemple, rajoute la localisation d'une nouvelle douleur dans "Histoire de la Maladie / Douleur"). 
 - INTERDICTION: NE CRÉE SURTOUT PAS EN BAS DE PAGE une section "Ajout d'informations" ou "Nouvelles informations". Le bilan doit rester un document unifié, écrit de façon fluide comme s'il avait été rédigé en une seule fois.
 - EXCEPTION (NOM DU PATIENT): Si les nouveaux documents/audios te permettent de découvrir le VRAI nom et prénom du patient (et que la synthèse précédente disait "Patient Anonyme" ou était incomplète), tu as l'OBLIGATION de le mettre à jour. N'oublie pas non plus de renseigner le champ "patientName" de ta réponse JSON.
+- EXCEPTION (DATE DE LA CONSULTATION): Si les nouvelles notes précisent la vraie date de la consultation (ex: "la première séance était le 12 octobre"), tu as l'OBLIGATION de la mettre à jour dans ton texte Markdown ET de renseigner cette date au format AAAA-MM-JJ dans la clé "consultationDate" du JSON.
 - Pour la transcription : Génère UNIQUEMENT la retranscription/description des NOUVEAUX éléments (nouveau vocal ou nouveau document). NE RECOPIE PAS l'ancienne transcription, le système s'en chargera automatiquement.
 `;
         }
@@ -157,7 +158,7 @@ Règles impératives :
 4. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil.
 5. "synthese" : Applique strictement la structure Markdown ci-dessous UNIQUEMENT si l'information est présente (ou fusionne à l'existant en ajoutant la section "Ajout du ..." si en mise à jour) :
 
-# Bilan de Consultation - [Date exacte de la consultation extraite du texte, ou ${currentDate} par défaut]
+# Bilan de Consultation <span style="font-size: 0.6em; color: #8c7b6d; font-weight: normal;">- [Date exacte de la consultation, ou ${currentDate} par défaut]</span>
 
 ### Informations Patient
 - **Nom/Prénom :** [Jean Dupont]

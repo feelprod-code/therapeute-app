@@ -54,7 +54,7 @@ Règles impératives pour la nouvelle "synthese" :
 3. Fusionne impérativement la section "Antécédents (ATCD) et Chronologie". Reprends TOUS les antécédents des deux bilans et classe-les dans un UNIQUE ordre strictement chronologique, de la naissance jusqu'à aujourd'hui. Ne crée pas de doublons.
 4. La structure Markdown de la "synthese" DOIT respecter ce format d'affichage précis :
 
-# Bilan de Consultation - ${currentDate}
+# Bilan de Consultation <span style="font-size: 0.6em; color: #8c7b6d; font-weight: normal;">- ${currentDate}</span>
 
 ### Informations Patient
 - **Nom/Prénom :** [Ex: Jean Dupont]

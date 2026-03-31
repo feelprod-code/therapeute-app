@@ -30,3 +30,218 @@
  ✓ Compiled in 245ms (1346 modules)
  ✓ Compiled /consultation/[id] in 247ms (1370 modules)
  GET /apple-touch-icon.png 404 in 50ms
+ ○ Compiling /api/analyze ...
+ ✓ Compiled /api/analyze in 1016ms (1554 modules)
+[API] Checking injected API key prefix: AIzaSyAvRVOQWHV...
+[API] Processing 1 attached files...
+[API] Document texte joint prêt en mémoire: txt_addendum_1774521125093_d913be9a-15d0-4956-8e98-bc7531cc6562.txt
+[API] Generating content...
+ POST /api/analyze 200 in 24817ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 894ms (2670 modules)
+ ⨯ Error: Cannot find module './948.js'
+Require stack:
+- /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/webpack-runtime.js
+- /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/app/_not-found/page.js
+- /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/require.js
+- /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/load-components.js
+- /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/utils.js
+- /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/dev/hot-middleware.js
+- /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/dev/hot-reloader-webpack.js
+- /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js
+- /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/lib/router-server.js
+- /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/lib/start-server.js
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1421:15)
+    at /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/require-hook.js:55:36
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at __webpack_require__.f.require (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/webpack-runtime.js:203:28)
+    at /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/webpack-runtime.js:111:40
+    at Array.reduce (<anonymous>)
+    at __webpack_require__.e (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/webpack-runtime.js:110:67)
+    at Array.map (<anonymous>)
+    at __webpack_require__.X (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/webpack-runtime.js:162:22)
+    at /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/app/_not-found/page.js:1:8581
+    at Object.<anonymous> (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/app/_not-found/page.js:1:8627)
+    at Module._compile (node:internal/modules/cjs/loader:1761:14)
+    at Object..js (node:internal/modules/cjs/loader:1893:10)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at requirePage (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/require.js:109:84)
+    at /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/load-components.js:103:84
+    at async loadComponentsImpl (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/load-components.js:103:26)
+    at async DevServer.findPageComponentsImpl (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/next-server.js:714:36)
+    at async DevServer.findPageComponents (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/dev/next-dev-server.js:577:20)
+    at async DevServer.renderErrorToResponseImpl (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/base-server.js:2090:30)
+    at async pipe.req.req (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/base-server.js:2056:30)
+    at async DevServer.pipeImpl (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/base-server.js:922:25)
+    at async /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/dev/next-dev-server.js:339:20
+    at async Span.traceAsyncFn (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/trace/trace.js:154:20)
+    at async DevServer.handleRequest (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/dev/next-dev-server.js:336:24)
+    at async invokeRender (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/lib/router-server.js:179:21)
+    at async handleRequest (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/lib/router-server.js:374:24)
+    at async requestHandlerImpl (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/lib/router-server.js:383:13)
+    at async Server.requestListener (/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/lib/start-server.js:141:13) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/webpack-runtime.js',
+    '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/app/_not-found/page.js',
+    '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/require.js',
+    '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/load-components.js',
+    '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/utils.js',
+    '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/dev/hot-middleware.js',
+    '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/dev/hot-reloader-webpack.js',
+    '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js',
+    '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/lib/router-server.js',
+    '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/lib/start-server.js'
+  ]
+}
+ ✓ Compiled /_error in 454ms (2896 modules)
+ GET /apple-touch-icon.png 500 in 2512ms
+ GET /_next/static/css/app/layout.css?v=1774522191121 404 in 64ms
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, lstat '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/vendor-chunks/@ffmpeg.js'
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving './vendor-chunks/@ffmpeg' in /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server for build dependencies doesn't lead to expected result '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/vendor-chunks/@ffmpeg.js', but to 'Error: Can't resolve './vendor-chunks/@ffmpeg' in '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ./vendor-chunks/@ffmpeg (expected /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/vendor-chunks/@ffmpeg.js)
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/webpack-runtime.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/webpack-runtime.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/app/_not-found/page.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/app/_not-found/page.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/require.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/require.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/load-components.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/load-components.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/utils.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/utils.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/webpack/loaders/next-route-loader/index.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/webpack/loaders/next-route-loader/index.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/compiled/loader-runner/LoaderRunner.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/compiled/loader-runner/LoaderRunner.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/compiled/webpack/bundle5.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/compiled/webpack/bundle5.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/compiled/webpack/webpack.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/compiled/webpack/webpack.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/compiled/webpack/webpack-lib.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/compiled/webpack/webpack-lib.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next-pwa/build-custom-worker.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next-pwa/build-custom-worker.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next-pwa/index.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next-pwa/index.js
+<w>  at resolve esm file next-pwa
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/next.config.mjs
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/next.config.mjs
+<w>  at resolve commonjs /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/next.config.mjs
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving './vendor-chunks/get-nonce' in /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server for build dependencies doesn't lead to expected result '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/vendor-chunks/get-nonce.js', but to 'Error: Can't resolve './vendor-chunks/get-nonce' in '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ./vendor-chunks/get-nonce (expected /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/vendor-chunks/get-nonce.js)
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/webpack-runtime.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/webpack-runtime.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/app/_not-found/page.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/app/_not-found/page.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/require.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/require.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/load-components.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/load-components.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/utils.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/utils.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/webpack/loaders/next-route-loader/index.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/webpack/loaders/next-route-loader/index.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/compiled/loader-runner/LoaderRunner.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/compiled/loader-runner/LoaderRunner.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/compiled/webpack/bundle5.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/compiled/webpack/bundle5.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/compiled/webpack/webpack.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/compiled/webpack/webpack.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/compiled/webpack/webpack-lib.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/compiled/webpack/webpack-lib.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next-pwa/build-custom-worker.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next-pwa/build-custom-worker.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next-pwa/index.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next-pwa/index.js
+<w>  at resolve esm file next-pwa
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/next.config.mjs
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/next.config.mjs
+<w>  at resolve commonjs /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/next.config.mjs
+ GET / 200 in 940ms
+ GET /_next/static/css/app/layout.css?v=1774522228036 404 in 63ms
+ GET /_next/static/chunks/main-app.js?v=1774522228036 404 in 117ms
+ GET /_next/static/chunks/app-pages-internals.js 404 in 116ms
+ GET /_next/static/chunks/app/page.js 404 in 115ms
+ GET /_next/static/chunks/app/layout.js 404 in 115ms
+ GET /apple-touch-icon.png 404 in 24ms
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, lstat '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/vendor-chunks/@ffmpeg.js'
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving './vendor-chunks/@ffmpeg' in /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server for build dependencies doesn't lead to expected result '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/vendor-chunks/@ffmpeg.js', but to 'Error: Can't resolve './vendor-chunks/@ffmpeg' in '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ./vendor-chunks/@ffmpeg (expected /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/vendor-chunks/@ffmpeg.js)
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/webpack-runtime.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/webpack-runtime.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/app/page.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/app/page.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/require.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/require.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/load-components.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/load-components.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/utils.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/utils.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/webpack/loaders/next-route-loader/index.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/webpack/loaders/next-route-loader/index.js
+<w>  at resolve commonjs /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/webpack/loaders/next-route-loader/index.js
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving './vendor-chunks/get-nonce' in /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server for build dependencies doesn't lead to expected result '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/vendor-chunks/get-nonce.js', but to 'Error: Can't resolve './vendor-chunks/get-nonce' in '/Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ./vendor-chunks/get-nonce (expected /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/vendor-chunks/get-nonce.js)
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/webpack-runtime.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/webpack-runtime.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/app/page.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/.next/server/app/page.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/require.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/require.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/load-components.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/server/load-components.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/utils.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/utils.js
+<w>  at file dependencies /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/webpack/loaders/next-route-loader/index.js
+<w>  at file /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/webpack/loaders/next-route-loader/index.js
+<w>  at resolve commonjs /Users/guillaumephilippe/ANTIGRAVITY/therapeute-app/node_modules/next/dist/build/webpack/loaders/next-route-loader/index.js
+ GET / 200 in 87ms
+ GET /_next/static/css/app/layout.css?v=1774522375793 404 in 61ms
+ GET /_next/static/chunks/app-pages-internals.js 404 in 90ms
+ GET /_next/static/chunks/app/page.js 404 in 89ms
+ GET /_next/static/chunks/main-app.js?v=1774522375793 404 in 94ms
+ GET /_next/static/chunks/app/layout.js 404 in 89ms
+ GET /apple-touch-icon.png 404 in 21ms
+ GET / 200 in 83ms
+ GET /_next/static/css/app/layout.css?v=1774523406291 404 in 26ms
+ GET /_next/static/chunks/app-pages-internals.js 404 in 77ms
+ GET /_next/static/chunks/app/layout.js 404 in 74ms
+ GET /_next/static/chunks/app/page.js 404 in 75ms
+ GET /_next/static/chunks/main-app.js?v=1774523406291 404 in 82ms
+ GET /apple-touch-icon.png 404 in 340ms
+ ○ Compiling /favicon.ico ...
+ ✓ Compiled /favicon.ico in 687ms (1409 modules)
+ GET /favicon.ico 200 in 743ms
+ GET / 200 in 95ms
+ GET /_next/static/css/app/layout.css?v=1774523408074 404 in 29ms
+ GET /_next/static/chunks/app-pages-internals.js 404 in 31ms
+ GET /_next/static/chunks/app/page.js 404 in 31ms
+ GET /_next/static/chunks/app/layout.js 404 in 31ms
+ GET /_next/static/chunks/main-app.js?v=1774523408074 404 in 33ms
+ GET /favicon.ico 200 in 6ms
+ GET /apple-touch-icon.png 404 in 18ms
+ ✓ Compiled in 2.6s (2940 modules)
+ GET / 200 in 711ms
+ GET /_next/static/chunks/main-app.js?v=1774525666967 404 in 147ms
+ GET /_next/static/chunks/app-pages-internals.js 404 in 94ms
+ GET /_next/static/chunks/app/page.js 404 in 91ms
+ GET /favicon.ico 200 in 29ms
+ GET /apple-touch-icon.png 404 in 27ms
+ ✓ Compiled in 971ms (2905 modules)
+ ✓ Compiled in 904ms (2905 modules)
+ ✓ Compiled in 965ms (1531 modules)
+ ✓ Compiled in 143ms (1531 modules)

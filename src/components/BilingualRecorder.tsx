@@ -293,7 +293,7 @@ export default function BilingualRecorder({
 
             if (isIOS) {
                 // iOS Specific optimizations: Siri voices & slightly faster rate
-                utterance.rate = 1.15;
+                utterance.rate = 1.1;
                 utterance.pitch = 1.0;
                 utterance.volume = 1.0;
                 const voice = getBestVoice(lang);
