@@ -158,7 +158,7 @@ Règles impératives :
 4. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil.
 5. "synthese" : Applique strictement la structure Markdown ci-dessous UNIQUEMENT si l'information est présente (ou fusionne à l'existant en ajoutant la section "Ajout du ..." si en mise à jour) :
 
-# Bilan de Consultation <span style="font-size: 0.6em; color: #8c7b6d; font-weight: normal;">- [Date exacte de la consultation, ou ${currentDate} par défaut]</span>
+# Bilan de consultation <span class="text-lg md:text-xl text-[#8c7b6d] font-normal ml-2">- [Date exacte de la consultation, ou ${currentDate} par défaut]</span>
 
 ### Informations Patient
 - **Nom/Prénom :** [Jean Dupont]
