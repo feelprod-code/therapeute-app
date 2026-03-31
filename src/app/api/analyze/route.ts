@@ -138,7 +138,7 @@ Ton objectif est de mettre à jour la synthèse PRÉCÉDENTE en FUSIONNANT de ma
 - EXCEPTION (NOM DU PATIENT): Si les nouveaux documents/audios te permettent de découvrir le VRAI nom et prénom du patient (et que la synthèse précédente disait "Patient Anonyme" ou était incomplète), tu as l'OBLIGATION de le mettre à jour. N'oublie pas non plus de renseigner le champ "patientName" de ta réponse JSON.
 - EXCEPTION (DATE DE LA CONSULTATION): Si les nouvelles notes précisent la vraie date de la consultation (ex: "la première séance était le 12 octobre"), tu as l'OBLIGATION de la mettre à jour dans ton texte Markdown ET de renseigner cette date au format AAAA-MM-JJ dans la clé "consultationDate" du JSON.
 - Pour la transcription : Génère UNIQUEMENT la retranscription/description des NOUVEAUX éléments (nouveau vocal ou nouveau document). NE RECOPIE PAS l'ancienne transcription, le système s'en chargera automatiquement.
-- EXCEPTION (RÉSUMÉ) : Puisque tu mets à jour le bilan, ton NOUVEAU "resume" (dans le JSON) doit obligatoirement résumer l'INTÉGRALITÉ du bilan mis à jour (les anciennes informations unifiées avec les nouvelles). Il est strictement interdit de ne résumer que les ajouts. Le résumé doit être complet vis-à-vis du document final.
+- EXCEPTION (RÉSUMÉ) : IL EST ABSOLUMENT OBLIGATOIRE que la clé "resume" contienne un résumé GLOBAL de TOUT LE BILAN FINAL (c'est-à-dire le texte généré dans la clé "synthese"). Ne résume SURTOUT PAS seulement les ajouts ! Le résumé doit donner l'état complet du patient.
 `;
         }
 
@@ -148,7 +148,7 @@ Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme 
   "patientName": "Nom et Prénom trouvés (ou chaîne vide si aucun)",
   "consultationDate": "Date trouvée dans le texte (ex: 2024-10-14). Si aucune date précise n'est mentionnée, renvoie null ou une chaîne vide.",
   "transcription": "Génère la retranscription EXACTE, LITTÉRALE (Verbatim) et INTÉGRALE de tout le dialogue de ce nouvel audio (ou document). RÈGLE ABSOLUE : Tu ne dois AUCUNEMENT corriger la grammaire, tu ne dois PAS supprimer les hésitations ('euh', 'ah', 'ben', répétitions). Retranscris CHAQUE MOT tel qu'il a été prononcé. Formate ce texte avec Markdown : ajoute toujours un **double saut de ligne** entre chaque prise de parole, et identifie l'interlocuteur avec : **<span style=\\"color: #bd613c;\\">Praticien :</span>** ou **<span style=\\"color: #bd613c;\\">Patient :</span>**.",
-  "resume": "Un résumé narratif en 3 à 5 phrases, sous forme d'un paragraphe continu unique (AUCUNE liste, AUCUN tiret, AUCUNE puce). Intègre l'essentiel de façon fluide.",
+  "resume": "Un résumé narratif GLOBAL en 3 à 5 phrases, synthétisant TOUT le document final complet généré dans 'synthese' (anciennes ET nouvelles informations). Sous forme d'un paragraphe continu unique (AUCUNE liste, AUCUN tiret, AUCUNE puce).",
   "synthese": "La synthèse médicale formatée en Markdown"
 }
 

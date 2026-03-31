@@ -293,7 +293,7 @@ export default function BilingualRecorder({
 
             if (isIOS) {
                 // iOS Specific optimizations: Siri voices & slightly faster rate
-                utterance.rate = 1.1;
+                utterance.rate = 1.05;
                 utterance.pitch = 1.0;
                 utterance.volume = 1.0;
                 const voice = getBestVoice(lang);
@@ -303,7 +303,7 @@ export default function BilingualRecorder({
             } else {
                 // Desktop and Android: Use completely native browser defaults without forcing rate/pitch/voice 
                 // This prevents bugs on Mac Chrome where forcing premium voices causes stutters/overlays
-                utterance.rate = 1.0;
+                utterance.rate = 0.95;
             }
 
             window.speechSynthesis.speak(utterance);

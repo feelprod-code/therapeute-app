@@ -943,9 +943,6 @@ function Home() {
                 <TabsTrigger value="bilingual" className="text-xs sm:text-sm py-2 px-1 leading-tight rounded-lg data-[state=active]:bg-white data-[state=active]:text-[#bd613c] data-[state=active]:shadow-sm">
                   Bilingue
                 </TabsTrigger>
-                <TabsTrigger value="import" className="text-xs sm:text-sm py-2 px-1 leading-tight rounded-lg data-[state=active]:bg-white data-[state=active]:text-[#bd613c] data-[state=active]:shadow-sm">
-                  Import
-                </TabsTrigger>
                 <TabsTrigger value="text" className="text-xs sm:text-sm py-2 px-1 leading-tight rounded-lg data-[state=active]:bg-white data-[state=active]:text-[#bd613c] data-[state=active]:shadow-sm">
                   Texte
                 </TabsTrigger>
@@ -960,84 +957,7 @@ function Home() {
                   <BilingualRecorder onRecordingComplete={handleBilingualComplete} attachedFiles={attachedFiles} />
                 </TabsContent>
 
-                <TabsContent value="import">
-                  <Card
-                    className="relative w-full max-w-4xl mx-auto border-[#bd613c]/30 shadow-none bg-white/50 transition-colors duration-200 min-h-[350px] flex flex-col justify-center items-center p-8 group cursor-pointer"
-                    onDragEnter={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      e.currentTarget.classList.add('bg-[#ebd9c8]/50', 'border-dashed', 'border-[3px]', 'border-[#bd613c]');
-                    }}
-                    onDragLeave={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      e.currentTarget.classList.remove('bg-[#ebd9c8]/50', 'border-dashed', 'border-[3px]', 'border-[#bd613c]');
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      e.currentTarget.classList.remove('bg-[#ebd9c8]/50', 'border-dashed', 'border-[3px]', 'border-[#bd613c]');
-                      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                        const file = e.dataTransfer.files[0];
-                        const validExtensions = ['.webm', '.mp3', '.m4a', '.mp4', '.wav', '.ogg'];
-                        const isAudioVideoType = file.type ? (file.type.startsWith('audio/') || file.type.startsWith('video/')) : false;
-                        const hasValidExtension = validExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
 
-                        if (isAudioVideoType || hasValidExtension || !file.type) {
-                          toast({
-                            title: "Importation...",
-                            description: "L'audio (ou vidéo) va être importé et analysé.",
-                          });
-                          handleRecordingComplete(file);
-                        } else {
-                          toast({ title: "Format invalide", description: `Veuillez déposer un fichier audio ou vidéo valide. (Détecté: ${file.type || 'Inconnu'})`, variant: "destructive" });
-                        }
-                      }
-                    }}
-                  >
-                    <input
-                      type="file"
-                      id="audio-upload"
-                      className="hidden"
-                      accept=".webm,.mp3,.m4a,.mp4,.wav,.ogg,audio/*,video/*"
-                      onChange={(e) => {
-                        if (e.target.files && e.target.files.length > 0) {
-                          const file = e.target.files[0];
-                          toast({
-                            title: "Compression en cours...",
-                            description: "L'audio sélectionné va être compressé avant analyse...",
-                          });
-                          compressAudio(file).then((compressedFile) => {
-                            toast({
-                              title: "Importation...",
-                              description: "Compression terminée. L'audio va être analysé.",
-                            });
-                            handleRecordingComplete(compressedFile);
-                          }).catch(err => {
-                            toast({ title: "Erreur de compression", description: "Impossible de compresser le fichier.", variant: "destructive" });
-                            console.error(err);
-                          });
-                        }
-                      }}
-                    />
-                    <label htmlFor="audio-upload" className="w-full h-full absolute inset-0 cursor-pointer" aria-label="Importer un fichier audio" />
-
-                    <div className="flex flex-col items-center pointer-events-none text-[#8c7b6c] group-hover:text-[#bd613c] transition-colors">
-                      <div className="w-16 h-16 rounded-full bg-[#ebd9c8]/20 flex items-center justify-center mb-4 group-hover:bg-[#ebd9c8]/50 group-hover:scale-110 transition-all">
-                        <ArrowRight className="w-8 h-8 rotate-90" />
-                      </div>
-                      <p className="text-xl font-bebas tracking-widest uppercase mb-2">Glisser-déposer ou Parcourir</p>
-                      <p className="text-sm opacity-70 text-center max-w-sm">
-                        Formats supportés : m4a, mp3, mp4, wav, webm...<br />
-                        Les fichiers seront automatiquement compressés.
-                      </p>
-                    </div>
-                  </Card>
-                </TabsContent>
 
                 <TabsContent value="text">
                   <Card className="w-full max-w-4xl mx-auto border-[#bd613c]/30 shadow-sm bg-white p-6 md:p-8 min-h-[350px] flex flex-col">

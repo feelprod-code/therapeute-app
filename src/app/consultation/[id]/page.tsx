@@ -970,6 +970,15 @@ export default function ConsultationDetail() {
                       >
                         {data.patient_name || data.patientName || `Patient #${data.id}`}
                       </h1>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-[#bd613c] hover:bg-[#ebd9c8]/30 h-8 w-8 rounded-full print:hidden shrink-0"
+                        onClick={() => setIsEditing(true)}
+                        title="Modifier le nom"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -1006,6 +1015,21 @@ export default function ConsultationDetail() {
                       >
                         {format(new Date(data.date), "EEEE d MMMM yyyy • HH:mm", { locale: fr })}
                       </p>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-[#bd613c] hover:bg-[#ebd9c8]/30 h-6 w-6 rounded-full print:hidden shrink-0"
+                        onClick={() => {
+                          if (!data?.date) return;
+                          const d = new Date(data.date);
+                          const localIso = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+                          setEditDate(localIso);
+                          setIsEditingDate(true);
+                        }}
+                        title="Modifier la date"
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </Button>
                     </>
                   )}
                 </div>
@@ -1120,9 +1144,14 @@ export default function ConsultationDetail() {
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-2">
                     <FileText className="w-6 h-6 text-[#bd613c]" />
-                    <h2 className="font-bebas text-3xl tracking-wide text-[#bd613c] uppercase mb-0">
-                      Synthèse
-                    </h2>
+                    <div className="flex items-baseline gap-3">
+                      <h2 className="font-bebas text-3xl tracking-wide text-[#bd613c] uppercase mb-0">
+                        Bilan
+                      </h2>
+                      <span className="text-sm font-medium text-[#4a3f35]/60 mb-1 tracking-wide">
+                        {format(new Date(data.date), "dd/MM/yyyy")}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     {data.synthese && !isEditingBilan && (
@@ -1152,16 +1181,27 @@ export default function ConsultationDetail() {
                     className="w-full min-h-[500px] p-4 font-mono text-sm sm:text-base rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
                   />
                 ) : (
-                  <div
-                    className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#bd613c] prose-headings:tracking-wide prose-h1:text-[#594c42] prose-p:text-[#4a3f35]/90 prose-strong:text-[#bd613c] prose-li:text-[#4a3f35]/90 prose-h1:text-2xl sm:prose-h1:text-4xl cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-4 -m-4 rounded-xl"
-                    onDoubleClick={() => { setEditBilanContent(data.synthese); setIsEditingBilan(true); }}
-                    title="Double-clic pour modifier"
-                  >
-                    {data.synthese ? (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
-                        {data.synthese}
-                      </ReactMarkdown>
-                    ) : "Aucune synthèse disponible."}
+                  <div className="relative group">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white/80 hover:bg-white text-[#bd613c] shadow-sm border border-[#ebd9c8] h-8 w-8 rounded-full z-10 print:hidden"
+                      onClick={() => { setEditBilanContent(data.synthese); setIsEditingBilan(true); }}
+                      title="Modifier la synthèse"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <div
+                      className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#bd613c] prose-headings:tracking-wide prose-h1:text-[#594c42] prose-p:text-[#4a3f35]/90 prose-strong:text-[#bd613c] prose-li:text-[#4a3f35]/90 prose-h1:text-2xl sm:prose-h1:text-4xl cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-4 -m-4 rounded-xl"
+                      onDoubleClick={() => { setEditBilanContent(data.synthese); setIsEditingBilan(true); }}
+                      title="Double-clic pour modifier"
+                    >
+                      {data.synthese ? (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                          {data.synthese}
+                        </ReactMarkdown>
+                      ) : "Aucune synthèse disponible."}
+                    </div>
                   </div>
                 )}
               </TabsContent>
@@ -1193,16 +1233,27 @@ export default function ConsultationDetail() {
                     </div>
                   </div>
                 ) : (
-                  <div
-                    className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#bd613c] prose-headings:tracking-wide prose-h1:text-[#594c42] prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-4 -m-4 rounded-xl"
-                    onDoubleClick={() => { setEditResumeContent(data.resume || ""); setIsEditingResume(true); }}
-                    title="Double-clic pour modifier"
-                  >
-                    {data.resume ? (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {data.resume}
-                      </ReactMarkdown>
-                    ) : "Aucun résumé disponible."}
+                  <div className="relative group">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white/80 hover:bg-white text-[#bd613c] shadow-sm border border-[#ebd9c8] h-8 w-8 rounded-full z-10 print:hidden"
+                      onClick={() => { setEditResumeContent(data.resume || ""); setIsEditingResume(true); }}
+                      title="Modifier le résumé"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <div
+                      className="prose prose-sm sm:prose-base prose-stone max-w-none prose-headings:font-bebas prose-headings:text-[#bd613c] prose-headings:tracking-wide prose-h1:text-[#594c42] prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-4 -m-4 rounded-xl"
+                      onDoubleClick={() => { setEditResumeContent(data.resume || ""); setIsEditingResume(true); }}
+                      title="Double-clic pour modifier"
+                    >
+                      {data.resume ? (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {data.resume}
+                        </ReactMarkdown>
+                      ) : "Aucun résumé disponible."}
+                    </div>
                   </div>
                 )}
               </TabsContent>
@@ -1234,16 +1285,27 @@ export default function ConsultationDetail() {
                     </div>
                   </div>
                 ) : (
-                  <div
-                    className="prose prose-sm max-w-none text-[#4a3f35]/80 whitespace-pre-wrap font-mono text-xs prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-4 -m-4 rounded-xl"
-                    onDoubleClick={() => { setEditTranscriptionContent(data.transcription || ""); setIsEditingTranscription(true); }}
-                    title="Double-clic pour modifier"
-                  >
-                    {data.transcription ? (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
-                        {data.transcription}
-                      </ReactMarkdown>
-                    ) : "Aucune transcription disponible."}
+                  <div className="relative group">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white/80 hover:bg-white text-[#bd613c] shadow-sm border border-[#ebd9c8] h-8 w-8 rounded-full z-10 print:hidden"
+                      onClick={() => { setEditTranscriptionContent(data.transcription || ""); setIsEditingTranscription(true); }}
+                      title="Modifier le dialogue"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <div
+                      className="prose prose-sm max-w-none text-[#4a3f35]/80 whitespace-pre-wrap font-mono text-xs prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-4 -m-4 rounded-xl"
+                      onDoubleClick={() => { setEditTranscriptionContent(data.transcription || ""); setIsEditingTranscription(true); }}
+                      title="Double-clic pour modifier"
+                    >
+                      {data.transcription ? (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                          {data.transcription}
+                        </ReactMarkdown>
+                      ) : "Aucune transcription disponible."}
+                    </div>
                   </div>
                 )}
               </TabsContent>
