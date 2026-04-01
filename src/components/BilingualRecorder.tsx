@@ -322,7 +322,7 @@ export default function BilingualRecorder({
         try {
             // Format transcript
             const fullTranscript = messages.map(m =>
-                `${m.sender === 'therapeut' ? 'Thérapeute' : 'Patient'}: ${m.transcription}\n(Traduit: ${m.translation})`
+                `${m.sender === 'therapeut' ? '**Thérapeute :**' : '**Patient :**'} ${m.transcription}\n(Traduit: ${m.translation})`
             ).join('\n\n');
 
             const formData = new FormData();

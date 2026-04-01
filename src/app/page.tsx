@@ -936,7 +936,7 @@ function Home() {
 
             {/* Sélection du Mode d'Enregistrement */}
             <Tabs value={recorderMode} onValueChange={setRecorderMode} className="w-full">
-              <TabsList className="grid w-full grid-cols-4 gap-1 p-1 bg-[#ebd9c8]/20 rounded-xl mb-6 h-auto min-h-[44px]">
+              <TabsList className="grid w-full grid-cols-3 gap-1 p-1 bg-[#ebd9c8]/20 rounded-xl mb-6 h-auto min-h-[44px]">
                 <TabsTrigger value="standard" className="text-xs sm:text-sm py-2 px-1 leading-tight rounded-lg data-[state=active]:bg-white data-[state=active]:text-[#bd613c] data-[state=active]:shadow-sm">
                   Audio
                 </TabsTrigger>

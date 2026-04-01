@@ -1561,7 +1561,7 @@ export default function ConsultationDetail() {
                                       <summary className="text-xs font-medium text-slate-400 hover:text-[#bd613c] cursor-pointer list-none flex items-center gap-1 select-none transition-colors">
                                         <span className="group-open/details:hidden">▶</span><span className="hidden group-open/details:inline">▼</span> Voir la transcription source
                                       </summary>
-                                      <div className="mt-2 p-3 bg-slate-50 rounded-lg text-xs font-mono text-slate-500 whitespace-pre-wrap prose prose-sm max-w-none prose-strong:text-[#bd613c]">
+                                      <div className="mt-2 p-4 bg-white/40 rounded-xl text-xs font-mono text-[#4a3f35]/80 whitespace-pre-wrap prose prose-sm max-w-none prose-strong:text-[#bd613c] border border-[#ebd9c8]/30">
                                         <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
                                           {note.transcription}
                                         </ReactMarkdown>
