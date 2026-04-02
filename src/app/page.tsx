@@ -101,7 +101,7 @@ function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [consultations, setConsultations] = useState<SupabaseConsultation[] | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
-
+  const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
   const [isDictating, setIsDictating] = useState(false);
   const recognitionRef = useRef<any>(null);
 
@@ -1134,25 +1134,54 @@ function Home() {
                 </TabsContent>
 
                 <TabsContent value="name" className="focus-visible:outline-none">
-                  {(() => {
-                    if (!sortByName) return null;
-                    const groupedByName = sortByName.reduce((acc, consult) => {
-                      const name = consult.patientName || `Patient #${consult.id}`;
-                      const letter = name.charAt(0).toUpperCase();
-                      if (!acc[letter]) acc[letter] = [];
-                      acc[letter].push(consult);
-                      return acc;
-                    }, {} as Record<string, SupabaseConsultation[]>);
+                  <div className="mb-8 flex flex-wrap gap-2 sm:gap-3 justify-center max-w-3xl mx-auto">
+                    {Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map(letter => {
+                      const isActive = selectedLetter === letter;
+                      // Optionally check if we have any patients starting with this letter to style differently (optional but good UI)
+                      const hasPatients = sortByName?.some(c => {
+                        const n = c.patientName || c.patient_name || "";
+                        return n.charAt(0).toUpperCase() === letter;
+                      });
 
-                    return Object.entries(groupedByName).map(([letter, items], index) => (
-                      <Folder key={letter} title={<span className="flex items-center gap-2">{letter} <span className="text-slate-400 font-normal text-base sm:text-lg">{items.length}</span></span>} defaultOpen={index === 0}>
-                        <div className="flex flex-col gap-3">
-                          {items.map((consult) => (
-                            <ConsultationCard key={consult.id} consult={consult} />
-                          ))}
-                        </div>
-                      </Folder>
-                    ));
+                      return (
+                        <button
+                          key={letter}
+                          onClick={() => setSelectedLetter(isActive ? null : letter)}
+                          disabled={!hasPatients && !isActive}
+                          className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center font-bebas text-xl sm:text-2xl transition-all ${isActive
+                              ? 'bg-[#bd613c] text-white shadow-md scale-110'
+                              : hasPatients
+                                ? 'bg-white text-[#bd613c] hover:bg-[#ebd9c8]/50 border border-[#ebd9c8] hover:scale-105 shadow-sm'
+                                : 'bg-transparent text-slate-300 border border-slate-200 cursor-not-allowed'
+                            }`}
+                        >
+                          {letter}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {(() => {
+                    if (!sortByName || !selectedLetter) return (
+                      <p className="text-center text-slate-500 italic mt-8">Sélectionnez une lettre pour afficher les patients.</p>
+                    );
+
+                    const filteredByName = sortByName.filter(consult => {
+                      const name = consult.patientName || consult.patient_name || "";
+                      return name.charAt(0).toUpperCase() === selectedLetter;
+                    });
+
+                    if (filteredByName.length === 0) {
+                      return <p className="text-center text-slate-500 italic mt-8">Aucun patient pour la lettre {selectedLetter}.</p>;
+                    }
+
+                    return (
+                      <div className="flex flex-col gap-3">
+                        {filteredByName.map((consult) => (
+                          <ConsultationCard key={consult.id} consult={consult} />
+                        ))}
+                      </div>
+                    );
                   })()}
                 </TabsContent>
               </div>
