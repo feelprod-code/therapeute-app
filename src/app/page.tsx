@@ -151,33 +151,38 @@ function Home() {
 
   useEffect(() => {
     const fetchConsultations = async () => {
-      const { data, error } = await supabase
-        .from('consultations')
-        .select('*')
-        .order('created_at', { ascending: false });
+      try {
+        const { data, error } = await supabase
+          .from('consultations')
+          .select('*')
+          .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error("Supabase fetch error:", error);
-        // On évite le chargement infini si RLS bloque l'accès
+        if (error) {
+          console.error("Supabase fetch error:", error);
+          // On évite le chargement infini si RLS bloque l'accès
+          setConsultations([]);
+          return;
+        }
+
+        if (data) {
+          // Formater les données pour correspondre à l'ancien format local attendu
+          const formatted = data.map(d => ({
+            id: d.id,
+            date: new Date(d.date),
+            patientName: d.patient_name,
+            resume: d.resume,
+            synthese: d.synthese,
+            transcription: d.transcription,
+            audioPath: d.audio_path,
+            follow_ups: d.follow_ups,
+            isProcessing: false, // Override dynamically in ConsultationCard
+            createdAt: new Date(d.created_at)
+          }));
+          setConsultations(formatted);
+        }
+      } catch (err) {
+        console.error("Catch block: Supabase fetch error:", err);
         setConsultations([]);
-        return;
-      }
-
-      if (data) {
-        // Formater les données pour correspondre à l'ancien format local attendu
-        const formatted = data.map(d => ({
-          id: d.id,
-          date: new Date(d.date),
-          patientName: d.patient_name,
-          resume: d.resume,
-          synthese: d.synthese,
-          transcription: d.transcription,
-          audioPath: d.audio_path,
-          follow_ups: d.follow_ups,
-          isProcessing: false, // Override dynamically in ConsultationCard
-          createdAt: new Date(d.created_at)
-        }));
-        setConsultations(formatted);
       }
     };
 

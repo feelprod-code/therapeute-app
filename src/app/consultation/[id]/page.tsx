@@ -724,26 +724,31 @@ export default function ConsultationDetail() {
   useEffect(() => {
     async function fetchConsultation() {
       if (!params.id) return;
-      const { data: consultData, error } = await supabase
-        .from("consultations")
-        .select("*")
-        .eq("id", params.id)
-        .single();
+      try {
+        const { data: consultData, error } = await supabase
+          .from("consultations")
+          .select("*")
+          .eq("id", params.id)
+          .single();
 
-      if (error) {
-        console.error("Error fetching consultation:", error);
-      } else {
-        setData(consultData);
-        setEditName(consultData?.patient_name || consultData?.patientName || `Patient #${consultData?.id}`);
-        if (consultData?.date) {
-          // Format datetime-local requires YYYY-MM-DDTHH:mm
-          const d = new Date(consultData.date);
-          // Adjust to local time format for input
-          const localIso = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
-          setEditDate(localIso);
+        if (error) {
+          console.error("Error fetching consultation:", error);
+        } else {
+          setData(consultData);
+          setEditName(consultData?.patient_name || consultData?.patientName || `Patient #${consultData?.id}`);
+          if (consultData?.date) {
+            // Format datetime-local requires YYYY-MM-DDTHH:mm
+            const d = new Date(consultData.date);
+            // Adjust to local time format for input
+            const localIso = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+            setEditDate(localIso);
+          }
         }
+      } catch (err) {
+        console.error("Catch block: Error fetching consultation:", err);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     }
 
     fetchConsultation();
@@ -1448,7 +1453,7 @@ export default function ConsultationDetail() {
                             <div className="space-y-6">
                               {grouped[dayStr].filter((n: any) => n.type !== 'session_override').length === 0 ? (
                                 <p className="text-xs text-slate-400 italic">Aucune note pour ce jour (Séance enregistrée via l'historique).</p>
-                              ) : grouped[dayStr].filter((n: any) => n.type !== 'session_override').map((note: any, noteIdx: number, arr: any[]) => (
+                              ) : grouped[dayStr].filter((n: any) => n.type !== 'session_override').sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()).map((note: any, noteIdx: number, arr: any[]) => (
                                 <div key={note.id || noteIdx} className="relative">
                                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
                                     <div className="flex items-center">
