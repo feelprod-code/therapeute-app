@@ -62,13 +62,20 @@ export async function POST(req: Request) {
                 finalMimeType = 'video/mp4';
             }
 
-            console.log(`[API] Audio prêt en mémoire (${(audioBuffer.length / 1024 / 1024).toFixed(2)} MB). Type MIME: ${finalMimeType}`);
-            parts.push({
-                inlineData: {
-                    data: audioBuffer.toString('base64'),
-                    mimeType: finalMimeType
-                }
-            });
+            if (finalMimeType.startsWith('text/')) {
+                console.log(`[API] Document texte principal prêt en mémoire: ${audioFile.fileName}`);
+                parts.push({
+                    text: `\n\n--- Document texte de la consultation (${audioFile.fileName}) ---\n${audioBuffer.toString('utf-8')}\n--- Fin du document ---\n`
+                });
+            } else {
+                console.log(`[API] Audio prêt en mémoire (${(audioBuffer.length / 1024 / 1024).toFixed(2)} MB). Type MIME: ${finalMimeType}`);
+                parts.push({
+                    inlineData: {
+                        data: audioBuffer.toString('base64'),
+                        mimeType: finalMimeType
+                    }
+                });
+            }
         }
 
         // 2. Process Attached Files

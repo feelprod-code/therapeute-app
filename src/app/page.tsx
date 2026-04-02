@@ -524,9 +524,20 @@ function Home() {
       }
 
       const bodyPayload: any = {};
+
       if (pathToAnalyze) {
-        bodyPayload.audioFile = { fileName: pathToAnalyze, mimeType: "audio/webm" };
+        if (pathToAnalyze.endsWith('.txt')) {
+          uploadedAttachedFiles.push({ fileName: pathToAnalyze, mimeType: "text/plain" });
+          pathToAnalyze = null; // Il n'y a plus de fichier audio principal
+        } else {
+          let mimeType = "audio/webm";
+          if (pathToAnalyze.endsWith('.m4a')) mimeType = "audio/mp4";
+          else if (pathToAnalyze.endsWith('.mp3')) mimeType = "audio/mp3";
+
+          bodyPayload.audioFile = { fileName: pathToAnalyze, mimeType: mimeType };
+        }
       }
+
       if (uploadedAttachedFiles.length > 0) {
         bodyPayload.attachedFiles = uploadedAttachedFiles;
       }
