@@ -450,7 +450,12 @@ function Home() {
         if (listError || !listData || listData.length === 0) {
           throw new Error("Fichier introuvable sur le cloud.");
         }
-        pathToDownload = listData[0].name;
+        // Chercher spécifiquement le fichier audio initial (exclure les addendums)
+        const audioFile = listData.find(f => f.name.startsWith('audio_') && !f.name.startsWith('audio_addendum_'));
+        if (!audioFile) {
+          throw new Error("Aucun fichier audio initial trouvé pour ce bilan.");
+        }
+        pathToDownload = audioFile.name;
       }
 
       if (!pathToDownload) throw new Error("Impossible de déterminer le chemin audio.");
@@ -485,16 +490,46 @@ function Home() {
       const { data } = await supabase.from('consultations').select('audio_path').eq('id', consult.id).maybeSingle();
       let pathToAnalyze = data?.audio_path;
 
-      if (!pathToAnalyze) {
-        // Fallback: search the bucket
-        const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { search: consult.id });
-        if (listError || !listData || listData.length === 0) {
-          throw new Error("Impossible de relancer : fichier audio introuvable sur le cloud.");
+      const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { search: consult.id });
+      const uploadedAttachedFiles: { fileName: string, mimeType: string }[] = [];
+
+      if (!listError && listData) {
+        // Fallback pour trouver l'audio initial si pas en base
+        if (!pathToAnalyze) {
+          const initialAudio = listData.find(f => f.name.startsWith('audio_') && !f.name.startsWith('audio_addendum_'));
+          if (initialAudio) pathToAnalyze = initialAudio.name;
         }
-        pathToAnalyze = listData[0].name;
+
+        // Trouver TOUS les autres documents: doc_, txt_addendum_, audio_addendum_
+        const additionalFiles = listData.filter(f =>
+          f.name.startsWith('doc_') ||
+          f.name.startsWith('txt_addendum_') ||
+          f.name.startsWith('audio_addendum_')
+        );
+
+        for (const file of additionalFiles) {
+          let mimeType = 'application/octet-stream';
+          if (file.name.endsWith('.webm')) mimeType = 'audio/webm';
+          else if (file.name.endsWith('.txt')) mimeType = 'text/plain';
+
+          uploadedAttachedFiles.push({
+            fileName: file.name,
+            mimeType: mimeType
+          });
+        }
       }
 
-      if (!pathToAnalyze) throw new Error("Nom de fichier introuvable.");
+      if (!pathToAnalyze && uploadedAttachedFiles.length === 0) {
+        throw new Error("Impossible de relancer : aucun fichier introuvable sur le cloud.");
+      }
+
+      const bodyPayload: any = {};
+      if (pathToAnalyze) {
+        bodyPayload.audioFile = { fileName: pathToAnalyze, mimeType: "audio/webm" };
+      }
+      if (uploadedAttachedFiles.length > 0) {
+        bodyPayload.attachedFiles = uploadedAttachedFiles;
+      }
 
       // Now call /api/analyze with exactly what it expects
       const controller = new AbortController();
@@ -505,9 +540,7 @@ function Home() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          audioFile: { fileName: pathToAnalyze, mimeType: "audio/webm" } // Let backend infer type or assume webm
-        }),
+        body: JSON.stringify(bodyPayload),
         signal: controller.signal
       });
 
