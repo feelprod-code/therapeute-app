@@ -1,6 +1,9 @@
 import { GoogleGenAI } from '@google/genai';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import os from 'os';
+import path from 'path';
+import fs from 'fs/promises';
 
 export const maxDuration = 800; // 15 minutes instead of 5
 
@@ -31,7 +34,41 @@ export async function POST(req: Request) {
         }
 
         // 1. Process Audio File (if present)
-        const parts: Array<{ text?: string; inlineData?: { data: string; mimeType: string } }> = [];
+        const parts: Array<{ text?: string; inlineData?: { data: string; mimeType: string }, fileData?: { fileUri: string, mimeType: string } }> = [];
+        const allUploads: { uri: string, mimeType: string, name: string }[] = [];
+
+        const uploadToGemini = async (buffer: Buffer, originalName: string, defaultMime: string) => {
+            let ext = '';
+            if (originalName && originalName.includes('.')) {
+                ext = originalName.substring(originalName.lastIndexOf('.'));
+            } else if (defaultMime) {
+                if (defaultMime.includes('webm')) ext = '.webm';
+                else if (defaultMime.includes('mp4') || defaultMime.includes('m4a')) ext = '.m4a';
+                else if (defaultMime.includes('mpeg') || defaultMime.includes('mp3')) ext = '.mp3';
+                else if (defaultMime.includes('pdf')) ext = '.pdf';
+                else if (defaultMime.includes('jpeg') || defaultMime.includes('jpg')) ext = '.jpg';
+                else if (defaultMime.includes('png')) ext = '.png';
+            }
+
+            const tempFilePath = path.join(os.tmpdir(), `tdt-file-${Date.now()}-${Math.random().toString(36).substring(7)}${ext}`);
+            await fs.writeFile(tempFilePath, buffer);
+            console.log(`[API] Fichier temporaire créé : ${tempFilePath}`);
+
+            const uploadResult = await ai.files.upload({
+                file: tempFilePath,
+                config: {
+                    mimeType: defaultMime || 'application/octet-stream',
+                }
+            });
+            console.log(`[API] Fichier uploadé sur Gemini File API : ${uploadResult.uri}`);
+
+            await fs.unlink(tempFilePath).catch(() => { });
+
+            if (!uploadResult.name || !uploadResult.uri) {
+                throw new Error("L'API Gemini n'a pas retourné de nom ou d'URI de fichier valide.");
+            }
+            return { uri: uploadResult.uri, mimeType: defaultMime || 'application/octet-stream', name: uploadResult.name };
+        };
 
         if (audioFile && audioFile.fileName) {
             console.log(`[API] Récupération de l'audio depuis Supabase: ${audioFile.fileName}`);
@@ -68,13 +105,9 @@ export async function POST(req: Request) {
                     text: `\n\n--- Document texte de la consultation (${audioFile.fileName}) ---\n${audioBuffer.toString('utf-8')}\n--- Fin du document ---\n`
                 });
             } else {
-                console.log(`[API] Audio prêt en mémoire (${(audioBuffer.length / 1024 / 1024).toFixed(2)} MB). Type MIME: ${finalMimeType}`);
-                parts.push({
-                    inlineData: {
-                        data: audioBuffer.toString('base64'),
-                        mimeType: finalMimeType
-                    }
-                });
+                console.log(`[API] Upload de l'audio vers Gemini File API (${(audioBuffer.length / 1024 / 1024).toFixed(2)} MB). Type MIME: ${finalMimeType}`);
+                const uploaded = await uploadToGemini(audioBuffer, audioFile.fileName, finalMimeType);
+                allUploads.push(uploaded);
             }
         }
 
@@ -105,15 +138,46 @@ export async function POST(req: Request) {
                         text: `\n\n--- Document texte joint (${f.fileName}) ---\n${fBuffer.toString('utf-8')}\n--- Fin du document ---\n`
                     });
                 } else {
-                    console.log(`[API] Fichier attaché prêt en mémoire: ${f.fileName} (${fMimeType})`);
-                    parts.push({
-                        inlineData: {
-                            data: fBuffer.toString('base64'),
-                            mimeType: fMimeType
-                        }
-                    });
+                    console.log(`[API] Upload du fichier attaché vers Gemini File API: ${f.fileName} (${fMimeType})`);
+                    const uploaded = await uploadToGemini(fBuffer, f.fileName, fMimeType);
+                    allUploads.push(uploaded);
                 }
             }
+        }
+
+        // Polling pour s'assurer que les fichiers uploadés sont "ACTIVE"
+        for (const uploaded of allUploads) {
+            let fileInfo;
+            try {
+                fileInfo = await ai.files.get({ name: uploaded.name });
+            } catch (err) {
+                console.log(`[API] Erreur initiale au get du fichier, on suppose PROCESSING...`, err);
+                fileInfo = { state: 'PROCESSING' };
+            }
+
+            let attempts = 0;
+            while (fileInfo.state === 'PROCESSING' && attempts < 180) {
+                console.log(`[API] Fichier (${uploaded.name}) en cours de traitement... (tentative ${attempts}/180)`);
+                await new Promise(r => setTimeout(r, 3000));
+                attempts++;
+                try {
+                    fileInfo = await ai.files.get({ name: uploaded.name });
+                } catch {
+                    console.log(`[API] Fichier (${uploaded.name}) erreur API Gemini pendant le polling, on retente...`);
+                }
+            }
+
+            if (fileInfo.state === 'FAILED') {
+                throw new Error(`L'API Gemini a échoué à traiter le fichier ${uploaded.name}.`);
+            }
+            if (fileInfo.state === 'PROCESSING') {
+                throw new Error(`Le fichier ${uploaded.name} met trop de temps à être traité par Gemini.`);
+            }
+            console.log(`[API] Fichier Prêt: ${fileInfo.state}`);
+
+            parts.push({
+                fileData: { fileUri: uploaded.uri, mimeType: uploaded.mimeType }
+            });
         }
 
         // --- 3. ANALYSE GEMINI (TEXTE + DOCUMENTS) ---

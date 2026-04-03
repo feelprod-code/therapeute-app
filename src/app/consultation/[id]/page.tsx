@@ -331,7 +331,7 @@ export default function ConsultationDetail() {
 
     setIsAppending(true);
     try {
-      const isPDF = file.type === 'application/pdf';
+      const isPDF = file.type === 'application/pdf' || (file.name && file.name.toLowerCase().endsWith('.pdf'));
       let finalFile: File | Blob = file;
       const finalType = isPDF ? 'pdf' : 'image';
       let orientation: 'vertical' | 'horizontal' = 'vertical';
