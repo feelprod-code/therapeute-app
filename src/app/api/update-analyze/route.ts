@@ -147,7 +147,7 @@ Format JSON attendu EXACTEMENT COMME CECI UNIQUEMENT :
 
         console.log("[API UPDATE] Envoi à Gemini des informations additives...")
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-pro',
+            model: 'gemini-2.5-flash',
             contents: parts,
             config: {
                 systemInstruction: "Tu retournes uniquement du JSON strict contenant les propriétés 'patientName' et 'synthese'.",

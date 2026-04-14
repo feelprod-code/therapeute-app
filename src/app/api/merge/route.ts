@@ -77,7 +77,7 @@ Règles impératives pour la nouvelle "synthese" :
 
         console.log("[API Merge] Generating unified medical report...");
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-pro',
+            model: 'gemini-2.5-flash',
             contents: [
                 { role: 'user', parts: [{ text: systemPrompt }] }
             ],
@@ -103,6 +103,24 @@ Règles impératives pour la nouvelle "synthese" :
         return NextResponse.json(jsonResult);
     } catch (error: any) {
         console.error("[API Merge] Erreur complète :", error);
-        return NextResponse.json({ error: error.message || "Erreur interne serveur lors de la fusion." }, { status: 500 });
+        let errorMessage = error.message || "Erreur interne serveur lors de la fusion.";
+
+        // Friendly translation of Gemini errors
+        if (errorMessage.includes("503") || errorMessage.toLowerCase().includes("overloaded")) {
+            errorMessage = "Google Gemini est actuellement surchargé (503). Veuillez réessayer dans quelques instants.";
+        } else if (errorMessage.startsWith("{")) {
+            try {
+                const parsed = JSON.parse(errorMessage);
+                if (parsed.error && parsed.error.code === 503) {
+                    errorMessage = "Google Gemini est actuellement surchargé (503). Veuillez réessayer dans quelques instants.";
+                } else if (parsed.error && parsed.error.message) {
+                    errorMessage = parsed.error.message;
+                }
+            } catch (e) {
+                // Ignore parse errors
+            }
+        }
+
+        return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 }

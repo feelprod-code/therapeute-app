@@ -446,7 +446,7 @@ function Home() {
 
       if (!pathToDownload) {
         // Fallback: search the bucket
-        const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { search: consult.id });
+        const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { search: consult.id, limit: 1000 });
         if (listError || !listData || listData.length === 0) {
           throw new Error("Fichier introuvable sur le cloud.");
         }
@@ -490,7 +490,7 @@ function Home() {
       const { data } = await supabase.from('consultations').select('audio_path').eq('id', consult.id).maybeSingle();
       let pathToAnalyze = data?.audio_path;
 
-      const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { search: consult.id });
+      const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { search: consult.id, limit: 1000 });
       const uploadedAttachedFiles: { fileName: string, mimeType: string }[] = [];
 
       if (!listError && listData) {
@@ -577,7 +577,11 @@ function Home() {
 
     } catch (error: unknown) {
       console.log(error);
+      const errorMessage = error instanceof Error ? error.message : "Erreur inconnue lors de l'analyse.";
       toast({
+        title: "Échec de l'analyse",
+        description: errorMessage,
+        variant: "destructive",
       });
     } finally {
       setActiveProcessingIds(prev => prev.filter(id => id !== consult.id));

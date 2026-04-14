@@ -13,6 +13,7 @@ interface AudioRecorderProps {
 }
 
 export function AudioRecorder({ onRecordingComplete, isProcessing = false }: AudioRecorderProps) {
+    const [isInternalProcessing, setIsInternalProcessing] = useState(false);
     const [draftExists, setDraftExists] = useState(false);
     const [isRecording, setIsRecording] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
@@ -132,13 +133,21 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
         const draft = await db.drafts.get('standard');
         if (draft && draft.audioChunks.length > 0) {
             const audioBlob = new Blob(draft.audioChunks, { type: draft.mimeType || 'audio/webm' });
-            onRecordingComplete(audioBlob);
-            await db.drafts.delete('standard');
-            setDraftExists(false);
-            toast({
-                title: "Brouillon récupéré",
-                description: "L'enregistrement précédent a été repris et est en cours d'analyse.",
-            });
+            const success = await onRecordingComplete(audioBlob);
+            if (success) {
+                await db.drafts.delete('standard');
+                setDraftExists(false);
+                toast({
+                    title: "Brouillon récupéré",
+                    description: "L'enregistrement précédent a été repris et est en cours d'analyse.",
+                });
+            } else {
+                toast({
+                    title: "Erreur",
+                    description: "Le traitement du brouillon a de nouveau échoué.",
+                    variant: "destructive",
+                });
+            }
         }
     };
 
@@ -240,20 +249,25 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                     return;
                 }
 
-                // Attend la fin de la création du bilan. Ne retourne `false` que si ça crashe côté backend
-                const success = await onRecordingComplete(audioBlob);
-
-                if (success !== false) {
-                    // Supprimer le brouillon SEULEMENT une fois l'enregistrement terminé avec succès
-                    await db.drafts.delete('standard');
-                    setDraftExists(false);
-                } else {
-                    toast({
-                        title: "Erreur détectée",
-                        description: "L'enregistrement a été sauvegardé en tant que brouillon local.",
-                        variant: "destructive",
-                    });
-                }
+                // Attend la fin de la création du bilan en arrière-plan sans bloquer
+                setIsInternalProcessing(true);
+                onRecordingComplete(audioBlob).then(async (success) => {
+                    setIsInternalProcessing(false);
+                    if (success !== false) {
+                        // Supprimer le brouillon SEULEMENT une fois l'enregistrement terminé avec succès
+                        await db.drafts.delete('standard');
+                        // setDraftExists n'est plus appelé ici pour éviter des warnings si le composant a démonté
+                    } else {
+                        toast({
+                            title: "Erreur détectée",
+                            description: "L'enregistrement a été sauvegardé en tant que brouillon local.",
+                            variant: "destructive",
+                        });
+                    }
+                }).catch((err) => {
+                    console.error("Audio processing background error:", err);
+                    setIsInternalProcessing(false);
+                });
             };
 
             const analyser = audioContext.createAnalyser();
@@ -326,6 +340,8 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
             });
         }
     };
+
+    const processing = isProcessing || isInternalProcessing;
 
     const formatTime = (seconds: number) => {
         const mins = Math.floor(seconds / 60);
@@ -410,12 +426,22 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                     )}
                 </div>
 
-                {isProcessing && (
+                {isInternalProcessing ? (
+                    <div className="flex items-center justify-center gap-2">
+                        <Loader2 className="w-5 h-5 animate-spin mx-auto text-[#bd613c]" />
+                        <span className="text-sm font-medium text-[#bd613c]">Envoi vers l'IA en arrière-plan...</span>
+                    </div>
+                ) : isProcessing ? (
+                    <div className="flex items-center justify-center gap-2">
+                        <Loader2 className="w-5 h-5 animate-spin mx-auto text-[#bd613c]" />
+                        <span className="text-sm font-medium text-[#bd613c]">Traitement global en cours...</span>
+                    </div>
+                ) : isRecording ? (
                     <div className="flex items-center gap-2 text-sm text-[#e25822] mt-2 font-medium">
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Enregistrement bien effectué. Analyse en cours...</span>
+                        <span>Enregistrement en cours...</span>
                     </div>
-                )}
+                ) : null}
             </CardContent>
         </Card>
     );

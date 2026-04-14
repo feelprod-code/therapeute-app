@@ -256,7 +256,7 @@ Règles impératives :
 
         console.log(`[API] Generating content...`);
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-pro',
+            model: 'gemini-2.5-flash',
             contents: [
                 {
                     role: 'user',
@@ -264,7 +264,8 @@ Règles impératives :
                 }
             ],
             config: {
-                systemInstruction: "Tu retournes uniquement du JSON.",
+                systemInstruction: systemPrompt,
+                responseMimeType: 'application/json'
             }
         });
 
@@ -292,7 +293,24 @@ Règles impératives :
 
     } catch (error: unknown) {
         console.error("Erreur serveur API /analyze :", error);
-        const errorMessage = error instanceof Error ? error.message : "Erreur inconnue.";
+        let errorMessage = error instanceof Error ? error.message : "Erreur inconnue.";
+        
+        // Friendly translation of Gemini errors
+        if (errorMessage.includes("503") || errorMessage.toLowerCase().includes("overloaded")) {
+            errorMessage = "Google Gemini est actuellement surchargé (503). Veuillez réessayer dans quelques instants.";
+        } else if (errorMessage.startsWith("{")) {
+            try {
+                const parsed = JSON.parse(errorMessage);
+                if (parsed.error && parsed.error.code === 503) {
+                    errorMessage = "Google Gemini est actuellement surchargé (503). Veuillez réessayer dans quelques instants.";
+                } else if (parsed.error && parsed.error.message) {
+                    errorMessage = parsed.error.message;
+                }
+            } catch (e) {
+                // Ignore parse errors
+            }
+        }
+        
         return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 }

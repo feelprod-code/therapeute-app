@@ -92,14 +92,22 @@ export default function BilingualRecorder({
         const draft = await db.drafts.get('bilingual');
         if (draft && draft.audioChunks.length > 0 && draft.bilingualRole) {
             const audioBlob = new Blob(draft.audioChunks, { type: draft.mimeType || 'audio/webm' });
-            await handleTranslation(audioBlob, draft.bilingualRole);
-            await db.drafts.delete('bilingual');
-            setDraftExists(false);
-            setDraftRole(null);
-            toast({
-                title: "Brouillon récupéré",
-                description: "Le segment audio interrompu a été traduit.",
-            });
+            const success = await handleTranslation(audioBlob, draft.bilingualRole);
+            if (success) {
+                await db.drafts.delete('bilingual');
+                setDraftExists(false);
+                setDraftRole(null);
+                toast({
+                    title: "Brouillon récupéré",
+                    description: "Le segment audio interrompu a été traduit.",
+                });
+            } else {
+                toast({
+                    title: "Erreur",
+                    description: "La traduction du brouillon a de nouveau échoué.",
+                    variant: "destructive",
+                });
+            }
         }
     };
 
@@ -174,15 +182,13 @@ export default function BilingualRecorder({
                     streamRef.current = null;
                 }
 
-                let success = true;
                 if (audioBlob.size > 0) {
-                    success = await handleTranslation(audioBlob, role);
-                }
-
-                // Clear draft only on successful translation
-                if (success) {
-                    await db.drafts.delete('bilingual');
-                    setDraftExists(false);
+                    handleTranslation(audioBlob, role).then(async (success) => {
+                        // Clear draft only on successful translation
+                        if (success) {
+                            await db.drafts.delete('bilingual');
+                        }
+                    }).catch(console.error);
                 }
             };
 
@@ -342,7 +348,7 @@ export default function BilingualRecorder({
 
             // Complete
             // We pass an empty blob since this mode relies on text context
-            onRecordingComplete(new Blob(), data);
+            await onRecordingComplete(new Blob(), data);
 
         } catch (e) {
             console.error(e);
@@ -447,7 +453,7 @@ export default function BilingualRecorder({
                         variant={recordingRole === 'therapeut' ? 'destructive' : 'default'}
                         className={`h-24 text-lg font-bebas tracking-wide flex flex-col items-center justify-center gap-2 ${recordingRole === 'therapeut' ? 'animate-pulse' : 'bg-[#4a3f35] hover:bg-[#3a3129]'}`}
                         onClick={() => isRecording ? stopRecording() : startRecording('therapeut')}
-                        disabled={isTranslating || isAnalyzing || (isRecording && recordingRole !== 'therapeut')}
+                        disabled={isAnalyzing || (isRecording && recordingRole !== 'therapeut')}
                     >
                         {recordingRole === 'therapeut' ? <Square className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
                         <span className="text-center">{recordingRole === 'therapeut' ? "Arrêter" : "Parler (Français)"}</span>
@@ -458,7 +464,7 @@ export default function BilingualRecorder({
                         variant={recordingRole === 'patient' ? 'destructive' : 'outline'}
                         className={`h-24 text-lg font-bebas tracking-wide flex flex-col items-center justify-center gap-2 border-2 ${recordingRole === 'patient' ? 'animate-pulse' : 'border-[#4a3f35] text-[#4a3f35] hover:bg-[#e8dfd5]'}`}
                         onClick={() => isRecording ? stopRecording() : startRecording('patient')}
-                        disabled={isTranslating || isAnalyzing || (isRecording && recordingRole !== 'patient')}
+                        disabled={isAnalyzing || (isRecording && recordingRole !== 'patient')}
                     >
                         {recordingRole === 'patient' ? <Square className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
                         <span className="text-center">{recordingRole === 'patient' ? "Stop" : `Patient (${patientLang.code.substring(0, 2).toUpperCase()})`}</span>

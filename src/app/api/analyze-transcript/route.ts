@@ -151,7 +151,7 @@ Voici le transcript exact de la conversation bilingue :
         parts.push({ text: `Transcription brute à analyser :\n${transcript}\n\nINSTRUCTIONS SYSTEME:\n${systemPrompt}` });
 
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-pro',
+            model: 'gemini-2.5-flash',
             contents: parts,
             config: {
                 systemInstruction: "Tu retournes uniquement du JSON.",
