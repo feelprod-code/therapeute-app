@@ -251,7 +251,10 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
 
                 // Attend la fin de la création du bilan en arrière-plan sans bloquer
                 setIsInternalProcessing(true);
-                onRecordingComplete(audioBlob).then(async (success) => {
+                try {
+                    const result = onRecordingComplete(audioBlob);
+                    const success = result instanceof Promise ? await result : result;
+                    
                     setIsInternalProcessing(false);
                     if (success !== false) {
                         // Supprimer le brouillon SEULEMENT une fois l'enregistrement terminé avec succès
@@ -264,10 +267,10 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                             variant: "destructive",
                         });
                     }
-                }).catch((err) => {
+                } catch (err) {
                     console.error("Audio processing background error:", err);
                     setIsInternalProcessing(false);
-                });
+                }
             };
 
             const analyser = audioContext.createAnalyser();
