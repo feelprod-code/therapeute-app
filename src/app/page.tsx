@@ -989,7 +989,7 @@ function Home() {
 
             {/* Sélection du Mode d'Enregistrement */}
             <Tabs value={recorderMode} onValueChange={setRecorderMode} className="w-full">
-              <TabsList className="grid w-full grid-cols-3 gap-1 p-1 bg-[#ebd9c8]/20 rounded-xl mb-6 h-auto min-h-[44px]">
+              <TabsList className="grid w-full grid-cols-4 gap-1 p-1 bg-[#ebd9c8]/20 rounded-xl mb-6 h-auto min-h-[44px]">
                 <TabsTrigger value="standard" className="text-xs sm:text-sm py-2 px-1 leading-tight rounded-lg data-[state=active]:bg-white data-[state=active]:text-[#bd613c] data-[state=active]:shadow-sm">
                   Audio
                 </TabsTrigger>
@@ -998,6 +998,9 @@ function Home() {
                 </TabsTrigger>
                 <TabsTrigger value="text" className="text-xs sm:text-sm py-2 px-1 leading-tight rounded-lg data-[state=active]:bg-white data-[state=active]:text-[#bd613c] data-[state=active]:shadow-sm">
                   Texte
+                </TabsTrigger>
+                <TabsTrigger value="document" className="text-xs sm:text-sm py-2 px-1 leading-tight rounded-lg data-[state=active]:bg-white data-[state=active]:text-[#bd613c] data-[state=active]:shadow-sm">
+                  Document
                 </TabsTrigger>
               </TabsList>
 
@@ -1010,7 +1013,24 @@ function Home() {
                   <BilingualRecorder onRecordingComplete={handleBilingualComplete} attachedFiles={attachedFiles} />
                 </TabsContent>
 
-
+                <TabsContent value="document">
+                  <Card className="w-full max-w-4xl mx-auto border-[#bd613c]/30 shadow-sm bg-white p-6 md:p-8 min-h-[350px] flex flex-col items-center justify-center">
+                    <h3 className="font-bebas tracking-wide text-2xl text-[#bd613c] uppercase mb-2 text-center">Ajouter un Document</h3>
+                    <p className="text-sm text-[#4a3f35]/70 mb-6 text-center max-w-md">
+                      Chargez un ancien bilan, un compte-rendu, ou une photo. L'IA en extraira toutes les informations pour créer un nouveau dossier patient.
+                    </p>
+                    <label className="cursor-pointer flex flex-col items-center justify-center w-64 h-32 border-2 border-dashed border-[#bd613c]/40 rounded-xl bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors">
+                      <Paperclip className="w-8 h-8 text-[#bd613c] mb-2" />
+                      <span className="font-medium text-[#bd613c]">Sélectionner un fichier</span>
+                      <input type="file" className="hidden" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" onChange={(e) => {
+                        if (e.target.files && e.target.files.length > 0) {
+                          handleRecordingComplete(e.target.files[0]);
+                          e.target.value = ''; // reset
+                        }
+                      }} />
+                    </label>
+                  </Card>
+                </TabsContent>
 
                 <TabsContent value="text">
                   <Card className="w-full max-w-4xl mx-auto border-[#bd613c]/30 shadow-sm bg-white p-6 md:p-8 min-h-[350px] flex flex-col">
