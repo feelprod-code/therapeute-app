@@ -4,7 +4,7 @@ import { GoogleGenAI } from '@google/genai';
 export async function POST(request: Request) {
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-        const { audio, speaker, targetLanguage } = await request.json();
+        const { audio, mimeType, speaker, targetLanguage } = await request.json();
 
         if (!audio) {
             return NextResponse.json({ error: 'Aucun audio fourni' }, { status: 400 });
@@ -46,13 +46,18 @@ Tu dois répondre UNIQUEMENT avec un objet JSON valide suivant exactement cette 
 `;
         }
 
+        let sanitizedMimeType = mimeType || 'audio/webm';
+        if (sanitizedMimeType) {
+            sanitizedMimeType = sanitizedMimeType.split(';')[0].trim();
+        }
+
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: [
                 systemPrompt,
                 {
                     inlineData: {
-                        mimeType: 'audio/webm', // Ajuster selon le format envoyé par MediaRecorder
+                        mimeType: sanitizedMimeType,
                         data: audio, // base64 string
                     },
                 }

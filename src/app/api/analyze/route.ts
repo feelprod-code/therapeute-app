@@ -84,6 +84,10 @@ export async function POST(req: Request) {
 
             // Inférence robuste du MIME type depuis l'extension si non fourni ou forcé erroné
             let finalMimeType = audioFile.mimeType;
+            if (finalMimeType) {
+                // Retire les paramètres additionnels (ex: ;codecs=opus) qui font planter Gemini
+                finalMimeType = finalMimeType.split(';')[0].trim();
+            }
             if (!finalMimeType) {
                 const ext = audioFile.fileName.split('.').pop()?.toLowerCase();
                 if (ext === 'm4a') finalMimeType = 'audio/mp4';

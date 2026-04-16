@@ -230,7 +230,7 @@ export default function BilingualRecorder({
             const res = await fetch('/api/translate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ audio: base64Audio, speaker: role, targetLanguage: patientLang.code })
+                body: JSON.stringify({ audio: base64Audio, mimeType: audioBlob.type, speaker: role, targetLanguage: patientLang.code })
             });
 
             if (!res.ok) throw new Error("Erreur de traduction");

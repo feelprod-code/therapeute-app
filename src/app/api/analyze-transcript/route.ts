@@ -46,10 +46,15 @@ export async function POST(req: Request) {
             await fs.writeFile(tempFilePath, buffer);
             console.log(`[API] Fichier temporaire créé : ${tempFilePath}`);
 
+            let sanitizedMimeType = f.type || 'application/octet-stream';
+            if (sanitizedMimeType) {
+                sanitizedMimeType = sanitizedMimeType.split(';')[0].trim();
+            }
+
             const uploadResult = await ai.files.upload({
                 file: tempFilePath,
                 config: {
-                    mimeType: f.type || 'application/octet-stream',
+                    mimeType: sanitizedMimeType,
                 }
             });
             console.log(`[API] Fichier uploadé sur Gemini File API : ${uploadResult.uri}`);
@@ -59,7 +64,7 @@ export async function POST(req: Request) {
             if (!uploadResult.name || !uploadResult.uri) {
                 throw new Error("L'API Gemini n'a pas retourné de nom ou d'URI de fichier valide.");
             }
-            return { uri: uploadResult.uri, mimeType: f.type || 'application/octet-stream', name: uploadResult.name };
+            return { uri: uploadResult.uri, mimeType: sanitizedMimeType, name: uploadResult.name };
         };
 
         for (const attach of attachedFiles) {
