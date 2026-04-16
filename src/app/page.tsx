@@ -610,54 +610,76 @@ function Home() {
     if (!consult) return null;
     const isProcessing = activeProcessingIds.includes(consult.id) || isAppending;
 
-    const handleMerge = async (targetConsultationId: string) => {
+    const handleMerge = async (targetConsultationId: string, mode: 'bilan' | 'suivi' = 'bilan') => {
       setIsAppending(true);
       setIsMergeModalOpen(false);
       try {
         const targetConsult = consultations?.find(c => c.id === targetConsultationId);
         if (!targetConsult) throw new Error("Consultation cible introuvable");
 
-        toast({ title: "Fusion en cours...", description: "L'IA fusionne intelligemment les deux dossiers. Cela peut prendre quelques instants." });
+        if (mode === 'bilan') {
+          toast({ title: "Fusion en cours...", description: "L'IA fusionne intelligemment les deux dossiers. Cela peut prendre quelques instants." });
 
-        const response = await fetch('/api/merge', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            targetConsultation: {
-              patientName: targetConsult.patientName || targetConsult.patient_name || "",
-              transcription: targetConsult.transcription || "",
-              synthese: targetConsult.synthese || ""
-            },
-            sourceConsultation: {
-              transcription: consult.transcription || "",
-              synthese: consult.synthese || ""
-            }
-          })
-        });
+          const response = await fetch('/api/merge', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              targetConsultation: {
+                patientName: targetConsult.patientName || targetConsult.patient_name || "",
+                transcription: targetConsult.transcription || "",
+                synthese: targetConsult.synthese || ""
+              },
+              sourceConsultation: {
+                transcription: consult.transcription || "",
+                synthese: consult.synthese || ""
+              }
+            })
+          });
 
-        if (!response.ok) {
-          const errData = await response.json();
-          throw new Error(errData.error || "Erreur lors de la fusion IA.");
+          if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.error || "Erreur lors de la fusion IA.");
+          }
+
+          const result = await response.json();
+
+          // 1. Mettre à jour la cible
+          const { error: updateError } = await supabase.from('consultations').update({
+            synthese: result.synthese,
+            transcription: result.transcription,
+            resume: result.resume,
+            patient_name: result.patientName || targetConsult.patientName || targetConsult.patient_name
+          }).eq('id', targetConsult.id);
+
+          if (updateError) throw updateError;
+        } else {
+          // Suivi Mode
+          toast({ title: "Ajout au suivi...", description: "Transfert des informations dans le suivi du patient..." });
+
+          const newFollowUp = {
+            id: crypto.randomUUID(),
+            date: new Date().toISOString(),
+            content: consult.synthese || consult.transcription || "Note fusionnée",
+            transcription: consult.transcription || ""
+          };
+
+          const currentFollowUps = targetConsult.follow_ups || [];
+          const updatedFollowUps = [newFollowUp, ...currentFollowUps];
+
+          // 1. Mettre à jour la cible (uniquement les follow_ups)
+          const { error: updateError } = await supabase.from('consultations').update({
+            follow_ups: updatedFollowUps
+          }).eq('id', targetConsult.id);
+
+          if (updateError) throw updateError;
         }
-
-        const result = await response.json();
-
-        // 1. Mettre à jour la cible
-        const { error: updateError } = await supabase.from('consultations').update({
-          synthese: result.synthese,
-          transcription: result.transcription,
-          resume: result.resume,
-          patient_name: result.patientName || targetConsult.patientName || targetConsult.patient_name
-        }).eq('id', targetConsult.id);
-
-        if (updateError) throw updateError;
 
         // 2. Supprimer la source
         const { error: deleteError } = await supabase.from('consultations').delete().eq('id', consult.id);
 
         if (deleteError) throw deleteError;
 
-        toast({ title: "Fusion réussie", description: "Le bilan a été fusionné au dossier cible avec succès." });
+        toast({ title: "Fusion réussie", description: "Le dossier a été transféré avec succès." });
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (err: any) {
         console.error(err);
@@ -844,13 +866,8 @@ function Home() {
                       <p className="text-sm text-slate-500 italic">Aucun autre bilan disponible pour la fusion.</p>
                     )}
                     {consultations?.filter(c => c.id !== consult.id && c.synthese).map(target => (
-                      <Button
-                        key={target.id}
-                        variant="outline"
-                        className="w-full justify-start text-left h-auto py-3 border-[#ebd9c8]/50 hover:bg-[#ebd9c8]/20"
-                        onClick={() => handleMerge(target.id)}
-                      >
-                        <div className="flex flex-col items-start min-w-0">
+                      <div key={target.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-3 rounded-lg border border-[#ebd9c8]/50 hover:bg-[#ebd9c8]/10 transition-colors">
+                        <div className="flex flex-col flex-1 min-w-0">
                           <span className="font-medium text-[#bd613c] truncate w-full">
                             {target.patientName || `Patient #${target.id.slice(0, 4)}`}
                           </span>
@@ -858,7 +875,15 @@ function Home() {
                             {format(new Date(target.date), "dd/MM/yyyy 'à' HH:mm")}
                           </span>
                         </div>
-                      </Button>
+                        <div className="flex flex-row gap-2 shrink-0 w-full sm:w-auto">
+                          <Button size="sm" variant="outline" className="flex-1 sm:flex-none text-xs border-[#bd613c] text-[#bd613c] hover:bg-[#bd613c] hover:text-white" onClick={() => handleMerge(target.id, 'bilan')}>
+                             Fusion Bilan
+                          </Button>
+                          <Button size="sm" variant="outline" className="flex-1 sm:flex-none text-xs border-emerald-600 text-emerald-600 hover:bg-emerald-600 hover:text-white" onClick={() => handleMerge(target.id, 'suivi')}>
+                             Ajout Suivi
+                          </Button>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>
