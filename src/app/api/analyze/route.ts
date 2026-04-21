@@ -95,6 +95,10 @@ export async function POST(req: Request) {
                 else if (ext === 'wav') finalMimeType = 'audio/wav';
                 else if (ext === 'mp4') finalMimeType = 'video/mp4';
                 else if (ext === 'ogg') finalMimeType = 'audio/ogg';
+                else if (ext === 'txt') finalMimeType = 'text/plain';
+                else if (ext === 'pdf') finalMimeType = 'application/pdf';
+                else if (ext === 'png') finalMimeType = 'image/png';
+                else if (ext === 'jpg' || ext === 'jpeg') finalMimeType = 'image/jpeg';
                 else finalMimeType = 'audio/webm';
             }
 
@@ -135,6 +139,7 @@ export async function POST(req: Request) {
                 if (f.fileName.toLowerCase().endsWith('.pdf')) fMimeType = 'application/pdf';
                 if (f.fileName.toLowerCase().endsWith('.png')) fMimeType = 'image/png';
                 if (f.fileName.toLowerCase().endsWith('jpg') || f.fileName.toLowerCase().endsWith('jpeg')) fMimeType = 'image/jpeg';
+                if (f.fileName.toLowerCase().endsWith('.txt')) fMimeType = 'text/plain';
 
                 if (fMimeType.startsWith('text/')) {
                     console.log(`[API] Document texte joint prêt en mémoire: ${f.fileName}`);
@@ -253,7 +258,10 @@ Règles impératives :
 ### Antécédents (ATCD) et Chronologie
 *Présente TOUS les antécédents, traumatismes, accidents, interventions dans un ordre strictement chronologique de la naissance jusqu'à aujourd'hui.*
 *IMPORTANT : Ne garde que ce qui est explicitement dit.*
-- [Année] - [Description]`;
+- [Année] - [Description]
+
+TRÈS IMPORTANT POUR LE FORMAT JSON :
+N'utilise JAMAIS de guillemets doubles (") à l'intérieur du texte de tes valeurs (transcription, synthese, resume). Utilise EXCLUSIVEMENT des guillemets simples (') ou des guillemets typographiques (« »). Toute guillemet double à l'intérieur d'une valeur cassera la structure JSON ! Ne mets pas non plus de sauts de ligne bruts dans les valeurs, utilise toujours \\n.`;
 
         parts.push({ text: systemPrompt });
 
@@ -284,7 +292,20 @@ Règles impératives :
             .replace(/\`\`\`\n?/g, '')
             .trim();
 
-        const jsonResult = JSON.parse(cleanJson);
+        let jsonResult;
+        try {
+            jsonResult = JSON.parse(cleanJson);
+        } catch (e) {
+            console.error("[API] JSON Parse Erreur. Brut texte:", cleanJson.substring(19750, 19850));
+            // Tentative basique de sauvetage en remplaçant les guillemets non protégés
+            const rescuedJson = cleanJson.replace(/(?<!\\)"([^"]*?)"(?=\s*[,}])/g, "\\\"$1\\\"");
+            try {
+                jsonResult = JSON.parse(rescuedJson);
+            } catch (e2) {
+                console.error("[API] Le sauvetage JSON a échoué. Log complet généré dans output:", cleanJson.slice(0, 500) + '... (coupé)');
+                throw e; // Renvoyer l'erreur d'origine
+            }
+        }
 
         if (isUpdate && previousContext?.transcription) {
             const separator = "\n\n---\n**Ajout d'information :**\n";
