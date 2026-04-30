@@ -253,6 +253,8 @@ Règles impératives :
 4. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil. (En cas de mise à jour, ce résumé DOIT couvrir l'intégralité du bilan fusionné).
 5. "synthese" : Applique strictement la structure Markdown ci-dessous UNIQUEMENT si l'information est présente (ou fusionne à l'existant en intégrant naturellement les éléments sous forme de tirets dans les listes à puces) :
 
+6. "ATCD" : Dans la section Antécédents (ATCD) et Chronologie, présente TOUS les antécédents, traumatismes, accidents, et interventions dans un ordre strictement chronologique de la naissance jusqu'à aujourd'hui. Ne garde que ce qui est explicitement dit. Ne recopie pas cette consigne dans le texte final.
+
 # Bilan de consultation <span class="text-lg md:text-xl text-[#8c7b6d] font-normal ml-2">- [Date exacte de la consultation, ou ${currentDate} par défaut]</span>
 
 ### Informations Patient
@@ -270,8 +272,6 @@ Règles impératives :
 ### Examens Complémentaires
 - **Photos / PDF / Textes :** [...]
 ### Antécédents (ATCD) et Chronologie
-*Présente TOUS les antécédents, traumatismes, accidents, interventions dans un ordre strictement chronologique de la naissance jusqu'à aujourd'hui.*
-*IMPORTANT : Ne garde que ce qui est explicitement dit.*
 - [Année] - [Description]
 
 TRÈS IMPORTANT POUR LE FORMAT JSON :
