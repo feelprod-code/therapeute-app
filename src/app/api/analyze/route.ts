@@ -24,13 +24,13 @@ export async function POST(req: Request) {
         if (!apiKey) return NextResponse.json({ error: "Clé API Gemini manquante." }, { status: 500 });
 
         const body = await req.json();
-        const { audioFile, attachedFiles, previousContext } = body;
+        const { audioFile, attachedFiles, previousContext, newText } = body;
 
         // Note: For appending documents only, audioFile might be optional. 
-        // We'll relax the strict audioFile requirement if there are attachedFiles.
-        if ((!audioFile || !audioFile.fileName) && (!attachedFiles || attachedFiles.length === 0)) {
-            console.error("[API] Aucun fichier audio ni document fourni.");
-            return NextResponse.json({ error: "Aucun fichier fourni à analyser." }, { status: 400 });
+        // We'll relax the strict audioFile requirement if there are attachedFiles or newText.
+        if ((!audioFile || !audioFile.fileName) && (!attachedFiles || attachedFiles.length === 0) && !newText) {
+            console.error("[API] Aucun fichier audio, document ni texte fourni.");
+            return NextResponse.json({ error: "Aucun fichier ou texte fourni à analyser." }, { status: 400 });
         }
 
         // 1. Process Audio File (if present)
@@ -154,6 +154,14 @@ export async function POST(req: Request) {
             }
         }
 
+        // 3. Process direct text
+        if (newText) {
+            console.log(`[API] Texte direct ajouté, longueur: ${newText.length} caractères`);
+            parts.push({
+                text: `\n\n--- Nouvelle Note Ajoutée ---\n${newText}\n--- Fin de la note ---\n`
+            });
+        }
+
         // Polling pour s'assurer que les fichiers uploadés sont "ACTIVE"
         for (const uploaded of allUploads) {
             let fileInfo;
@@ -183,6 +191,8 @@ export async function POST(req: Request) {
                 throw new Error(`Le fichier ${uploaded.name} met trop de temps à être traité par Gemini.`);
             }
             console.log(`[API] Fichier Prêt: ${fileInfo.state}`);
+            // Petite pause de sécurité après que le fichier soit ACTIVE pour éviter un "File not found" au moment de la génération
+            await new Promise(r => setTimeout(r, 2000));
 
             parts.push({
                 fileData: { fileUri: uploaded.uri, mimeType: uploaded.mimeType }
@@ -213,27 +223,30 @@ ${previousContext.synthese || 'Aucune synthèse précédente.'}
 
 Instructions de MISE A JOUR:
 Ton objectif est de mettre à jour la synthèse PRÉCÉDENTE en FUSIONNANT de manière cohérente les nouveaux éléments issus de l'audio/document dans les sections appropriées existantes.
-- RÈGLE GÉNÉRALE: Maintiens la structure globale de la synthèse médicale. Intègre intelligemment les nouvelles plaintes, symptômes, ou examens complèmentaires DANS les sections pertinentes (par exemple, rajoute la localisation d'une nouvelle douleur dans "Histoire de la Maladie / Douleur"). 
+- RÈGLE GÉNÉRALE: Maintiens la structure globale de la synthèse médicale. Intègre intelligemment les nouvelles plaintes, symptômes, ou examens complèmentaires DANS les sections pertinentes (par exemple, rajoute la localisation d'une nouvelle douleur dans "Histoire de la Maladie / Douleur", ou un nouveau compte-rendu dans "Examens Complémentaires"). 
+- DOCUMENTS JOINTS: Si un document (PDF, image, texte) t'est fourni, extrais minutieusement les informations médicales et intègre-les au bilan.
 - INTERDICTION: NE CRÉE SURTOUT PAS EN BAS DE PAGE une section "Ajout d'informations" ou "Nouvelles informations". Le bilan doit rester un document unifié, écrit de façon fluide comme s'il avait été rédigé en une seule fois.
 - EXCEPTION (NOM DU PATIENT): Si les nouveaux documents/audios te permettent de découvrir le VRAI nom et prénom du patient (et que la synthèse précédente disait "Patient Anonyme" ou était incomplète), tu as l'OBLIGATION de le mettre à jour. N'oublie pas non plus de renseigner le champ "patientName" de ta réponse JSON.
 - EXCEPTION (DATE DE LA CONSULTATION): Si les nouvelles notes précisent la vraie date de la consultation (ex: "la première séance était le 12 octobre"), tu as l'OBLIGATION de la mettre à jour dans ton texte Markdown ET de renseigner cette date au format AAAA-MM-JJ dans la clé "consultationDate" du JSON.
-- Pour la transcription : Génère UNIQUEMENT la retranscription/description des NOUVEAUX éléments (nouveau vocal ou nouveau document). NE RECOPIE PAS l'ancienne transcription, le système s'en chargera automatiquement.
+- Pour la transcription : Génère UNIQUEMENT la retranscription/description des NOUVEAUX éléments (nouveau vocal ou nouveau document). NE RECOPIE PAS l'ancienne transcription, le système s'en chargera automatiquement. Si c'est un document (ex: photo, PDF), décris brièvement sa nature dans cette clé "transcription" (ex: "Ajout d'une IRM du genou...").
 - EXCEPTION (RÉSUMÉ) : IL EST ABSOLUMENT OBLIGATOIRE que la clé "resume" contienne un résumé GLOBAL de TOUT LE BILAN FINAL (c'est-à-dire le texte généré dans la clé "synthese"). Ne résume SURTOUT PAS seulement les ajouts ! Le résumé doit donner l'état complet du patient.
 `;
+        } else {
+            contextInstruction = `\n- DOCUMENTS JOINTS: Si des documents (PDF, images, textes) te sont fournis, extrais-en toutes les informations utiles pour rédiger le bilan (ex: compte-rendu d'imagerie, biologie) et décris brièvement la nature de ces documents dans la clé "transcription".`;
         }
 
-        const systemPrompt = `Tu es un assistant médical clinique expert. Ton rôle est d'analyser la transcription d'un interrogatoire patient fourni et de produire un bilan.${contextInstruction}
+        const systemPrompt = `Tu es un assistant médical clinique expert. Ton rôle est d'analyser la transcription d'un interrogatoire patient (et/ou des documents) fourni et de produire un bilan.${contextInstruction}
 Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme ceci :
 {
   "patientName": "Nom et Prénom trouvés (ou chaîne vide si aucun)",
   "consultationDate": "Date trouvée dans le texte (ex: 2024-10-14). Si aucune date précise n'est mentionnée, renvoie null ou une chaîne vide.",
-  "transcription": "Génère la retranscription EXACTE, LITTÉRALE (Verbatim) et INTÉGRALE de tout le dialogue de ce nouvel audio (ou document). RÈGLE ABSOLUE : Tu ne dois AUCUNEMENT corriger la grammaire, tu ne dois PAS supprimer les hésitations ('euh', 'ah', 'ben', répétitions). Retranscris CHAQUE MOT tel qu'il a été prononcé. Formate ce texte avec Markdown : ajoute toujours un **double saut de ligne** entre chaque prise de parole, et identifie l'interlocuteur avec : **<span style=\\"color: #bd613c;\\">Thérapeute :</span>** ou **<span style=\\"color: #bd613c;\\">Patient :</span>**.",
+  "transcription": "Génère la retranscription EXACTE, LITTÉRALE (Verbatim) et INTÉGRALE de tout le dialogue de l'audio. RÈGLE ABSOLUE : Tu ne dois AUCUNEMENT corriger la grammaire, ni supprimer les hésitations ('euh', 'ah', 'ben', répétitions). Retranscris CHAQUE MOT. S'il s'agit de documents (PDF/Images), décris simplement ce qu'ils contiennent. Formate ce texte avec Markdown : ajoute toujours un **double saut de ligne** entre chaque prise de parole, et identifie l'interlocuteur avec : **<span style=\\"color: #bd613c;\\">Thérapeute :</span>** ou **<span style=\\"color: #bd613c;\\">Patient :</span>**.",
   "resume": "Un résumé narratif GLOBAL en 3 à 5 phrases, synthétisant TOUT le document final complet généré dans 'synthese' (anciennes ET nouvelles informations). Sous forme d'un paragraphe continu unique (AUCUNE liste, AUCUN tiret, AUCUNE puce).",
   "synthese": "La synthèse médicale formatée en Markdown"
 }
 
 Règles impératives :
-1. "patientName" : Nom du patient (ex:"Jean DUPONT"). Laisse vide "" si absent.
+1. "patientName" : Extrait le Prénom et le Nom du patient. S'il n'est pas mentionné, laisse cette chaîne vide "". NE METS SURTOUT PAS "Jean Dupont" ou un nom inventé !
 2. "consultationDate" : Si le texte mentionne explicitement la date de la séance (ex: "bilan du 14 octobre", "vu le 12/03/2021"), extrait-la au format string ISO AAAA-MM-JJ. Sinon, string vide "".
 3. "transcription" : Intégralité du texte brut reçu en entrée (nouveau vocal ou document). RÈGLE D'OR : Mot pour mot (Verbatim), incluant les erreurs, faux-départs et hésitations.
 4. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil. (En cas de mise à jour, ce résumé DOIT couvrir l'intégralité du bilan fusionné).
@@ -242,7 +255,7 @@ Règles impératives :
 # Bilan de consultation <span class="text-lg md:text-xl text-[#8c7b6d] font-normal ml-2">- [Date exacte de la consultation, ou ${currentDate} par défaut]</span>
 
 ### Informations Patient
-- **Nom/Prénom :** [Jean Dupont]
+- **Nom/Prénom :** [Extraire si mentionné, sinon écrire "Non précisé"]
 - **Âge / Date de naissance :** [Extraire si mentionné]
 - **Profession :** [Extraire si mentionné]
 - **Date de consultation :** [Date exacte de la consultation extraite du texte]

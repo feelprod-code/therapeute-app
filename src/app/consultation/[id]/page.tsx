@@ -625,20 +625,12 @@ export default function ConsultationDetail() {
     setIsTextModalOpen(false);
 
     try {
-      const textBlob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
-      const fileName = `txt_addendum_${Date.now()}_${params.id}.txt`;
-      const { error: uploadError } = await supabase.storage.from('tdt_uploads').upload(fileName, textBlob);
-
-      if (uploadError) throw new Error("Erreur upload text addendum");
-
-      const uploadedFiles = [{ fileName, mimeType: 'text/plain' }];
-
       if (appendMode === 'bilan') {
         const response = await fetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            attachedFiles: uploadedFiles,
+            newText: textContent,
             previousContext: {
               synthese: data.synthese,
               transcription: data.transcription,
@@ -666,7 +658,7 @@ export default function ConsultationDetail() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            attachedFiles: uploadedFiles,
+            newText: textContent,
           })
         });
 
@@ -702,12 +694,6 @@ export default function ConsultationDetail() {
           throw new Error("Erreur de sauvegarde dans la base de données.");
         }
         if (updatedData) setData(updatedData);
-      }
-
-      try {
-        await supabase.storage.from('tdt_uploads').remove([fileName]);
-      } catch (e) {
-        console.error("Erreur suppression fichier texte:", e);
       }
 
       toast({ title: "Bilan mis à jour", description: "La note écrite a bien été ajoutée au dossier." });
