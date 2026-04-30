@@ -222,13 +222,14 @@ ${previousContext.synthese || 'Aucune synthèse précédente.'}
 """
 
 Instructions de MISE A JOUR:
-Ton objectif est de mettre à jour la synthèse PRÉCÉDENTE en FUSIONNANT de manière cohérente les nouveaux éléments issus de l'audio/document dans les sections appropriées existantes.
-- RÈGLE GÉNÉRALE: Maintiens la structure globale de la synthèse médicale. Intègre intelligemment les nouvelles plaintes, symptômes, ou examens complèmentaires DANS les sections pertinentes (par exemple, rajoute la localisation d'une nouvelle douleur dans "Histoire de la Maladie / Douleur", ou un nouveau compte-rendu dans "Examens Complémentaires"). 
+Ton objectif est de mettre à jour la synthèse PRÉCÉDENTE en FUSIONNANT de manière cohérente les nouveaux éléments issus de l'audio/document/texte dans les sections appropriées existantes.
+- RÈGLE GÉNÉRALE: Maintiens la structure globale de la synthèse médicale. Intègre intelligemment les nouvelles plaintes ou informations DANS les sections pertinentes. Si la nouvelle note ressemble à une consigne du thérapeute (ex: "ajoute que...", "corrige la douleur..."), tu dois exécuter cette consigne pour améliorer le bilan, sans jamais recopier la consigne elle-même.
+- FORMATAGE DES AJOUTS: Corrige toujours l'orthographe du texte ajouté si nécessaire, et intègre-le naturellement sous forme d'un nouveau tiret dans les listes à puces existantes. NE COMMENCE JAMAIS tes ajouts par "Ajout de", "Nouvelle information" ou "Note du thérapeute".
 - DOCUMENTS JOINTS: Si un document (PDF, image, texte) t'est fourni, extrais minutieusement les informations médicales et intègre-les au bilan.
 - INTERDICTION: NE CRÉE SURTOUT PAS EN BAS DE PAGE une section "Ajout d'informations" ou "Nouvelles informations". Le bilan doit rester un document unifié, écrit de façon fluide comme s'il avait été rédigé en une seule fois.
 - EXCEPTION (NOM DU PATIENT): Si les nouveaux documents/audios te permettent de découvrir le VRAI nom et prénom du patient (et que la synthèse précédente disait "Patient Anonyme" ou était incomplète), tu as l'OBLIGATION de le mettre à jour. N'oublie pas non plus de renseigner le champ "patientName" de ta réponse JSON.
 - EXCEPTION (DATE DE LA CONSULTATION): Si les nouvelles notes précisent la vraie date de la consultation (ex: "la première séance était le 12 octobre"), tu as l'OBLIGATION de la mettre à jour dans ton texte Markdown ET de renseigner cette date au format AAAA-MM-JJ dans la clé "consultationDate" du JSON.
-- Pour la transcription : Génère UNIQUEMENT la retranscription/description des NOUVEAUX éléments (nouveau vocal ou nouveau document). NE RECOPIE PAS l'ancienne transcription, le système s'en chargera automatiquement. Si c'est un document (ex: photo, PDF), décris brièvement sa nature dans cette clé "transcription" (ex: "Ajout d'une IRM du genou...").
+- Pour la transcription : Tu dois produire EXCLUSIVEMENT la retranscription/description des NOUVEAUX éléments fournis (nouveau vocal, texte, document). IL EST STRICTEMENT INTERDIT DE RECOPIER L'ANCIENNE TRANSCRIPTION, même partiellement. Le système les fusionnera lui-même. Si c'est un document, décris brièvement sa nature (ex: "Ajout d'une IRM").
 - EXCEPTION (RÉSUMÉ) : IL EST ABSOLUMENT OBLIGATOIRE que la clé "resume" contienne un résumé GLOBAL de TOUT LE BILAN FINAL (c'est-à-dire le texte généré dans la clé "synthese"). Ne résume SURTOUT PAS seulement les ajouts ! Le résumé doit donner l'état complet du patient.
 `;
         } else {
@@ -240,7 +241,7 @@ Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme 
 {
   "patientName": "Nom et Prénom trouvés (ou chaîne vide si aucun)",
   "consultationDate": "Date trouvée dans le texte (ex: 2024-10-14). Si aucune date précise n'est mentionnée, renvoie null ou une chaîne vide.",
-  "transcription": "Génère la retranscription EXACTE, LITTÉRALE (Verbatim) et INTÉGRALE de tout le dialogue de l'audio. RÈGLE ABSOLUE : Tu ne dois AUCUNEMENT corriger la grammaire, ni supprimer les hésitations ('euh', 'ah', 'ben', répétitions). Retranscris CHAQUE MOT. S'il s'agit de documents (PDF/Images), décris simplement ce qu'ils contiennent. Formate ce texte avec Markdown : ajoute toujours un **double saut de ligne** entre chaque prise de parole, et identifie l'interlocuteur avec : **<span style=\\"color: #bd613c;\\">Thérapeute :</span>** ou **<span style=\\"color: #bd613c;\\">Patient :</span>**.",
+  "transcription": "Génère la retranscription EXACTE, LITTÉRALE (Verbatim) et INTÉGRALE de tout le dialogue de l'audio. RÈGLE ABSOLUE : Tu ne dois AUCUNEMENT corriger la grammaire, ni supprimer les hésitations ('euh', 'ah', 'ben', répétitions). Retranscris CHAQUE MOT. S'il s'agit de documents (PDF/Images) ou de texte tapé, décris simplement ce qu'ils contiennent. Formate ce texte avec Markdown : ajoute toujours un **double saut de ligne** entre chaque prise de parole, et identifie l'interlocuteur avec : **<span style=\\"color: #bd613c;\\">Thérapeute :</span>** ou **<span style=\\"color: #bd613c;\\">Patient :</span>**.",
   "resume": "Un résumé narratif GLOBAL en 3 à 5 phrases, synthétisant TOUT le document final complet généré dans 'synthese' (anciennes ET nouvelles informations). Sous forme d'un paragraphe continu unique (AUCUNE liste, AUCUN tiret, AUCUNE puce).",
   "synthese": "La synthèse médicale formatée en Markdown"
 }
@@ -248,9 +249,9 @@ Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme 
 Règles impératives :
 1. "patientName" : Extrait le Prénom et le Nom du patient. S'il n'est pas mentionné, laisse cette chaîne vide "". NE METS SURTOUT PAS "Jean Dupont" ou un nom inventé !
 2. "consultationDate" : Si le texte mentionne explicitement la date de la séance (ex: "bilan du 14 octobre", "vu le 12/03/2021"), extrait-la au format string ISO AAAA-MM-JJ. Sinon, string vide "".
-3. "transcription" : Intégralité du texte brut reçu en entrée (nouveau vocal ou document). RÈGLE D'OR : Mot pour mot (Verbatim), incluant les erreurs, faux-départs et hésitations.
+3. "transcription" : Intégralité du texte brut reçu en entrée (nouveau vocal ou document). RÈGLE D'OR : Mot pour mot (Verbatim), incluant les erreurs, faux-départs et hésitations. (Pour une mise à jour, n'inclus QUE les nouveautés).
 4. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil. (En cas de mise à jour, ce résumé DOIT couvrir l'intégralité du bilan fusionné).
-5. "synthese" : Applique strictement la structure Markdown ci-dessous UNIQUEMENT si l'information est présente (ou fusionne à l'existant en ajoutant la section "Ajout du ..." si en mise à jour) :
+5. "synthese" : Applique strictement la structure Markdown ci-dessous UNIQUEMENT si l'information est présente (ou fusionne à l'existant en intégrant naturellement les éléments sous forme de tirets dans les listes à puces) :
 
 # Bilan de consultation <span class="text-lg md:text-xl text-[#8c7b6d] font-normal ml-2">- [Date exacte de la consultation, ou ${currentDate} par défaut]</span>
 
