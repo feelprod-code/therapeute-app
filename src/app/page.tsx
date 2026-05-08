@@ -985,7 +985,7 @@ function Home() {
       <div className="max-w-7xl mx-auto w-full flex flex-col relative md:h-full">
 
         {/* Bouton Agenda et En-tête */}
-        <div className="relative mt-8 sm:mt-6 md:mt-4 mb-6 sm:mb-8 flex flex-col items-center justify-center pt-8 sm:pt-0">
+        <div className="relative mt-2 sm:mt-6 md:mt-4 mb-3 sm:mb-8 flex flex-col items-center justify-center pt-2 sm:pt-0">
           <div className="absolute top-0 right-0 z-20">
             <Button asChild variant="outline" className="text-[#bd613c] border-[#bd613c]/30 hover:bg-[#ebd9c8]/30 rounded-xl h-9 sm:h-10 px-3 sm:px-4 shadow-sm bg-white/50 backdrop-blur-sm">
               <Link href="/calendrier">
