@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Mic, Square, Loader2, Volume2, Globe, Trash2, Wifi, WifiOff } from 'lucide-react';
+import { Mic, Square, Loader2, Volume2, Globe, Trash2, Wifi, WifiOff, Maximize2, Minimize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -52,6 +52,7 @@ export default function BilingualRecorder({
     const [translationMode, setTranslationMode] = useState<'conversation' | 'realtime' | 'classic'>('conversation');
     const [realtimeRole, setRealtimeRole] = useState<'therapeut' | 'patient' | 'bidirectional' | null>(null);
     const realtimeMessageIdRef = useRef<string | null>(null);
+    const [chatExpanded, setChatExpanded] = useState(false);
 
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<BlobPart[]>([]);
@@ -549,22 +550,31 @@ export default function BilingualRecorder({
             )}
 
             {/* Chat Area */}
-            <Card className="bg-white/80 backdrop-blur-sm border-[#e8dfd5] shadow-lg flex-1 min-h-[200px] sm:min-h-[400px] flex flex-col relative">
-                {messages.length > 0 && (
-                    <div className="absolute top-2 right-2 z-10 bg-white/50 rounded-full">
+            <Card className={`bg-white/80 backdrop-blur-sm border-[#e8dfd5] shadow-lg flex flex-col relative transition-all duration-300 ${chatExpanded ? 'fixed inset-0 z-50 rounded-none min-h-0 h-full bg-white' : 'flex-1 min-h-[200px] sm:min-h-[400px]'}`}>
+                <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+                    {messages.length > 0 && !chatExpanded && (
                         <Button
                             variant="ghost"
                             size="icon"
                             onClick={() => setMessages([])}
-                            className="text-[#bd613c] hover:bg-[#bd613c]/10 hover:text-[#bd613c]"
+                            className="text-[#bd613c] hover:bg-[#bd613c]/10 hover:text-[#bd613c] bg-white/50 rounded-full"
                             title="Effacer la discussion"
                         >
                             <Trash2 className="w-4 h-4" />
                         </Button>
-                    </div>
-                )}
-                <CardContent className="p-4 flex-1 h-full">
-                    <ScrollArea className="h-[200px] sm:h-[400px] pr-4 w-full" ref={scrollRef}>
+                    )}
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setChatExpanded(!chatExpanded)}
+                        className="text-[#bd613c] hover:bg-[#bd613c]/10 bg-white/50 rounded-full"
+                        title={chatExpanded ? 'Réduire' : 'Agrandir'}
+                    >
+                        {chatExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                    </Button>
+                </div>
+                <CardContent className={`p-4 flex-1 h-full ${chatExpanded ? 'pt-12' : ''}`}>
+                    <ScrollArea className={`${chatExpanded ? 'h-[calc(100dvh-80px)]' : 'h-[200px] sm:h-[400px]'} pr-4 w-full`} ref={scrollRef}>
                         {messages.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-[#8c7b6c] space-y-4">
                                 <Globe className="w-12 h-12 opacity-20" />
