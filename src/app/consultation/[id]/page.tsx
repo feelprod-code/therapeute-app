@@ -795,7 +795,7 @@ export default function ConsultationDetail() {
   }
 
   return (
-    <main className="min-h-screen py-8 px-4 sm:px-6 mb-12 flex justify-center">
+    <main className="min-h-screen py-3 sm:py-8 px-4 sm:px-6 mb-12 flex justify-center">
 
       {/* Modal d'enregistrement audio */}
       <Dialog open={isRecordingModalOpen} onOpenChange={(open) => !open && !isAppending ? setIsRecordingModalOpen(false) : null}>
@@ -1027,14 +1027,14 @@ export default function ConsultationDetail() {
               </div>
 
               {/* --- MOBILE ONLY CONTROLS --- */}
-              <div className="flex flex-col lg:hidden mt-8 gap-8" data-html2canvas-ignore="true">
+              <div className="flex flex-col lg:hidden mt-4 gap-4" data-html2canvas-ignore="true">
 
                 {/* Actions Centrales Horizontales */}
-                <div className="flex flex-wrap justify-center items-center gap-2 sm:gap-4">
+                <div className="grid grid-cols-4 gap-1.5 sm:flex sm:flex-wrap sm:justify-center sm:gap-4">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="outline" className="h-10 px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending}>
-                        <Mic className="w-4 h-4 mr-2" /> <span className="font-medium text-[13px]">Audio</span>
+                      <Button variant="outline" className="h-9 sm:h-10 px-2 sm:px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all text-[11px] sm:text-[13px]" disabled={isAppending}>
+                        <Mic className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1 sm:mr-2" /> <span className="font-medium">Audio</span>
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="center" className="w-56 bg-white border-[#ebd9c8]">
@@ -1052,8 +1052,8 @@ export default function ConsultationDetail() {
                   {/* Nouveau bouton Texte */}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="outline" className="h-10 px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending}>
-                        <Pencil className="w-4 h-4 mr-2" /> <span className="font-medium text-[13px]">Texte</span>
+                      <Button variant="outline" className="h-9 sm:h-10 px-2 sm:px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all text-[11px] sm:text-[13px]" disabled={isAppending}>
+                        <Pencil className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1 sm:mr-2" /> <span className="font-medium">Texte</span>
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="center" className="w-56 bg-white border-[#ebd9c8]">
@@ -1070,9 +1070,9 @@ export default function ConsultationDetail() {
 
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="outline" className="h-10 px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending}>
-                        {isAppending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Paperclip className="w-4 h-4 mr-2" />}
-                        <span className="font-medium text-[13px]">Document</span>
+                      <Button variant="outline" className="h-9 sm:h-10 px-2 sm:px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all text-[11px] sm:text-[13px]" disabled={isAppending}>
+                        {isAppending ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1 sm:mr-2 animate-spin" /> : <Paperclip className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1 sm:mr-2" />}
+                        <span className="font-medium">Doc</span>
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="center" className="w-56 bg-white border-[#ebd9c8]">
@@ -1088,8 +1088,8 @@ export default function ConsultationDetail() {
                   </DropdownMenu>
 
                   {/* Nouveau bouton Image Mobile */}
-                  <Button variant="outline" className="h-10 px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending} onClick={() => fileInputRefImageMobile.current?.click()}>
-                    <ImageIcon className="w-4 h-4 mr-2" /> <span className="font-medium text-[13px]">Doc Visuel</span>
+                  <Button variant="outline" className="h-9 sm:h-10 px-2 sm:px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all text-[11px] sm:text-[13px]" disabled={isAppending} onClick={() => fileInputRefImageMobile.current?.click()}>
+                    <ImageIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1 sm:mr-2" /> <span className="font-medium">Visuel</span>
                   </Button>
 
                   <input type="file" ref={fileInputRefBilanMobile} className="hidden" onChange={(e) => handleAppendFile(e, 'bilan')} multiple />
