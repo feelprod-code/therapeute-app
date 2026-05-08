@@ -533,7 +533,7 @@ export default function BilingualRecorder({
     };
 
     return (
-        <div className="flex flex-col space-y-3 sm:space-y-6">
+        <div className="flex flex-col space-y-6">
 
             {draftExists && !isRecording && (
                 <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-center w-full mb-0 shadow-sm">
@@ -550,8 +550,8 @@ export default function BilingualRecorder({
             )}
 
             {/* Chat Area */}
-            <Card className={`bg-white/80 backdrop-blur-sm border-[#e8dfd5] shadow-lg flex flex-col relative transition-all duration-300 ${chatExpanded ? 'fixed inset-0 z-50 rounded-none min-h-0 h-full bg-white' : 'flex-1 min-h-[200px] sm:min-h-[400px]'}`}>
-                <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+            <Card className={`bg-white/80 backdrop-blur-sm border-[#e8dfd5] shadow-lg flex flex-col relative transition-all duration-300 ${chatExpanded ? 'fixed inset-0 z-50 rounded-none min-h-0 h-full bg-white' : 'flex-1 min-h-[400px]'}`}>
+                <div className={`absolute z-10 flex items-center gap-1 ${chatExpanded ? 'top-[env(safe-area-inset-top,12px)] right-4 pt-2' : 'top-2 right-2'}`}>
                     {messages.length > 0 && !chatExpanded && (
                         <Button
                             variant="ghost"
@@ -573,8 +573,8 @@ export default function BilingualRecorder({
                         {chatExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
                     </Button>
                 </div>
-                <CardContent className={`p-4 flex-1 h-full ${chatExpanded ? 'pt-12' : ''}`}>
-                    <ScrollArea className={`${chatExpanded ? 'h-[calc(100dvh-80px)]' : 'h-[200px] sm:h-[400px]'} pr-4 w-full`} ref={scrollRef}>
+                <CardContent className={`p-4 flex-1 h-full ${chatExpanded ? 'pt-14' : ''}`}>
+                    <ScrollArea className={`${chatExpanded ? 'h-[calc(100dvh-80px)]' : 'h-[400px]'} pr-4 w-full`} ref={scrollRef}>
                         {messages.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-[#8c7b6c] space-y-4">
                                 <Globe className="w-12 h-12 opacity-20" />
