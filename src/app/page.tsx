@@ -981,7 +981,7 @@ function Home() {
   };
 
   return (
-    <main className="min-h-[100dvh] md:h-[100dvh] md:overflow-hidden flex flex-col py-4 sm:py-8 px-4 sm:px-6 mb-12 md:mb-0">
+    <main className="h-[100dvh] overflow-hidden flex flex-col py-2 sm:py-8 px-4 sm:px-6">
       <div className="max-w-7xl mx-auto w-full flex flex-col relative md:h-full">
 
         {/* Bouton Agenda et En-tête */}
