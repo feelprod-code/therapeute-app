@@ -22,9 +22,16 @@ type ChatMessage = {
 const LANGUAGES = [
     { code: 'Anglais', label: 'Anglais (EN)', tts: 'en-US' },
     { code: 'Espagnol', label: 'Espagnol (ES)', tts: 'es-ES' },
+    { code: 'Arabe', label: 'Arabe (AR)', tts: 'ar-SA' },
+    { code: 'Allemand', label: 'Allemand (DE)', tts: 'de-DE' },
     { code: 'Italien', label: 'Italien (IT)', tts: 'it-IT' },
     { code: 'Portugais', label: 'Portugais (BR)', tts: 'pt-BR' },
+    { code: 'Russe', label: 'Russe (RU)', tts: 'ru-RU' },
+    { code: 'Turc', label: 'Turc (TR)', tts: 'tr-TR' },
     { code: 'Chinois', label: 'Chinois (ZH)', tts: 'zh-CN' },
+    { code: 'Japonais', label: 'Japonais (JA)', tts: 'ja-JP' },
+    { code: 'Polonais', label: 'Polonais (PL)', tts: 'pl-PL' },
+    { code: 'Hindi', label: 'Hindi (HI)', tts: 'hi-IN' },
 ];
 
 export default function BilingualRecorder({
