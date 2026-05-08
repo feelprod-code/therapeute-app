@@ -532,7 +532,7 @@ export default function BilingualRecorder({
     };
 
     return (
-        <div className="flex flex-col space-y-6">
+        <div className="flex flex-col space-y-3 sm:space-y-6">
 
             {draftExists && !isRecording && (
                 <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-center w-full mb-0 shadow-sm">
@@ -549,7 +549,7 @@ export default function BilingualRecorder({
             )}
 
             {/* Chat Area */}
-            <Card className="bg-white/80 backdrop-blur-sm border-[#e8dfd5] shadow-lg flex-1 min-h-[400px] flex flex-col relative">
+            <Card className="bg-white/80 backdrop-blur-sm border-[#e8dfd5] shadow-lg flex-1 min-h-[200px] sm:min-h-[400px] flex flex-col relative">
                 {messages.length > 0 && (
                     <div className="absolute top-2 right-2 z-10 bg-white/50 rounded-full">
                         <Button
@@ -564,7 +564,7 @@ export default function BilingualRecorder({
                     </div>
                 )}
                 <CardContent className="p-4 flex-1 h-full">
-                    <ScrollArea className="h-[400px] pr-4 w-full" ref={scrollRef}>
+                    <ScrollArea className="h-[200px] sm:h-[400px] pr-4 w-full" ref={scrollRef}>
                         {messages.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-[#8c7b6c] space-y-4">
                                 <Globe className="w-12 h-12 opacity-20" />
