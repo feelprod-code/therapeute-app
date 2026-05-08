@@ -19,7 +19,7 @@ export function useRealtime() {
     const [isConnecting, setIsConnecting] = useState(false);
 
     const connect = useCallback(async (
-        role: 'therapeut' | 'patient',
+        role: 'therapeut' | 'patient' | 'bidirectional',
         targetLanguage: string,
         events: RealtimeEvents
     ) => {
