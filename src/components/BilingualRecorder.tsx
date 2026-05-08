@@ -42,8 +42,8 @@ export default function BilingualRecorder({
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [draftExists, setDraftExists] = useState(false);
     const [draftRole, setDraftRole] = useState<'therapeut' | 'patient' | null>(null);
-    const [useRealtimeMode, setUseRealtimeMode] = useState(true);
-    const [realtimeRole, setRealtimeRole] = useState<'therapeut' | 'patient' | null>(null);
+    const [translationMode, setTranslationMode] = useState<'conversation' | 'realtime' | 'classic'>('conversation');
+    const [realtimeRole, setRealtimeRole] = useState<'therapeut' | 'patient' | 'bidirectional' | null>(null);
     const realtimeMessageIdRef = useRef<string | null>(null);
 
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -127,9 +127,8 @@ export default function BilingualRecorder({
         });
     };
 
-    // ========== REALTIME MODE ==========
-    const startRealtimeSession = useCallback(async (role: 'therapeut' | 'patient') => {
-        // Unlock iOS audio context
+    // ========== REALTIME MODE (push-to-talk + conversation continue) ==========
+    const startRealtimeSession = useCallback(async (role: 'therapeut' | 'patient' | 'bidirectional') => {
         if ('speechSynthesis' in window) {
             const u = new SpeechSynthesisUtterance('');
             u.volume = 0;
@@ -140,10 +139,10 @@ export default function BilingualRecorder({
         realtimeMessageIdRef.current = messageId;
         setRealtimeRole(role);
 
-        // Create streaming message placeholder
+        const senderRole = role === 'bidirectional' ? 'therapeut' : role;
         setMessages(prev => [...prev, {
             id: messageId,
-            sender: role,
+            sender: senderRole,
             transcription: '',
             translation: '',
             patientLangCode: patientLang.code,
@@ -153,28 +152,47 @@ export default function BilingualRecorder({
 
         try {
             await connect(role, patientLang.code, {
-                onSpeechStart: () => {
-                    // Visual feedback: user is speaking
-                },
-                onSpeechStop: () => {
-                    // Voice detected silence
-                },
+                onSpeechStart: () => {},
+                onSpeechStop: () => {},
                 onTranscript: (text: string) => {
-                    setMessages(prev => prev.map(m =>
-                        m.id === messageId ? { ...m, transcription: text } : m
-                    ));
+                    const currentId = realtimeMessageIdRef.current;
+                    if (currentId) {
+                        setMessages(prev => prev.map(m =>
+                            m.id === currentId ? { ...m, transcription: text } : m
+                        ));
+                    }
                 },
                 onTranslation: (text: string) => {
-                    setMessages(prev => prev.map(m =>
-                        m.id === messageId ? { ...m, translation: text, isStreaming: false } : m
-                    ));
-                    // AI voice plays via WebRTC audio track automatically
-                    // Browser TTS as backup if no audio track
+                    const currentId = realtimeMessageIdRef.current;
+                    if (currentId) {
+                        setMessages(prev => prev.map(m =>
+                            m.id === currentId ? { ...m, translation: text, isStreaming: false } : m
+                        ));
+                    }
+                    // In bidirectional mode, prepare next message for the next utterance
+                    if (role === 'bidirectional') {
+                        const nextId = Date.now().toString();
+                        realtimeMessageIdRef.current = nextId;
+                        setMessages(prev => [...prev, {
+                            id: nextId,
+                            sender: 'therapeut',
+                            transcription: '',
+                            translation: '',
+                            patientLangCode: patientLang.code,
+                            patientLangTts: patientLang.tts,
+                            isStreaming: true,
+                        }]);
+                    }
                 },
                 onDone: () => {
-                    setMessages(prev => prev.map(m =>
-                        m.id === messageId ? { ...m, isStreaming: false } : m
-                    ));
+                    if (role !== 'bidirectional') {
+                        const currentId = realtimeMessageIdRef.current;
+                        if (currentId) {
+                            setMessages(prev => prev.map(m =>
+                                m.id === currentId ? { ...m, isStreaming: false } : m
+                            ));
+                        }
+                    }
                 },
                 onError: (error: string) => {
                     console.error('Realtime error:', error);
@@ -182,15 +200,13 @@ export default function BilingualRecorder({
                 },
             });
         } catch (error) {
-            console.warn('WebRTC failed, falling back to SSE:', error);
-            // Remove the empty streaming message
+            console.warn('WebRTC failed:', error);
             setMessages(prev => prev.filter(m => m.id !== messageId));
             setRealtimeRole(null);
             realtimeMessageIdRef.current = null;
-            setUseRealtimeMode(false);
-            toast({ title: 'Mode Classique', description: 'WebRTC indisponible, retour au mode enregistrement.' });
-            // Fall back to classic recording
-            startRecording(role);
+            setTranslationMode('classic');
+            toast({ title: 'Mode Classique', description: 'WebRTC indisponible.' });
+            if (role !== 'bidirectional') startRecording(role);
         }
     }, [connect, patientLang, toast]);
 
@@ -198,9 +214,14 @@ export default function BilingualRecorder({
         disconnect();
         const msgId = realtimeMessageIdRef.current;
         if (msgId) {
-            setMessages(prev => prev.map(m =>
-                m.id === msgId ? { ...m, isStreaming: false } : m
-            ));
+            // Remove empty trailing message
+            setMessages(prev => {
+                const last = prev.find(m => m.id === msgId);
+                if (last && !last.transcription && !last.translation) {
+                    return prev.filter(m => m.id !== msgId);
+                }
+                return prev.map(m => m.id === msgId ? { ...m, isStreaming: false } : m);
+            });
         }
         setRealtimeRole(null);
         realtimeMessageIdRef.current = null;
@@ -600,49 +621,71 @@ export default function BilingualRecorder({
                         ))}
                     </select>
                 </div>
-                <div className="flex justify-end items-center mb-1">
-                    <button
-                        onClick={() => setUseRealtimeMode(!useRealtimeMode)}
-                        className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-full transition-colors ${useRealtimeMode ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}
-                        disabled={isRecording || isConnected || isConnecting}
-                    >
-                        {useRealtimeMode ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-                        {useRealtimeMode ? 'Temps réel' : 'Classique'}
-                    </button>
+                <div className="flex justify-center items-center gap-1 mb-2">
+                    {(['conversation', 'realtime', 'classic'] as const).map(mode => (
+                        <button
+                            key={mode}
+                            onClick={() => setTranslationMode(mode)}
+                            className={`text-xs px-3 py-1.5 rounded-full transition-colors ${translationMode === mode ? 'bg-[#bd613c] text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                            disabled={isRecording || isConnected || isConnecting}
+                        >
+                            {mode === 'conversation' ? '🎙️ Conversation' : mode === 'realtime' ? '⚡ Temps réel' : '📱 Classique'}
+                        </button>
+                    ))}
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                    <Button
-                        size="lg"
-                        variant={(recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? 'destructive' : 'default'}
-                        className={`h-24 text-lg font-bebas tracking-wide flex flex-col items-center justify-center gap-2 ${(recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? 'animate-pulse' : 'bg-[#4a3f35] hover:bg-[#3a3129]'}`}
-                        onClick={() => {
-                            if (isRecording && recordingRole === 'therapeut') return stopRecording();
-                            if (isConnected && realtimeRole === 'therapeut') return stopRealtimeSession();
-                            if (useRealtimeMode) return startRealtimeSession('therapeut');
-                            return startRecording('therapeut');
-                        }}
-                        disabled={isAnalyzing || isConnecting || (isRecording && recordingRole !== 'therapeut') || (isConnected && realtimeRole !== 'therapeut')}
-                    >
-                        {isConnecting && realtimeRole === 'therapeut' ? <Loader2 className="w-6 h-6 animate-spin" /> : (recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? <Square className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-                        <span className="text-center">{isConnecting ? 'Connexion...' : (recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? "Arrêter" : "Parler (Français)"}</span>
-                    </Button>
 
+                {/* CONVERSATION MODE: single button */}
+                {translationMode === 'conversation' && (
                     <Button
                         size="lg"
-                        variant={(recordingRole === 'patient' || realtimeRole === 'patient') ? 'destructive' : 'outline'}
-                        className={`h-24 text-lg font-bebas tracking-wide flex flex-col items-center justify-center gap-2 border-2 ${(recordingRole === 'patient' || realtimeRole === 'patient') ? 'animate-pulse' : 'border-[#4a3f35] text-[#4a3f35] hover:bg-[#e8dfd5]'}`}
+                        variant={realtimeRole === 'bidirectional' ? 'destructive' : 'default'}
+                        className={`w-full h-24 text-xl font-bebas tracking-wide flex flex-col items-center justify-center gap-2 ${realtimeRole === 'bidirectional' ? 'animate-pulse bg-red-600 hover:bg-red-700' : 'bg-[#4a3f35] hover:bg-[#3a3129]'}`}
                         onClick={() => {
-                            if (isRecording && recordingRole === 'patient') return stopRecording();
-                            if (isConnected && realtimeRole === 'patient') return stopRealtimeSession();
-                            if (useRealtimeMode) return startRealtimeSession('patient');
-                            return startRecording('patient');
+                            if (isConnected && realtimeRole === 'bidirectional') return stopRealtimeSession();
+                            return startRealtimeSession('bidirectional');
                         }}
-                        disabled={isAnalyzing || isConnecting || (isRecording && recordingRole !== 'patient') || (isConnected && realtimeRole !== 'patient')}
+                        disabled={isAnalyzing || isConnecting}
                     >
-                        {isConnecting && realtimeRole === 'patient' ? <Loader2 className="w-6 h-6 animate-spin" /> : (recordingRole === 'patient' || realtimeRole === 'patient') ? <Square className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-                        <span className="text-center">{isConnecting ? 'Connexion...' : (recordingRole === 'patient' || realtimeRole === 'patient') ? "Stop" : `Patient (${patientLang.code.substring(0, 2).toUpperCase()})`}</span>
+                        {isConnecting ? <Loader2 className="w-8 h-8 animate-spin" /> : realtimeRole === 'bidirectional' ? <Square className="w-8 h-8" /> : <Globe className="w-8 h-8" />}
+                        <span>{isConnecting ? 'Connexion…' : realtimeRole === 'bidirectional' ? 'Arrêter la consultation' : 'Démarrer la consultation bilingue'}</span>
                     </Button>
-                </div>
+                )}
+
+                {/* REALTIME + CLASSIC: two buttons */}
+                {translationMode !== 'conversation' && (
+                    <div className="grid grid-cols-2 gap-4">
+                        <Button
+                            size="lg"
+                            variant={(recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? 'destructive' : 'default'}
+                            className={`h-24 text-lg font-bebas tracking-wide flex flex-col items-center justify-center gap-2 ${(recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? 'animate-pulse' : 'bg-[#4a3f35] hover:bg-[#3a3129]'}`}
+                            onClick={() => {
+                                if (isRecording && recordingRole === 'therapeut') return stopRecording();
+                                if (isConnected && realtimeRole === 'therapeut') return stopRealtimeSession();
+                                if (translationMode === 'realtime') return startRealtimeSession('therapeut');
+                                return startRecording('therapeut');
+                            }}
+                            disabled={isAnalyzing || isConnecting || (isRecording && recordingRole !== 'therapeut') || (isConnected && realtimeRole !== 'therapeut')}
+                        >
+                            {isConnecting && realtimeRole === 'therapeut' ? <Loader2 className="w-6 h-6 animate-spin" /> : (recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? <Square className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+                            <span className="text-center">{isConnecting ? 'Connexion...' : (recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? "Arrêter" : "Parler (Français)"}</span>
+                        </Button>
+                        <Button
+                            size="lg"
+                            variant={(recordingRole === 'patient' || realtimeRole === 'patient') ? 'destructive' : 'outline'}
+                            className={`h-24 text-lg font-bebas tracking-wide flex flex-col items-center justify-center gap-2 border-2 ${(recordingRole === 'patient' || realtimeRole === 'patient') ? 'animate-pulse' : 'border-[#4a3f35] text-[#4a3f35] hover:bg-[#e8dfd5]'}`}
+                            onClick={() => {
+                                if (isRecording && recordingRole === 'patient') return stopRecording();
+                                if (isConnected && realtimeRole === 'patient') return stopRealtimeSession();
+                                if (translationMode === 'realtime') return startRealtimeSession('patient');
+                                return startRecording('patient');
+                            }}
+                            disabled={isAnalyzing || isConnecting || (isRecording && recordingRole !== 'patient') || (isConnected && realtimeRole !== 'patient')}
+                        >
+                            {isConnecting && realtimeRole === 'patient' ? <Loader2 className="w-6 h-6 animate-spin" /> : (recordingRole === 'patient' || realtimeRole === 'patient') ? <Square className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+                            <span className="text-center">{isConnecting ? 'Connexion...' : (recordingRole === 'patient' || realtimeRole === 'patient') ? "Stop" : `Patient (${patientLang.code.substring(0, 2).toUpperCase()})`}</span>
+                        </Button>
+                    </div>
+                )}
             </div>
 
             {messages.length > 0 && (

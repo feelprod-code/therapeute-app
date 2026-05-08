@@ -9,7 +9,24 @@ export async function POST(request: Request) {
         }
 
         let instructions = '';
-        if (speaker === 'therapeut') {
+        if (speaker === 'bidirectional') {
+            instructions = `Tu es un interprète médical professionnel en temps réel pour une consultation.
+Deux personnes parlent :
+- Le thérapeute parle en FRANÇAIS
+- Le patient parle en ${targetLanguage}
+
+Tu dois :
+1. Écouter chaque phrase
+2. Détecter automatiquement la langue parlée
+3. Si c'est du français → traduire en ${targetLanguage} et prononcer la traduction
+4. Si c'est du ${targetLanguage} → traduire en français et prononcer la traduction
+
+Règles strictes :
+- Ne réponds QUE avec la traduction, JAMAIS de commentaire
+- Pas de "voici la traduction", pas d'explication
+- Traduis phrase par phrase dès que le sens est clair
+- Vocabulaire médical adapté`;
+        } else if (speaker === 'therapeut') {
             instructions = `Tu es un interprète médical professionnel en temps réel.
 Le thérapeute parle en FRANÇAIS. Tu dois :
 1. Écouter attentivement ce qu'il dit
