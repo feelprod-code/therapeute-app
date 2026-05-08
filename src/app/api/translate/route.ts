@@ -16,34 +16,29 @@ export async function POST(request: Request) {
 
         let systemPrompt = "";
         if (speaker === 'therapeut') {
-            systemPrompt = `
-Tu agis comme un traducteur médical et interprète professionnel.
+            systemPrompt = `Tu agis comme un traducteur médical et interprète professionnel.
 L'audio fourni est le médecin ou thérapeute qui parle en FRANÇAIS.
-Ta tâche est de :
-1. Transcrire avec exactitude ce qu'il vient de dire en Français.
-2. Traduire cette transcription en ${targetLanguage.toUpperCase()}.
-Le langage doit être clair et professionnel, adapté à un patient.
 
-Tu dois répondre UNIQUEMENT avec un objet JSON valide suivant exactement cette structure :
-{
-  "transcription": "Texte exact de ce qui a été dit en français",
-  "translation": "Traduction de ce texte en ${targetLanguage.toLowerCase()}"
-}
-`;
+Réponds EXACTEMENT dans ce format, avec les marqueurs entre crochets sur leur propre ligne :
+
+[TRANSCRIPTION]
+Texte exact de ce qui a été dit en français
+[TRANSLATION]
+Traduction de ce texte en ${targetLanguage.toLowerCase()}
+
+IMPORTANT : commence par la transcription, puis la traduction. Le langage doit être clair et professionnel, adapté à un patient.`;
         } else {
-            systemPrompt = `
-Tu agis comme un interprète médical.
+            systemPrompt = `Tu agis comme un interprète médical.
 L'audio fourni est le patient qui parle en ${targetLanguage.toUpperCase()}.
-Ta tâche est de :
-1. Transcrire avec exactitude ce qu'il vient de dire en ${targetLanguage}.
-2. Traduire cette transcription en FRANÇAIS.
 
-Tu dois répondre UNIQUEMENT avec un objet JSON valide suivant exactement cette structure :
-{
-  "transcription": "Texte exact de ce qui a été dit en ${targetLanguage.toLowerCase()}",
-  "translation": "Traduction de ce texte en français"
-}
-`;
+Réponds EXACTEMENT dans ce format, avec les marqueurs entre crochets sur leur propre ligne :
+
+[TRANSCRIPTION]
+Texte exact de ce qui a été dit en ${targetLanguage.toLowerCase()}
+[TRANSLATION]
+Traduction de ce texte en français
+
+IMPORTANT : commence par la transcription, puis la traduction.`;
         }
 
         let sanitizedMimeType = mimeType || 'audio/webm';
@@ -51,32 +46,99 @@ Tu dois répondre UNIQUEMENT avec un objet JSON valide suivant exactement cette 
             sanitizedMimeType = sanitizedMimeType.split(';')[0].trim();
         }
 
-        const response = await ai.models.generateContent({
+        const stream = await ai.models.generateContentStream({
             model: 'gemini-2.5-flash',
             contents: [
                 systemPrompt,
                 {
                     inlineData: {
                         mimeType: sanitizedMimeType,
-                        data: audio, // base64 string
+                        data: audio,
                     },
                 }
             ],
-            config: {
-                responseMimeType: "application/json",
+        });
+
+        const encoder = new TextEncoder();
+
+        const readable = new ReadableStream({
+            async start(controller) {
+                let accumulated = '';
+                let transcriptionSent = false;
+
+                try {
+                    for await (const chunk of stream) {
+                        const text = chunk.text || '';
+                        accumulated += text;
+
+                        // Dès qu'on détecte le marqueur [TRANSLATION], on envoie la transcription
+                        if (!transcriptionSent && accumulated.includes('[TRANSLATION]')) {
+                            const parts = accumulated.split('[TRANSLATION]');
+                            const transcription = parts[0].replace('[TRANSCRIPTION]', '').trim();
+                            controller.enqueue(encoder.encode(
+                                `data: ${JSON.stringify({ type: 'transcription', text: transcription })}\n\n`
+                            ));
+                            transcriptionSent = true;
+                        }
+                    }
+
+                    // Stream terminé — envoyer la traduction
+                    if (accumulated.includes('[TRANSLATION]')) {
+                        const parts = accumulated.split('[TRANSLATION]');
+                        const transcription = parts[0].replace('[TRANSCRIPTION]', '').trim();
+                        const translation = parts[1].trim();
+
+                        if (!transcriptionSent) {
+                            controller.enqueue(encoder.encode(
+                                `data: ${JSON.stringify({ type: 'transcription', text: transcription })}\n\n`
+                            ));
+                        }
+                        controller.enqueue(encoder.encode(
+                            `data: ${JSON.stringify({ type: 'translation', text: translation })}\n\n`
+                        ));
+                    } else {
+                        // Fallback: pas de marqueurs → tenter de parser comme JSON (rétrocompat)
+                        try {
+                            const jsonResult = JSON.parse(accumulated);
+                            controller.enqueue(encoder.encode(
+                                `data: ${JSON.stringify({ type: 'transcription', text: jsonResult.transcription || accumulated })}\n\n`
+                            ));
+                            controller.enqueue(encoder.encode(
+                                `data: ${JSON.stringify({ type: 'translation', text: jsonResult.translation || accumulated })}\n\n`
+                            ));
+                        } catch {
+                            // Dernier recours : tout envoyer comme transcription
+                            const cleaned = accumulated.replace('[TRANSCRIPTION]', '').trim();
+                            controller.enqueue(encoder.encode(
+                                `data: ${JSON.stringify({ type: 'transcription', text: cleaned })}\n\n`
+                            ));
+                            controller.enqueue(encoder.encode(
+                                `data: ${JSON.stringify({ type: 'translation', text: cleaned })}\n\n`
+                            ));
+                        }
+                    }
+
+                    controller.enqueue(encoder.encode(
+                        `data: ${JSON.stringify({ type: 'done' })}\n\n`
+                    ));
+                } catch (error) {
+                    console.error('Erreur de streaming Gemini:', error);
+                    controller.enqueue(encoder.encode(
+                        `data: ${JSON.stringify({ type: 'error', text: String(error) })}\n\n`
+                    ));
+                }
+
+                controller.close();
             }
         });
 
-        const output = response.text || "{}";
-        let jsonResult;
-        try {
-            jsonResult = JSON.parse(output);
-        } catch {
-            console.error("Échec du parsing JSON de la réponse Gemini :", output);
-            return NextResponse.json({ error: "L'IA n'a pas renvoyé un format JSON valide." }, { status: 500 });
-        }
-
-        return NextResponse.json(jsonResult);
+        return new Response(readable, {
+            headers: {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+            },
+        });
     } catch (error) {
         console.error('Erreur lors de la traduction :', error);
         return NextResponse.json(

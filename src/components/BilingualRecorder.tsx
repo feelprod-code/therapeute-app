@@ -15,6 +15,7 @@ type ChatMessage = {
     translation: string;
     patientLangCode: string;
     patientLangTts: string;
+    isStreaming?: boolean;
 };
 
 const LANGUAGES = [
@@ -217,6 +218,8 @@ export default function BilingualRecorder({
 
     const handleTranslation = async (audioBlob: Blob, role: 'therapeut' | 'patient'): Promise<boolean> => {
         setIsTranslating(true);
+        const messageId = Date.now().toString();
+
         try {
             const base64Audio = await new Promise<string>((resolve) => {
                 const reader = new FileReader();
@@ -235,26 +238,73 @@ export default function BilingualRecorder({
 
             if (!res.ok) throw new Error("Erreur de traduction");
 
-            const data = await res.json();
-
-            const newMessage: ChatMessage = {
-                id: Date.now().toString(),
+            // Créer le message immédiatement en état streaming
+            const streamingMessage: ChatMessage = {
+                id: messageId,
                 sender: role,
-                transcription: data.transcription,
-                translation: data.translation,
+                transcription: '',
+                translation: '',
                 patientLangCode: patientLang.code,
-                patientLangTts: patientLang.tts
+                patientLangTts: patientLang.tts,
+                isStreaming: true,
             };
+            setMessages(prev => [...prev, streamingMessage]);
 
-            setMessages(prev => [...prev, newMessage]);
+            // Lire le flux SSE progressivement
+            const reader = res.body!.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
 
-            // Auto Play Speech
-            speakText(data.translation, role === 'therapeut' ? patientLang.tts : 'fr-FR');
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+
+                // Parser les événements SSE complets (séparés par \n\n)
+                const events = buffer.split('\n\n');
+                buffer = events.pop() || ''; // Garder le dernier fragment incomplet
+
+                for (const event of events) {
+                    const dataLine = event.trim();
+                    if (!dataLine.startsWith('data: ')) continue;
+
+                    try {
+                        const data = JSON.parse(dataLine.slice(6));
+
+                        if (data.type === 'transcription') {
+                            // Afficher la transcription immédiatement
+                            setMessages(prev => prev.map(m =>
+                                m.id === messageId ? { ...m, transcription: data.text } : m
+                            ));
+                        } else if (data.type === 'translation') {
+                            // Afficher la traduction et lancer le TTS
+                            setMessages(prev => prev.map(m =>
+                                m.id === messageId ? { ...m, translation: data.text, isStreaming: false } : m
+                            ));
+                            speakText(data.text, role === 'therapeut' ? patientLang.tts : 'fr-FR');
+                        } else if (data.type === 'error') {
+                            throw new Error(data.text);
+                        }
+                    } catch (parseErr) {
+                        // Ignorer les événements mal formés
+                        if (parseErr instanceof SyntaxError) continue;
+                        throw parseErr;
+                    }
+                }
+            }
+
+            // S'assurer que le message n'est plus en état streaming
+            setMessages(prev => prev.map(m =>
+                m.id === messageId ? { ...m, isStreaming: false } : m
+            ));
 
             return true;
 
         } catch (e) {
             console.error(e);
+            // Retirer le message streaming en cas d'erreur
+            setMessages(prev => prev.filter(m => m.id !== messageId || m.transcription));
             toast({
                 title: "Erreur",
                 description: "La traduction a échoué. L'audio a été conservé en brouillon.",
@@ -411,13 +461,31 @@ export default function BilingualRecorder({
                                         <span className="text-xs uppercase tracking-widest text-[#8c7b6c] mb-1">
                                             {msg.sender === 'therapeut' ? 'Vous (FR)' : `Patient (${msg.patientLangCode.substring(0, 3).toUpperCase()})`}
                                         </span>
-                                        <div className={`max-w-[85%] p-4 rounded-2xl ${msg.sender === 'therapeut' ? 'bg-[#4a3f35] text-[#fdfbf6] rounded-tr-sm' : 'bg-[#e8dfd5] text-[#4a3f35] rounded-tl-sm'}`}>
-                                            <p className="text-sm opacity-80 italic mb-2">&quot;{msg.transcription}&quot;</p>
-                                            <div className="w-full h-px bg-current opacity-20 mb-2"></div>
-                                            <p className="text-lg font-medium flex items-start gap-2">
-                                                <Volume2 className="w-5 h-5 shrink-0 mt-0.5 opacity-70" onClick={() => speakText(msg.translation, msg.sender === 'therapeut' ? msg.patientLangTts : 'fr-FR')} style={{ cursor: 'pointer' }} />
-                                                {msg.translation}
-                                            </p>
+                                        <div className={`max-w-[85%] p-4 rounded-2xl transition-all duration-300 ${msg.sender === 'therapeut' ? 'bg-[#4a3f35] text-[#fdfbf6] rounded-tr-sm' : 'bg-[#e8dfd5] text-[#4a3f35] rounded-tl-sm'}`}>
+                                            {msg.transcription ? (
+                                                <p className="text-sm opacity-80 italic mb-2">&quot;{msg.transcription}&quot;</p>
+                                            ) : msg.isStreaming ? (
+                                                <p className="text-sm opacity-50 italic mb-2 flex items-center gap-2">
+                                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                                    Écoute en cours…
+                                                </p>
+                                            ) : null}
+                                            {(msg.transcription || msg.translation) && <div className="w-full h-px bg-current opacity-20 mb-2"></div>}
+                                            {msg.isStreaming && msg.transcription && !msg.translation ? (
+                                                <p className="text-sm opacity-50 flex items-center gap-2">
+                                                    <span className="inline-flex gap-0.5">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                                                    </span>
+                                                    Traduction…
+                                                </p>
+                                            ) : msg.translation ? (
+                                                <p className="text-lg font-medium flex items-start gap-2">
+                                                    <Volume2 className="w-5 h-5 shrink-0 mt-0.5 opacity-70" onClick={() => speakText(msg.translation, msg.sender === 'therapeut' ? msg.patientLangTts : 'fr-FR')} style={{ cursor: 'pointer' }} />
+                                                    {msg.translation}
+                                                </p>
+                                            ) : null}
                                         </div>
                                     </div>
                                 ))}
