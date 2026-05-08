@@ -482,8 +482,14 @@ export default function BilingualRecorder({
         });
 
         try {
-            // Format transcript
-            const fullTranscript = messages.map(m =>
+            // Format transcript — only include messages with actual content
+            const validMessages = messages.filter(m => m.transcription || m.translation);
+            if (validMessages.length === 0) {
+                toast({ title: "Aucun contenu", description: "Aucune transcription à analyser.", variant: "destructive" });
+                setIsAnalyzing(false);
+                return;
+            }
+            const fullTranscript = validMessages.map(m =>
                 `${m.sender === 'therapeut' ? '**Thérapeute :**' : '**Patient :**'} ${m.transcription}\n(Traduit: ${m.translation})`
             ).join('\n\n');
 
@@ -691,7 +697,7 @@ export default function BilingualRecorder({
             {messages.length > 0 && (
                 <Button
                     onClick={synthesizeConsultation}
-                    disabled={isAnalyzing || isRecording || isTranslating}
+                    disabled={isAnalyzing || isRecording || isTranslating || isConnected || isConnecting}
                     className="w-full py-6 text-xl font-bebas tracking-widest bg-[#bd613c] hover:bg-[#a05232] text-white transition-all duration-300 shadow-xl"
                 >
                     {isAnalyzing ? (
