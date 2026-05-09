@@ -46,14 +46,8 @@ export function useRealtime() {
             audioElRef.current = audioEl;
             pc.ontrack = (e) => { audioEl.srcObject = e.streams[0]; };
 
-            // 4. Add microphone with echo cancellation
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                audio: { 
-                    echoCancellation: true, 
-                    noiseSuppression: true, 
-                    autoGainControl: true 
-                } 
-            });
+            // 4. Add microphone
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             micStreamRef.current = stream;
             stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
