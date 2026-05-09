@@ -62,7 +62,7 @@ Règles strictes :
                 model: "gpt-4o-realtime-preview",
                 modalities: ["audio", "text"],
                 instructions,
-                voice: "alloy",
+                voice: "echo",
                 input_audio_transcription: {
                     model: "whisper-1",
                 },
