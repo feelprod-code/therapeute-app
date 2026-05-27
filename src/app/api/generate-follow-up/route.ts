@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import { NextResponse } from 'next/server';
 
 export const maxDuration = 800; // 15 minutes instead of 5
@@ -58,6 +58,17 @@ Va droit au but, sois très précis et visuel. Ne fais aucune introduction de ty
             ],
             config: {
                 systemInstruction: "Tu retournes uniquement du JSON.",
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        content: {
+                            type: Type.STRING,
+                            description: "La note de suivi formatée en Markdown"
+                        }
+                    },
+                    required: ["content"]
+                }
             }
         });
 

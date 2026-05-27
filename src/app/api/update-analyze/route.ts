@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import { NextResponse } from 'next/server';
 import os from 'os';
 import path from 'path';
@@ -156,6 +156,21 @@ Format JSON attendu EXACTEMENT COMME CECI UNIQUEMENT :
             contents: parts,
             config: {
                 systemInstruction: "Tu retournes uniquement du JSON strict contenant les propriétés 'patientName' et 'synthese'.",
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        patientName: {
+                            type: Type.STRING,
+                            description: "Nom et Prénom du patient (conservé, ajouté ou corrigé)"
+                        },
+                        synthese: {
+                            type: Type.STRING,
+                            description: "La nouvelle synthèse médicale mise à jour et unifiée en Markdown."
+                        }
+                    },
+                    required: ["patientName", "synthese"]
+                }
             }
         });
 

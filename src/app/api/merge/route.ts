@@ -1,5 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import { NextResponse } from 'next/server';
 
 export const maxDuration = 800; // 15 minutes max duration
@@ -83,6 +82,25 @@ Règles impératives pour la nouvelle "synthese" :
             ],
             config: {
                 systemInstruction: "Tu retournes uniquement du JSON sans balises Markdown autour du bloc principal.",
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        patientName: {
+                            type: Type.STRING,
+                            description: "Le Nom et Prénom du patient (Garde celui du Bilan Principal s'il existe)."
+                        },
+                        resume: {
+                            type: Type.STRING,
+                            description: "Un TOUT NOUVEAU résumé narratif en 3 à 5 phrases maximum, sous forme d'un paragraphe continu unique."
+                        },
+                        synthese: {
+                            type: Type.STRING,
+                            description: "Une TOUTE NOUVELLE synthèse médicale au format Markdown, fusionnant parfaitement l'ensemble des informations."
+                        }
+                    },
+                    required: ["patientName", "resume", "synthese"]
+                }
             }
         });
 
@@ -101,9 +119,9 @@ Règles impératives pour la nouvelle "synthese" :
         console.log("[API Merge] Fusion réussie.");
 
         return NextResponse.json(jsonResult);
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("[API Merge] Erreur complète :", error);
-        let errorMessage = error.message || "Erreur interne serveur lors de la fusion.";
+        let errorMessage = error instanceof Error ? error.message : "Erreur interne serveur lors de la fusion.";
 
         // Friendly translation of Gemini errors
         if (errorMessage.includes("503") || errorMessage.toLowerCase().includes("overloaded")) {
@@ -116,7 +134,7 @@ Règles impératives pour la nouvelle "synthese" :
                 } else if (parsed.error && parsed.error.message) {
                     errorMessage = parsed.error.message;
                 }
-            } catch (e) {
+            } catch {
                 // Ignore parse errors
             }
         }

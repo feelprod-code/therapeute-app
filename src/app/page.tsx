@@ -328,7 +328,8 @@ function Home() {
 
       setAttachedFiles([]); // On vide les fichiers après succès
 
-      // Cleanup: on supprime les fichiers lourds (audio, pdf, doc) pour économiser l'espace Supabase
+      // Conservation des fichiers dans le stockage Supabase (désactivation du cleanup pour permettre la lecture et la fusion)
+      /*
       const filesToDelete = [audioFileName];
       if (uploadedAttachedFiles.length > 0) {
         filesToDelete.push(...uploadedAttachedFiles.filter(f => !f.mimeType.startsWith('image/')).map(f => f.fileName));
@@ -339,6 +340,7 @@ function Home() {
       } catch (e) {
         console.error("Erreur suppression fichiers:", e);
       }
+      */
 
       toast({
         title: "Bilan terminé",
@@ -446,12 +448,12 @@ function Home() {
 
       if (!pathToDownload) {
         // Fallback: search the bucket
-        const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { search: consult.id, limit: 1000 });
+        const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { limit: 1000 });
         if (listError || !listData || listData.length === 0) {
           throw new Error("Fichier introuvable sur le cloud.");
         }
-        // Chercher spécifiquement le fichier audio initial (exclure les addendums)
-        const audioFile = listData.find(f => f.name.startsWith('audio_') && !f.name.startsWith('audio_addendum_'));
+        // Chercher spécifiquement le fichier audio initial lié à cette consultation (exclure les addendums)
+        const audioFile = listData.find(f => f.name.includes(consult.id) && f.name.startsWith('audio_') && !f.name.startsWith('audio_addendum_'));
         if (!audioFile) {
           throw new Error("Aucun fichier audio initial trouvé pour ce bilan.");
         }
@@ -490,21 +492,23 @@ function Home() {
       const { data } = await supabase.from('consultations').select('audio_path').eq('id', consult.id).maybeSingle();
       let pathToAnalyze = data?.audio_path;
 
-      const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { search: consult.id, limit: 1000 });
+      const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { limit: 1000 });
       const uploadedAttachedFiles: { fileName: string, mimeType: string }[] = [];
 
       if (!listError && listData) {
         // Fallback pour trouver l'audio initial si pas en base
         if (!pathToAnalyze) {
-          const initialAudio = listData.find(f => f.name.startsWith('audio_') && !f.name.startsWith('audio_addendum_'));
+          const initialAudio = listData.find(f => f.name.includes(consult.id) && f.name.startsWith('audio_') && !f.name.startsWith('audio_addendum_'));
           if (initialAudio) pathToAnalyze = initialAudio.name;
         }
 
-        // Trouver TOUS les autres documents: doc_, txt_addendum_, audio_addendum_
+        // Trouver TOUS les autres documents liés à cette consultation: doc_, txt_addendum_, audio_addendum_
         const additionalFiles = listData.filter(f =>
-          f.name.startsWith('doc_') ||
-          f.name.startsWith('txt_addendum_') ||
-          f.name.startsWith('audio_addendum_')
+          f.name.includes(consult.id) && (
+            f.name.startsWith('doc_') ||
+            f.name.startsWith('txt_addendum_') ||
+            f.name.startsWith('audio_addendum_')
+          )
         );
 
         for (const file of additionalFiles) {
@@ -617,6 +621,76 @@ function Home() {
         const targetConsult = consultations?.find(c => c.id === targetConsultationId);
         if (!targetConsult) throw new Error("Consultation cible introuvable");
 
+        // 1. Lister et copier les fichiers de stockage de la source
+        const { data: allFiles, error: listError } = await supabase.storage.from('tdt_uploads').list('', { limit: 1000 });
+        const sourceFiles = allFiles ? allFiles.filter(f => f.name.includes(consult.id)) : [];
+        
+        let primaryAudioCopiedUrl = null;
+        const copiedFileNames: { old: string; new: string }[] = [];
+
+        for (const file of sourceFiles) {
+          const oldName = file.name;
+          let newName = oldName.replace(consult.id, targetConsult.id);
+          
+          // Si c'est l'audio principal de la source, on le renomme en audio de suivi (addendum) pour la cible
+          if (oldName.startsWith('audio_') && !oldName.startsWith('audio_addendum_')) {
+            newName = oldName.replace('audio_', 'audio_addendum_').replace(consult.id, targetConsult.id);
+            primaryAudioCopiedUrl = newName;
+          }
+
+          console.log(`Copying ${oldName} to ${newName}`);
+          const { error: copyError } = await supabase.storage.from('tdt_uploads').copy(oldName, newName);
+          if (!copyError) {
+            copiedFileNames.push({ old: oldName, new: newName });
+          } else {
+            console.error(`Error copying ${oldName} to ${newName}:`, copyError);
+          }
+        }
+
+        // 2. Préparer les follow-ups fusionnés
+        // Mettre à jour les URLs des follow_ups de la source avec leurs nouveaux noms contenant le targetId
+        const sourceFollowUps = (consult.follow_ups || []).map((f: any) => {
+          let updatedUrl = f.url;
+          if (f.url) {
+            // Remplacer l'ancien ID par le nouveau
+            updatedUrl = f.url.replace(consult.id, targetConsult.id);
+          }
+          return {
+            ...f,
+            url: updatedUrl
+          };
+        });
+
+        // Si la source avait un audio principal (ou si on a copié un fichier audio principal)
+        // on crée un follow-up audio spécifique
+        if (primaryAudioCopiedUrl) {
+          const audioFollowUp = {
+            id: crypto.randomUUID(),
+            date: consult.date ? new Date(consult.date).toISOString() : new Date().toISOString(),
+            type: 'audio',
+            url: primaryAudioCopiedUrl,
+            content: consult.synthese || consult.resume || 'Audio de suivi (fusion)',
+            transcription: consult.transcription || ""
+          };
+          sourceFollowUps.push(audioFollowUp);
+        }
+
+        // Si on est en mode 'suivi' et qu'il n'y avait pas d'audio principal (donc pas d'audioFollowUp créé),
+        // ou si on veut quand même ajouter la note de fusion textuelle classique
+        if (mode === 'suivi' && !primaryAudioCopiedUrl) {
+          const textFollowUp = {
+            id: crypto.randomUUID(),
+            date: new Date().toISOString(),
+            content: consult.synthese || consult.transcription || "Note fusionnée",
+            transcription: consult.transcription || ""
+          };
+          sourceFollowUps.push(textFollowUp);
+        }
+
+        const currentFollowUps = targetConsult.follow_ups || [];
+        // Concaténer les follow-ups de la source (avec les nouveaux noms) et ceux de la cible
+        const updatedFollowUps = [...sourceFollowUps, ...currentFollowUps];
+
         if (mode === 'bilan') {
           toast({ title: "Fusion en cours...", description: "L'IA fusionne intelligemment les deux dossiers. Cela peut prendre quelques instants." });
 
@@ -648,23 +722,14 @@ function Home() {
             synthese: result.synthese,
             transcription: result.transcription,
             resume: result.resume,
-            patient_name: result.patientName || targetConsult.patientName || targetConsult.patient_name
+            patient_name: result.patientName || targetConsult.patientName || targetConsult.patient_name,
+            follow_ups: updatedFollowUps
           }).eq('id', targetConsult.id);
 
           if (updateError) throw updateError;
         } else {
           // Suivi Mode
           toast({ title: "Ajout au suivi...", description: "Transfert des informations dans le suivi du patient..." });
-
-          const newFollowUp = {
-            id: crypto.randomUUID(),
-            date: new Date().toISOString(),
-            content: consult.synthese || consult.transcription || "Note fusionnée",
-            transcription: consult.transcription || ""
-          };
-
-          const currentFollowUps = targetConsult.follow_ups || [];
-          const updatedFollowUps = [newFollowUp, ...currentFollowUps];
 
           // 1. Mettre à jour la cible (uniquement les follow_ups)
           const { error: updateError } = await supabase.from('consultations').update({
@@ -674,16 +739,44 @@ function Home() {
           if (updateError) throw updateError;
         }
 
-        // 2. Supprimer la source
+        // 3. Supprimer la source
         const { error: deleteError } = await supabase.from('consultations').delete().eq('id', consult.id);
 
         if (deleteError) throw deleteError;
+
+        // 4. Supprimer les fichiers physiques de la source dans le stockage après copie réussie
+        if (copiedFileNames.length > 0) {
+          const filesToDelete = copiedFileNames.map(f => f.old);
+          const { error: removeError } = await supabase.storage.from('tdt_uploads').remove(filesToDelete);
+          if (removeError) {
+            console.error("Error removing old files from storage:", removeError);
+          }
+        }
 
         toast({ title: "Fusion réussie", description: "Le dossier a été transféré avec succès." });
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (err: any) {
         console.error(err);
         toast({ title: "Erreur", description: err.message || "Impossible de fusionner.", variant: "destructive" });
+      } finally {
+        setIsAppending(false);
+      }
+
+    const handleAssignPatient = async (patient: any) => {
+      if (!patient) return;
+      setIsAppending(true);
+      try {
+        const { error } = await supabase.from('consultations').update({
+          patient_id: patient.id,
+          patient_name: `${patient.first_name} ${patient.last_name}`
+        }).eq('id', consult.id);
+
+        if (error) throw error;
+        toast({ title: "Patient associé", description: "Le dossier a été associé avec succès." });
+        setIsPatientModalOpen(false);
+      } catch (err: any) {
+        console.error(err);
+        toast({ title: "Erreur", description: err.message || "Impossible d'associer le patient.", variant: "destructive" });
       } finally {
         setIsAppending(false);
       }
@@ -1047,7 +1140,7 @@ function Home() {
                     <label className="cursor-pointer flex flex-col items-center justify-center w-64 h-32 border-2 border-dashed border-[#bd613c]/40 rounded-xl bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors">
                       <Paperclip className="w-8 h-8 text-[#bd613c] mb-2" />
                       <span className="font-medium text-[#bd613c]">Sélectionner un fichier</span>
-                      <input type="file" className="hidden" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" onChange={(e) => {
+                      <input type="file" className="hidden" accept="image/*,application/pdf" onChange={(e) => {
                         if (e.target.files && e.target.files.length > 0) {
                           handleRecordingComplete(e.target.files[0]);
                           e.target.value = ''; // reset

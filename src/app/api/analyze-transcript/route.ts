@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
@@ -160,6 +160,29 @@ Voici le transcript exact de la conversation bilingue :
             contents: parts,
             config: {
                 systemInstruction: "Tu retournes uniquement du JSON.",
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        patientName: {
+                            type: Type.STRING,
+                            description: "Nom et Prénom trouvés (ou chaîne vide si aucun)"
+                        },
+                        transcription: {
+                            type: Type.STRING,
+                            description: "Ne change rien, renvoie simplement le texte qu'on t'a donné"
+                        },
+                        resume: {
+                            type: Type.STRING,
+                            description: "Un résumé narratif en 3 à 5 phrases, sous forme d'un paragraphe continu unique."
+                        },
+                        synthese: {
+                            type: Type.STRING,
+                            description: "La synthèse médicale formatée en Markdown"
+                        }
+                    },
+                    required: ["patientName", "transcription", "resume", "synthese"]
+                }
             }
         });
 
