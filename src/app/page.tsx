@@ -761,25 +761,6 @@ function Home() {
       } finally {
         setIsAppending(false);
       }
-
-    const handleAssignPatient = async (patient: any) => {
-      if (!patient) return;
-      setIsAppending(true);
-      try {
-        const { error } = await supabase.from('consultations').update({
-          patient_id: patient.id,
-          patient_name: `${patient.first_name} ${patient.last_name}`
-        }).eq('id', consult.id);
-
-        if (error) throw error;
-        toast({ title: "Patient associé", description: "Le dossier a été associé avec succès." });
-        setIsPatientModalOpen(false);
-      } catch (err: any) {
-        console.error(err);
-        toast({ title: "Erreur", description: err.message || "Impossible d'associer le patient.", variant: "destructive" });
-      } finally {
-        setIsAppending(false);
-      }
     };
 
     const handleAppendRecording = async (audioBlob: Blob): Promise<boolean> => {
