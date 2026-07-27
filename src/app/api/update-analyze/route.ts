@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { GoogleGenAI, Type } from '@google/genai';
 import { NextResponse } from 'next/server';
+import { ensureLastNameFirst } from '@/lib/utils';
 import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
@@ -157,6 +158,7 @@ Format JSON attendu EXACTEMENT COMME CECI UNIQUEMENT :
             config: {
                 systemInstruction: "Tu retournes uniquement du JSON strict contenant les propriétés 'patientName' et 'synthese'.",
                 responseMimeType: 'application/json',
+                maxOutputTokens: 8192,
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
@@ -190,7 +192,7 @@ Format JSON attendu EXACTEMENT COMME CECI UNIQUEMENT :
         }
 
         return NextResponse.json({
-            patientName: jsonResult.patientName,
+            patientName: ensureLastNameFirst(jsonResult.patientName),
             synthese: jsonResult.synthese,
             transcription: finaleTranscription
         });

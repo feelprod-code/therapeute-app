@@ -10,9 +10,10 @@ import { compressAudio } from '@/lib/compress-audio';
 import { supabase, SupabaseConsultation } from "@/lib/supabaseClient";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Copy, Plus, Trash2, ArrowRight, Loader2, RefreshCw, FileText, Check, MessageSquare, ListTodo, MoreHorizontal, Merge, Search, Mic, Type, FileUp, X as XIcon, CalendarDays, Folder as FolderIcon, ChevronDown, Combine, Paperclip, Image as ImageIcon, X, Download, Square } from "lucide-react";
+import { Copy, Plus, Trash2, ArrowRight, Loader2, RefreshCw, FileText, Check, MessageSquare, ListTodo, MoreHorizontal, Merge, Search, Mic, Type, FileUp, X as XIcon, CalendarDays, Folder as FolderIcon, ChevronDown, Combine, Paperclip, Image as ImageIcon, X, Download, Square, ArrowLeftRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
+import { swapFirstLastName } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
@@ -90,6 +91,41 @@ function Folder({ title, defaultOpen = false, children }: { title: React.ReactNo
       </div>
     </details>
   );
+}
+
+function extractLastName(fullName: string): string {
+  if (!fullName) return "";
+  const cleanName = fullName.trim();
+  const words = cleanName.split(/\s+/).filter(w => w.length > 0);
+  if (words.length === 0) return "";
+  if (words.length === 1) return words[0];
+
+  const uppercaseWords = words.filter(w => {
+    const cleanWord = w.replace(/[^a-zA-ZÀ-ÖØ-öø-ÿ]/g, '');
+    return cleanWord.length > 1 && cleanWord === cleanWord.toUpperCase();
+  });
+
+  if (uppercaseWords.length > 0) {
+    return uppercaseWords.join(" ");
+  }
+
+  return words[words.length - 1];
+}
+
+function extractFirstName(fullName: string, lastName: string): string {
+  if (!fullName) return "";
+  if (!lastName) return fullName;
+  const escapedLastName = lastName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+  const regex = new RegExp(`\\b${escapedLastName}\\b`, 'gi');
+  const firstName = fullName.replace(regex, '').trim();
+  return firstName.replace(/^[,\s-]+|[,\s-]+$/g, '').replace(/\s+/g, ' ') || fullName;
+}
+
+function getClassificationLetter(fullName: string): string {
+  const lastName = extractLastName(fullName);
+  if (!lastName) return "";
+  const firstChar = lastName.trim().charAt(0);
+  return firstChar.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
 }
 
 function Home() {
@@ -479,6 +515,33 @@ function Home() {
     }
   };
 
+  const handleSwapPatientName = async (consult: SupabaseConsultation) => {
+    const currentName = consult.patientName || consult.patient_name || "";
+    if (!currentName || currentName.trim() === "") return;
+    const newName = swapFirstLastName(currentName);
+
+    try {
+      const { error } = await supabase
+        .from('consultations')
+        .update({ patient_name: newName })
+        .eq('id', consult.id);
+
+      if (error) throw error;
+
+      setConsultations(prev => (prev || []).map(c => c.id === consult.id ? { ...c, patientName: newName, patient_name: newName } : c));
+      toast({
+        title: "Nom et Prénom inversés",
+        description: `Nouveau nom : ${newName}`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "Erreur lors de l'inversion",
+        description: err?.message || "Impossible de mettre à jour le nom.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const retryAnalysis = async (consult: SupabaseConsultation) => {
     if (!consult.id) return;
 
@@ -600,9 +663,21 @@ function Home() {
 
   const sortByDate = [...filteredConsultations].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   const sortByName = [...filteredConsultations].sort((a, b) => {
-    const nameA = a.patientName || a.patient_name || `Patient #${a.id}`;
-    const nameB = b.patientName || b.patient_name || `Patient #${b.id}`;
-    return nameA.localeCompare(nameB);
+    const rawNameA = a.patientName || a.patient_name || "";
+    const rawNameB = b.patientName || b.patient_name || "";
+    
+    if (!rawNameA && !rawNameB) return 0;
+    if (!rawNameA) return 1;
+    if (!rawNameB) return -1;
+
+    const lastNameA = extractLastName(rawNameA);
+    const lastNameB = extractLastName(rawNameB);
+    const comp = lastNameA.localeCompare(lastNameB, 'fr', { sensitivity: 'base' });
+    if (comp !== 0) return comp;
+
+    const firstNameA = extractFirstName(rawNameA, lastNameA);
+    const firstNameB = extractFirstName(rawNameB, lastNameB);
+    return firstNameA.localeCompare(firstNameB, 'fr', { sensitivity: 'base' });
   });
 
   const ConsultationCard = ({ consult }: { consult: SupabaseConsultation }) => {
@@ -895,9 +970,20 @@ function Home() {
         )}
         <div className="flex flex-row items-center justify-between p-4 sm:p-5 gap-2 sm:gap-4">
           <div className="flex-1 min-w-0 pr-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h3 className="text-lg sm:text-xl font-bebas tracking-wide text-[#594c42] font-medium uppercase leading-tight">
-              {consult.patientName || `Patient #${consult.id}`}
-            </h3>
+            <div className="flex items-center gap-1.5">
+              <h3 className="text-lg sm:text-xl font-bebas tracking-wide text-[#594c42] font-medium uppercase leading-tight">
+                {consult.patientName || `Patient #${consult.id}`}
+              </h3>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => handleSwapPatientName(consult)}
+                className="h-6 w-6 text-slate-400 hover:text-[#bd613c] hover:bg-[#ebd9c8]/30 rounded-full transition-colors shrink-0"
+                title="Inverser Nom et Prénom"
+              >
+                <ArrowLeftRight className="w-3.5 h-3.5" />
+              </Button>
+            </div>
             <div className="flex flex-row items-center gap-2 text-[10px] sm:text-[11px] text-[#4a3f35]/80 shrink-0">
               <span className="font-medium whitespace-nowrap">
                 {format(new Date(consult.date), "dd/MM/yy '•' HH:mm", { locale: fr })}
@@ -1040,6 +1126,10 @@ function Home() {
                         <span className="font-medium">Fusionner le dossier</span>
                       </DropdownMenuItem>
                     )}
+                    <DropdownMenuItem onClick={() => handleSwapPatientName(consult)} className="cursor-pointer gap-2 text-[#4a3f35] py-2.5 focus:bg-[#ebd9c8]/20 transition-colors">
+                      <ArrowLeftRight className="w-4 h-4 text-[#bd613c]" />
+                      <span className="font-medium">Inverser Nom / Prénom</span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setIsDeleteModalOpen(true)} className="cursor-pointer gap-2 text-red-600 focus:bg-red-50 focus:text-red-700 py-2.5 transition-colors mt-1 border-t border-slate-100">
                       <Trash2 className="w-4 h-4" />
                       <span className="font-medium">Supprimer</span>
@@ -1263,7 +1353,7 @@ function Home() {
                       // Optionally check if we have any patients starting with this letter to style differently (optional but good UI)
                       const hasPatients = sortByName?.some(c => {
                         const n = c.patientName || c.patient_name || "";
-                        return n.charAt(0).toUpperCase() === letter;
+                        return getClassificationLetter(n) === letter;
                       });
 
                       return (
@@ -1291,7 +1381,7 @@ function Home() {
 
                     const filteredByName = sortByName.filter(consult => {
                       const name = consult.patientName || consult.patient_name || "";
-                      return name.charAt(0).toUpperCase() === selectedLetter;
+                      return getClassificationLetter(name) === selectedLetter;
                     });
 
                     if (filteredByName.length === 0) {

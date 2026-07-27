@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon, Trash2, Square, ExternalLink } from "lucide-react";
+import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon, Trash2, Square, ExternalLink, ArrowLeftRight } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import ReactMarkdown from "react-markdown";
@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { AudioRecorder } from "@/components/AudioRecorder";
 import { useToast } from "@/hooks/use-toast";
 import imageCompression from 'browser-image-compression';
+import { swapFirstLastName } from "@/lib/utils";
 
 export default function ConsultationDetail() {
   const params = useParams();
@@ -273,6 +274,27 @@ export default function ConsultationDetail() {
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleSwapName = async () => {
+    const currentName = data?.patient_name || data?.patientName || editName || "";
+    if (!currentName.trim()) return;
+    const newName = swapFirstLastName(currentName);
+    setEditName(newName);
+
+    try {
+      const { error } = await supabase.from("consultations").update({ patient_name: newName }).eq("id", params.id);
+      if (!error) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setData((prev: any) => ({ ...prev, patient_name: newName }));
+        toast({ title: "Nom et Prénom inversés", description: `Nouveau nom : ${newName}` });
+      } else {
+        throw error;
+      }
+    } catch (e: any) {
+      console.error(e);
+      toast({ title: "Erreur", description: "Impossible d'inverser le nom.", variant: "destructive" });
     }
   };
 
@@ -1043,6 +1065,15 @@ export default function ConsultationDetail() {
                         className="font-bebas text-3xl sm:text-4xl text-[#594c42] tracking-wide uppercase bg-transparent border-b-2 border-[#594c42] focus:outline-none w-full max-w-sm"
                         autoFocus
                       />
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-[#bd613c] hover:bg-[#ebd9c8]/30 shrink-0"
+                        onClick={() => setEditName(swapFirstLastName(editName))}
+                        title="Inverser Nom et Prénom"
+                      >
+                        <ArrowLeftRight className="w-5 h-5" />
+                      </Button>
                       <Button size="icon" variant="ghost" className="text-green-600 hover:bg-green-50" onClick={handleSaveName}>
                         <Check className="w-5 h-5" />
                       </Button>
@@ -1059,6 +1090,15 @@ export default function ConsultationDetail() {
                       >
                         {data.patient_name || data.patientName || `Patient #${data.id}`}
                       </h1>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-[#bd613c] hover:bg-[#ebd9c8]/30 h-8 w-8 rounded-full print:hidden shrink-0"
+                        onClick={handleSwapName}
+                        title="Inverser Nom et Prénom"
+                      >
+                        <ArrowLeftRight className="w-4 h-4" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"

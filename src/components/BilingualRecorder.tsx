@@ -250,7 +250,13 @@ export default function BilingualRecorder({
                 streamRef.current.getTracks().forEach(track => track.stop());
             }
 
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
             streamRef.current = stream;
 
             // Safari iOS fallback logic
@@ -391,8 +397,13 @@ export default function BilingualRecorder({
                             setMessages(prev => prev.map(m =>
                                 m.id === messageId ? { ...m, transcription: data.text } : m
                             ));
+                        } else if (data.type === 'translation_chunk') {
+                            // Afficher la traduction progressive en temps réel sans déclencher de TTS
+                            setMessages(prev => prev.map(m =>
+                                m.id === messageId ? { ...m, translation: data.text } : m
+                            ));
                         } else if (data.type === 'translation') {
-                            // Afficher la traduction et lancer le TTS
+                            // Afficher la traduction finale et lancer le TTS
                             setMessages(prev => prev.map(m =>
                                 m.id === messageId ? { ...m, translation: data.text, isStreaming: false } : m
                             ));

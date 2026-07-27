@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenAI, Type } from '@google/genai';
+import { ensureLastNameFirst } from '@/lib/utils';
 import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
@@ -161,6 +162,7 @@ Voici le transcript exact de la conversation bilingue :
             config: {
                 systemInstruction: "Tu retournes uniquement du JSON.",
                 responseMimeType: 'application/json',
+                maxOutputTokens: 8192,
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
@@ -200,6 +202,10 @@ Voici le transcript exact de la conversation bilingue :
         } catch {
             console.error("[API analyze-transcript] Erreur de parsing JSON du retour IA. Brut:", output);
             return NextResponse.json({ error: "Erreur de formatage de l'IA." }, { status: 500 });
+        }
+
+        if (jsonResult.patientName) {
+            jsonResult.patientName = ensureLastNameFirst(jsonResult.patientName);
         }
 
         return NextResponse.json(jsonResult);

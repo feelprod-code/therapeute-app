@@ -6,6 +6,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { ensureLastNameFirst } from '@/lib/utils';
 
 const execAsync = promisify(exec);
 
@@ -174,6 +175,8 @@ export async function POST(req: Request) {
         // 1. Process Audio File (if present)
         const parts: Array<{ text?: string; inlineData?: { data: string; mimeType: string }, fileData?: { fileUri: string, mimeType: string } }> = [];
         const allUploads: { uri: string, mimeType: string, name: string }[] = [];
+        const uploadedDocs: { uri: string, mimeType: string, name: string, cleanName: string }[] = [];
+        const textFilesContent: { cleanName: string, text: string }[] = [];
 
         const uploadToGemini = async (buffer: Buffer, originalName: string, defaultMime: string) => {
             let ext = '';
@@ -208,6 +211,9 @@ export async function POST(req: Request) {
             return { uri: uploadResult.uri, mimeType: defaultMime || 'application/octet-stream', name: uploadResult.name };
         };
 
+        let finalMimeType = '';
+        let processedAudioBuffer: Buffer = Buffer.alloc(0);
+
         if (audioFile && audioFile.fileName) {
             console.log(`[API] Récupération de l'audio depuis Supabase: ${audioFile.fileName}`);
             storageFilesToDelete.push(audioFile.fileName);
@@ -221,7 +227,7 @@ export async function POST(req: Request) {
             const audioBuffer = Buffer.from(audioArrayBuffer);
 
             // Inférence robuste du MIME type depuis l'extension si non fourni ou forcé erroné
-            let finalMimeType = audioFile.mimeType;
+            finalMimeType = audioFile.mimeType;
             if (finalMimeType) {
                 // Retire les paramètres additionnels (ex: ;codecs=opus) qui font planter Gemini
                 finalMimeType = finalMimeType.split(';')[0].trim();
@@ -245,7 +251,7 @@ export async function POST(req: Request) {
                 finalMimeType = 'video/mp4';
             }
 
-            let processedAudioBuffer = audioBuffer;
+            processedAudioBuffer = audioBuffer;
             if (!finalMimeType.startsWith('text/')) {
                 processedAudioBuffer = await fixAudioBufferWithFfmpeg(audioBuffer, finalMimeType);
             }
@@ -299,13 +305,22 @@ export async function POST(req: Request) {
 
                 if (fMimeType.startsWith('text/')) {
                     console.log(`[API] Document texte joint prêt en mémoire: ${f.fileName}`);
+                    const textContent = processedFBuffer.toString('utf-8');
                     parts.push({
-                        text: `\n\n--- Document texte joint (${f.fileName}) ---\n${processedFBuffer.toString('utf-8')}\n--- Fin du document ---\n`
+                        text: `\n\n--- Document texte joint (${f.fileName}) ---\n${textContent}\n--- Fin du document ---\n`
+                    });
+                    textFilesContent.push({
+                        cleanName: cleanFileName(f.fileName),
+                        text: textContent
                     });
                 } else {
                     console.log(`[API] Upload du fichier attaché vers Gemini File API: ${f.fileName} (${fMimeType})`);
                     const uploaded = await uploadToGemini(processedFBuffer, f.fileName, fMimeType);
                     allUploads.push(uploaded);
+                    uploadedDocs.push({
+                        ...uploaded,
+                        cleanName: cleanFileName(f.fileName)
+                    });
                 }
             }
         }
@@ -355,6 +370,48 @@ export async function POST(req: Request) {
             });
         }
 
+        // Extraction de texte en parallèle pour tous les documents images/PDFs
+        let mergedDocTranscriptions = "";
+        
+        // 1. Ajouter le contenu des fichiers texte joints
+        textFilesContent.forEach(item => {
+            if (mergedDocTranscriptions) {
+                mergedDocTranscriptions += "\n\n---\n**Ajout d'information :**\n";
+            }
+            mergedDocTranscriptions += `--- Document joint (${item.cleanName}) ---\n${item.text}\n--- Fin du document ---`;
+        });
+
+        // 2. Extraire le texte des PDF et images en parallèle avec Gemini
+        if (uploadedDocs.length > 0) {
+            console.log(`[API] Infiltration d'extraction en parallèle de ${uploadedDocs.length} document(s)...`);
+            try {
+                const extractedTexts = await Promise.all(
+                    uploadedDocs.map(async (doc) => {
+                        console.log(`[API] Extraction du texte de : ${doc.cleanName}...`);
+                        const ocrResponse = await ai.models.generateContent({
+                            model: 'gemini-2.5-flash',
+                            contents: [
+                                { fileData: { fileUri: doc.uri, mimeType: doc.mimeType } },
+                                { text: "Extraits de manière exhaustive, structurée et détaillée tout le texte de ce document. Si le document comporte plusieurs pages, extrais absolument toutes les pages sans exception." }
+                            ]
+                        });
+                        return ocrResponse.text?.trim() || "";
+                    })
+                );
+
+                extractedTexts.forEach((ocrText) => {
+                    if (ocrText) {
+                        if (mergedDocTranscriptions) {
+                            mergedDocTranscriptions += "\n\n---\n**Ajout d'information :**\n";
+                        }
+                        mergedDocTranscriptions += ocrText;
+                    }
+                });
+            } catch (err) {
+                console.error("[API] Échec de l'extraction de texte en parallèle :", err);
+            }
+        }
+
         // --- 3. ANALYSE GEMINI (TEXTE + DOCUMENTS) ---
         const currentDate = new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -385,11 +442,11 @@ Ton objectif est de mettre à jour la synthèse PRÉCÉDENTE en FUSIONNANT de ma
 - INTERDICTION: NE CRÉE SURTOUT PAS EN BAS DE PAGE une section "Ajout d'informations" ou "Nouvelles informations". Le bilan doit rester un document unifié, écrit de façon fluide comme s'il avait été rédigé en une seule fois.
 - EXCEPTION (NOM DU PATIENT): Si les nouveaux documents/audios te permettent de découvrir le VRAI nom et prénom du patient (et que la synthèse précédente disait "Patient Anonyme" ou était incomplète), tu as l'OBLIGATION de le mettre à jour. N'oublie pas non plus de renseigner le champ "patientName" de ta réponse JSON.
 - EXCEPTION (DATE DE LA CONSULTATION): Si les nouvelles notes précisent la vraie date de la consultation (ex: "la première séance était le 12 octobre"), tu as l'OBLIGATION de la mettre à jour dans ton texte Markdown ET de renseigner cette date au format AAAA-MM-JJ dans la clé "consultationDate" du JSON.
-- Pour la transcription : Tu dois produire EXCLUSIVEMENT la retranscription/extraction des NOUVEAUX éléments fournis (nouveau vocal, texte, document). IL EST STRICTEMENT INTERDIT DE RECOPIER L'ANCIENNE TRANSCRIPTION, même partiellement. Le système les fusionnera lui-même. Si c'est un document (PDF ou image), extrais-en de manière exhaustive et structurée TOUT le texte clinique, les mesures, les résultats, les diagnostics et les observations qu'il contient pour qu'ils soient lisibles dans le suivi du patient.
+- Pour la transcription : Tu dois produire EXCLUSIVEMENT la retranscription/extraction de l'audio (nouveau vocal) si présent. IL EST STRICTEMENT INTERDIT DE RECOPIER L'ANCIENNE TRANSCRIPTION ni de transcrire les nouveaux documents PDF/images dans ce champ (la transcription des documents est déjà gérée et fusionnée directement par le serveur).
 - EXCEPTION (RÉSUMÉ) : IL EST ABSOLUMENT OBLIGATOIRE que la clé "resume" contienne un résumé GLOBAL de TOUT LE BILAN FINAL (c'est-à-dire le texte généré dans la clé "synthese"). Ne résume SURTOUT PAS seulement les ajouts ! Le résumé doit donner l'état complet du patient.
 `;
         } else {
-            contextInstruction = `\n- DOCUMENTS JOINTS: Si des documents (PDF, images, textes) te sont fournis, extrais-en de manière exhaustive toutes les informations cliniques utiles pour rédiger le bilan (ex: compte-rendu d'imagerie, biologie, mesures, observations) et place l'intégralité du texte extrait ou analysé dans la clé "transcription".`;
+            contextInstruction = `\n- DOCUMENTS JOINTS: Si des documents (PDF, images, textes) te sont fournis, analyse-les pour rédiger le bilan (motif, histoire, examens, ATCD), mais ne génère pas leur transcription textuelle dans la clé "transcription" (elle est extraite et gérée directement par le serveur).`;
         }
 
         const systemPrompt = `Tu es un assistant médical clinique expert. Ton rôle est d'analyser la transcription d'un interrogatoire patient (et/ou des documents) fourni et de produire un bilan.${contextInstruction}
@@ -397,15 +454,15 @@ Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme 
 {
   "patientName": "Nom et Prénom trouvés (ou chaîne vide si aucun)",
   "consultationDate": "Date trouvée dans le texte (ex: 2024-10-14). Si aucune date précise n'est mentionnée, renvoie null ou une chaîne vide.",
-  "transcription": "Pour un audio : Génère la retranscription EXACTE, LITTÉRALE (Verbatim) et INTÉGRALE de tout le dialogue. RÈGLE ABSOLUE : Tu ne dois AUCUNEMENT corriger la grammaire, ni supprimer les hésitations ('euh', 'ah', 'ben', répétitions). Retranscris CHAQUE MOT. Pour un document (PDF/Image) : extrais-en de manière exhaustive, structurée et détaillée TOUTES les informations cliniques, mesures et conclusions médicales sous forme de Markdown lisible et structuré.",
+  "transcription": "Pour un audio : Génère la retranscription EXACTE, LITTÉRALE (Verbatim) et INTÉGRALE de tout le dialogue. RÈGLE ABSOLUE : Retranscris CHAQUE MOT de l'audio. Pour les documents (PDF/Image) : laisse ce champ vide ou n'y mets que le texte de l'audio si présent (la transcription des documents est gérée par le serveur).",
   "resume": "Un résumé narratif GLOBAL en 3 à 5 phrases, synthétisant TOUT le document final complet généré dans 'synthese' (anciennes ET nouvelles informations). Sous forme d'un paragraphe continu unique (AUCUNE liste, AUCUN tiret, AUCUNE puce).",
   "synthese": "La synthèse médicale formatée en Markdown"
 }
 
 Règles impératives :
-1. "patientName" : Extrait le Prénom et le Nom du patient. S'il n'est pas mentionné, laisse cette chaîne vide "". NE METS SURTOUT PAS "Jean Dupont" ou un nom inventé !
+1. "patientName" : Extrait le NOM (en MAJUSCULES) suivi du Prénom (ex: "DUPONT Jean"). S'il n'est pas mentionné, laisse cette chaîne vide "". NE METS SURTOUT PAS "Jean Dupont" ou un nom inventé !
 2. "consultationDate" : Si le texte mentionne EXPLICITEMENT la date de la séance (ex: "bilan du 14 octobre", "vu le 12/03/2021"), extrait-la au format string ISO AAAA-MM-JJ. Si AUCUNE date n'est prononcée ou écrite dans les documents, tu DOIS IMPÉRATIVEMENT renvoyer une chaîne vide "". Ne déduis PAS la date et ne mets JAMAIS la date d'aujourd'hui par défaut dans ce champ JSON.
-3. "transcription" : Intégralité du texte brut ou du document extrait reçu en entrée. RÈGLE D'OR : Pour l'audio, mot pour mot (Verbatim), incluant les erreurs, faux-départs et hésitations. Pour les documents, extraction intégrale et structurée des données cliniques. (Pour une mise à jour, n'inclus QUE les nouveautés).
+3. "transcription" : Pour l'audio, retranscription mot pour mot (Verbatim) avec les hésitations. Pour les documents PDF/images, laisse ce champ vide ou n'y mets que l'audio (leur texte est géré directement par le serveur).
 4. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil. (En cas de mise à jour, ce résumé DOIT couvrir l'intégralité du bilan fusionné).
 5. "synthese" : Applique strictement la structure Markdown ci-dessous UNIQUEMENT si l'information est présente (ou fusionne à l'existant en intégrant naturellement les éléments sous forme de tirets dans les listes à puces) :
 
@@ -490,6 +547,7 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
             config: {
                 systemInstruction: systemPrompt,
                 responseMimeType: 'application/json',
+                maxOutputTokens: 8192,
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
@@ -503,7 +561,7 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
                         },
                         transcription: {
                             type: Type.STRING,
-                            description: "Retranscription EXACTE et LITTÉRALE de l'audio. S'il s'agit d'un document (PDF/Image), extraction exhaustive et structurée de l'intégralité du texte médical, des mesures, des analyses et des observations cliniques en Markdown."
+                            description: "Retranscription EXACTE et LITTÉRALE de l'audio si présent. La transcription des documents PDF/images est gérée directement par le serveur, ne l'inclus pas ici."
                         },
                         resume: {
                             type: Type.STRING,
@@ -553,12 +611,34 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
             }
         }
 
+        // Fusion de la transcription de l'audio avec celle des documents extraits sur le serveur
+        let finalTranscription = jsonResult.transcription || "";
+        
+        // Si c'est un document texte brut en guise d'audio principal
+        if (audioFile && audioFile.fileName && finalMimeType.startsWith('text/')) {
+            finalTranscription = processedAudioBuffer.toString('utf-8');
+        }
+
+        if (mergedDocTranscriptions) {
+            if (finalTranscription) {
+                finalTranscription += "\n\n---\n**Ajout d'information :**\n" + mergedDocTranscriptions;
+            } else {
+                finalTranscription = mergedDocTranscriptions;
+            }
+        }
+        
+        jsonResult.transcription = finalTranscription;
+
         if (isUpdate && previousContext?.transcription) {
             const separator = "\n\n---\n**Ajout d'information :**\n";
             jsonResult.transcription = previousContext.transcription + separator + (jsonResult.transcription || "");
         }
 
         // CLEANUP (Not needed anymore since we use inlineData!)
+
+        if (jsonResult.patientName) {
+            jsonResult.patientName = ensureLastNameFirst(jsonResult.patientName);
+        }
 
         return NextResponse.json(jsonResult);
 

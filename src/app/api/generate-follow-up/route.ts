@@ -59,6 +59,7 @@ Va droit au but, sois très précis et visuel. Ne fais aucune introduction de ty
             config: {
                 systemInstruction: "Tu retournes uniquement du JSON.",
                 responseMimeType: 'application/json',
+                maxOutputTokens: 8192,
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {

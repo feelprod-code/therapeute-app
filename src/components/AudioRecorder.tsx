@@ -192,7 +192,13 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                 streamRef.current.getTracks().forEach(track => track.stop());
             }
 
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
             streamRef.current = stream;
 
             // Safari iOS fallback logic

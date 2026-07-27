@@ -1,11 +1,22 @@
-import { clsx, type ClassValue } from "clsx"
-import { twMerge } from "tailwind-merge"
+import { createClient } from '@supabase/supabase-js';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, '../.env.local') });
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error("Erreur: Supabase URL ou Key manquant dans .env.local");
+  process.exit(1);
 }
 
-function extractLastName(fullName: string): string {
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+function extractLastName(fullName) {
   if (!fullName) return "";
   const cleanName = fullName.trim();
   const words = cleanName.split(/\s+/).filter(w => w.length > 0);
@@ -24,7 +35,7 @@ function extractLastName(fullName: string): string {
   return words[words.length - 1];
 }
 
-function extractFirstName(fullName: string, lastName: string): string {
+function extractFirstName(fullName, lastName) {
   if (!fullName) return "";
   if (!lastName) return fullName;
   const escapedLastName = lastName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
@@ -33,58 +44,10 @@ function extractFirstName(fullName: string, lastName: string): string {
   return firstName.replace(/^[,\s-]+|[,\s-]+$/g, '').replace(/\s+/g, ' ') || fullName;
 }
 
-export function swapFirstLastName(fullName: string): string {
-  if (!fullName) return "";
-  const trimmed = fullName.trim();
-  const words = trimmed.split(/\s+/).filter(w => w.length > 0);
-  if (words.length <= 1) return trimmed;
-
-  const isUppercaseWord = (w: string) => {
-    const clean = w.replace(/[^a-zA-ZÀ-ÖØ-öø-ÿ]/g, '');
-    return clean.length > 1 && clean === clean.toUpperCase();
-  };
-
-  const uppercaseIndexes = words.map((w, idx) => isUppercaseWord(w) ? idx : -1).filter(idx => idx !== -1);
-
-  if (uppercaseIndexes.length > 0 && uppercaseIndexes.length < words.length) {
-    const firstUpperIdx = uppercaseIndexes[0];
-    const lastUpperIdx = uppercaseIndexes[uppercaseIndexes.length - 1];
-
-    if (firstUpperIdx === 0 && lastUpperIdx === uppercaseIndexes.length - 1) {
-      const lastNameBlock = words.slice(0, lastUpperIdx + 1).join(" ");
-      const firstNameBlock = words.slice(lastUpperIdx + 1).join(" ");
-      return `${firstNameBlock} ${lastNameBlock}`.trim();
-    } else if (lastUpperIdx === words.length - 1 && firstUpperIdx === words.length - uppercaseIndexes.length) {
-      const firstNameBlock = words.slice(0, firstUpperIdx).join(" ");
-      const lastNameBlock = words.slice(firstUpperIdx).join(" ");
-      return `${lastNameBlock} ${firstNameBlock}`.trim();
-    }
-  }
-
-  if (words.length === 2) {
-    return `${words[1]} ${words[0]}`;
-  }
-
-  const lastName = extractLastName(trimmed);
-  const firstName = extractFirstName(trimmed, lastName);
-  if (lastName && firstName && lastName !== trimmed) {
-    if (trimmed.startsWith(lastName)) {
-      return `${firstName} ${lastName}`.trim();
-    } else {
-      return `${lastName} ${firstName}`.trim();
-    }
-  }
-
-  const last = words[words.length - 1];
-  const rest = words.slice(0, words.length - 1).join(" ");
-  return `${last} ${rest}`;
-}
-
-export function ensureLastNameFirst(fullName: string): string {
+function ensureLastNameFirst(fullName) {
   if (!fullName || !fullName.trim()) return "";
   const trimmed = fullName.trim();
 
-  // Skip anonymized or default patient titles
   if (
     trimmed.toLowerCase().startsWith("patient anonyme") ||
     trimmed.startsWith("Patient #") ||
@@ -96,7 +59,7 @@ export function ensureLastNameFirst(fullName: string): string {
   const words = trimmed.split(/\s+/).filter(w => w.length > 0);
   if (words.length <= 1) return trimmed;
 
-  const isUppercaseWord = (w: string) => {
+  const isUppercaseWord = (w) => {
     const clean = w.replace(/[^a-zA-ZÀ-ÖØ-öø-ÿ]/g, '');
     return clean.length > 1 && clean === clean.toUpperCase();
   };
@@ -107,12 +70,10 @@ export function ensureLastNameFirst(fullName: string): string {
     const firstUpperIdx = uppercaseIndexes[0];
     const lastUpperIdx = uppercaseIndexes[uppercaseIndexes.length - 1];
 
-    // If upper words are already at the beginning (index 0), it's already NOM Prénom!
     if (firstUpperIdx === 0 && lastUpperIdx === uppercaseIndexes.length - 1) {
       return trimmed;
     }
 
-    // If upper words are at the end, put them at the front!
     if (lastUpperIdx === words.length - 1 && firstUpperIdx === words.length - uppercaseIndexes.length) {
       const firstNameBlock = words.slice(0, firstUpperIdx).join(" ");
       const lastNameBlock = words.slice(firstUpperIdx).join(" ");
@@ -120,7 +81,6 @@ export function ensureLastNameFirst(fullName: string): string {
     }
   }
 
-  // Fallback using extractLastName & extractFirstName
   const lastName = extractLastName(trimmed);
   const firstName = extractFirstName(trimmed, lastName);
 
@@ -135,3 +95,44 @@ export function ensureLastNameFirst(fullName: string): string {
 
   return trimmed;
 }
+
+async function run() {
+  console.log("🔄 Récupération de tous les dossiers patients...");
+  const { data: consultations, error } = await supabase.from('consultations').select('id, patient_name');
+
+  if (error) {
+    console.error("Erreur lors de la récupération des consultations:", error);
+    process.exit(1);
+  }
+
+  console.log(`📋 Total de consultations trouvées: ${consultations.length}`);
+
+  let updatedCount = 0;
+
+  for (const consult of consultations) {
+    const currentName = consult.patient_name || "";
+    if (!currentName || currentName.trim() === "") continue;
+
+    const newName = ensureLastNameFirst(currentName);
+
+    if (newName !== currentName) {
+      console.log(`✏️ Modification ID ${consult.id} : "${currentName}" ➔ "${newName}"`);
+      const { error: updateError } = await supabase
+        .from('consultations')
+        .update({ patient_name: newName })
+        .eq('id', consult.id);
+
+      if (updateError) {
+        console.error(`❌ Erreur mise à jour ID ${consult.id}:`, updateError);
+      } else {
+        updatedCount++;
+      }
+    } else {
+      console.log(`✓ Déjà correct ID ${consult.id} : "${currentName}"`);
+    }
+  }
+
+  console.log(`\n🎉 Terminé ! ${updatedCount} noms de patients ont été réordonnés avec le NOM EN PREMIER.`);
+}
+
+run();

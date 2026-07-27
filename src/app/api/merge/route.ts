@@ -83,6 +83,7 @@ Règles impératives pour la nouvelle "synthese" :
             config: {
                 systemInstruction: "Tu retournes uniquement du JSON sans balises Markdown autour du bloc principal.",
                 responseMimeType: 'application/json',
+                maxOutputTokens: 8192,
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
