@@ -1304,7 +1304,19 @@ export default function ConsultationDetail() {
                       title="Double-clic pour modifier"
                     >
                       {data.synthese ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeRaw]}
+                          components={{
+                            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                            img: ({ node, ...props }) => (
+                              <img
+                                {...props}
+                                className="max-h-[450px] w-auto mx-auto my-4 rounded-xl shadow-md border border-[#ebd9c8]/50 object-contain"
+                              />
+                            )
+                          }}
+                        >
                           {data.synthese}
                         </ReactMarkdown>
                       ) : "Aucune synthèse disponible."}
