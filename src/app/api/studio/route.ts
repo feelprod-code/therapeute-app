@@ -51,7 +51,7 @@ export async function POST(req: Request) {
                 }
                 return NextResponse.json({
                     status: "success",
-                    message: `Restauration réussie (${restored.length} fichier(s) remis à l'état précédent).`,
+                    message: `Restauration réussie (${restored.length} fichier(s) rétabli(s)).`,
                     restoredFiles: restored
                 });
             } catch (err) {
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
             }
         }
 
-        // --- GESTION DE L'EXÉCUTION (LIVE CODE) ---
+        // --- GESTION DE L'EXÉCUTION (LIVE CODE PAR PATCH CIBLÉ) ---
         let { instruction } = body;
         const { currentPath, audioBase64, mimeType } = body;
 
@@ -92,7 +92,7 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Impossible de comprendre l'instruction." }, { status: 400 });
         }
 
-        // Identifier les fichiers candidats pertinents dans l'application
+        // Identifier les fichiers candidats pertinents
         const srcDir = path.join(BASE_APP_DIR, 'src');
         const relevantFiles: { relativePath: string; content: string }[] = [];
 
@@ -106,14 +106,14 @@ export async function POST(req: Request) {
                         await scanDir(full);
                     }
                 } else if (entry.isFile() && (entry.name.endsWith('.tsx') || entry.name.endsWith('.ts') || entry.name.endsWith('.css'))) {
-                    // Si le fichier est pertinent ou fait partie des pages principales
                     if (rel.includes('consultation') || rel.includes('components') || rel.includes('app/page.tsx') || rel.includes('globals.css')) {
                         try {
                             const content = await fs.readFile(full, 'utf-8');
-                            // Limiter aux fichiers raisonnables en taille
-                            if (content.length < 120000) {
-                                relevantFiles.push({ relativePath: rel, content });
-                            }
+                            // On extrait un extrait contextuel concis pour ne pas surcharger le prompt
+                            relevantFiles.push({
+                                relativePath: rel,
+                                content: content.length > 20000 ? content.slice(0, 20000) + "\n// ... [reste du fichier]" : content
+                            });
                         } catch {}
                     }
                 }
@@ -124,61 +124,78 @@ export async function POST(req: Request) {
 
         const ai = new GoogleGenAI({ apiKey });
 
-        const systemPrompt = `Tu es l'architecte développeur intégré (Mode Studio) de l'application Micro Thérapeute (Next.js 14, React 18, Tailwind CSS, TypeScript, Framer Motion).
-Le créateur de l'application (Guillaume Philippe) te demande d'ajouter ou modifier une fonctionnalité, un bouton, un style ou un composant en direct.
+        const systemPrompt = `Tu es l'architecte développeur en direct (Mode Studio) de l'application Micro Thérapeute (Next.js 14, React 18, Tailwind CSS, TypeScript).
+Le praticien / concepteur te demande d'effectuer une amélioration, ajouter un bouton, modifier un style ou ajouter une fonctionnalité.
 
 === CONTEXTE ACTUEL DE L'APPLICATION ===
-Page actuellement affichée à l'écran : ${currentPath || "/"}
+Page active : ${currentPath || "/"}
 
-=== FICHIERS SOURCES CLÉS DU PROJET ===
-${relevantFiles.map(f => `--- FICHIER: ${f.relativePath} ---\n${f.content.slice(0, 8000)}\n--- FIN FICHIER ---`).join('\n\n')}
+=== FICHIERS SOURCES DU PROJET ===
+${relevantFiles.map(f => `--- FICHIER: ${f.relativePath} ---\n${f.content}\n--- FIN FICHIER ---`).join('\n\n')}
 
 === DEMANDE DU CONCEPTEUR ===
 "${instruction}"
 
-=== RÈGLES DE CODAGE STRICTES ===
-1. DESIGN ÉPURÉ & COHÉRENT : Utilise la palette élégante de l'app (blanc #ffffff, ivoire #fdfbf6, texte #4a3f35, sous-titres #8c7b6d, accent terracotta #bd613c, bordures subtiles #e5e2dd, arrondis doux, micro-animations discrètes).
-2. CODE PRODUCTION READY : Génère du code TypeScript/React valide sans erreur de compilation.
-3. PRÉCISION CHIRURGICALE : Fournis le contenu COMPLET et final du fichier à modifier (ou à créer).
-4. SÉCURITÉ : Ne casse jamais les imports ou les hooks existants.
+=== RÈGLES CRITIQUES D'ÉDITION CIBLÉE (PATCH) ===
+1. PATCH CIBLÉ OBLIGATOIRE : Au lieu de réécrire tout un gros fichier de 1000 lignes, fournis UNIQUEMENT le bloc exact de code à remplacer (targetContent) et le nouveau bloc de remplacement (replacementContent).
+2. TARGETCONTENT EXACT : Le targetContent doit être une sous-chaîne EXACTE (caractère pour caractère) existante dans le fichier cible.
+3. NOUVEAUX FICHIERS : Si la demande nécessite de créer un nouveau composant dans src/components/, place-le dans 'newFiles'.
+4. DESIGN ÉPURÉ : Palette blanc #ffffff, ivoire #fdfbf6, texte #4a3f35, accent #bd613c, bordures douces #e5e2dd.
 
 Format JSON attendu :
 {
-  "modifiedFiles": [
+  "modifications": [
     {
-      "relativePath": "src/app/... ou src/components/...",
-      "newContent": "Le code TypeScript complet et prêt pour la production.",
-      "explanation": "Ce que cette modification apporte."
+      "relativePath": "src/app/page.tsx",
+      "targetContent": "le bloc exact de code à remplacer",
+      "replacementContent": "le nouveau code à insérer à la place"
     }
   ],
-  "summary": "Résumé concis de la fonctionnalité ajoutée ou du changement apporté."
+  "newFiles": [
+    {
+      "relativePath": "src/components/NouveauBouton.tsx",
+      "content": "code complet du nouveau composant"
+    }
+  ],
+  "summary": "Une phrase courte décrivant la modification appliquée."
 }`;
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: [{ text: systemPrompt }],
             config: {
-                systemInstruction: "Tu retournes uniquement du JSON strict contenant modifiedFiles et summary.",
+                systemInstruction: "Tu retournes uniquement du JSON strict contenant modifications, newFiles et summary.",
                 responseMimeType: 'application/json',
                 maxOutputTokens: 8192,
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
-                        modifiedFiles: {
+                        modifications: {
                             type: Type.ARRAY,
                             items: {
                                 type: Type.OBJECT,
                                 properties: {
                                     relativePath: { type: Type.STRING },
-                                    newContent: { type: Type.STRING },
-                                    explanation: { type: Type.STRING }
+                                    targetContent: { type: Type.STRING },
+                                    replacementContent: { type: Type.STRING }
                                 },
-                                required: ["relativePath", "newContent", "explanation"]
+                                required: ["relativePath", "targetContent", "replacementContent"]
+                            }
+                        },
+                        newFiles: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    relativePath: { type: Type.STRING },
+                                    content: { type: Type.STRING }
+                                },
+                                required: ["relativePath", "content"]
                             }
                         },
                         summary: { type: Type.STRING }
                     },
-                    required: ["modifiedFiles", "summary"]
+                    required: ["modifications", "newFiles", "summary"]
                 }
             }
         });
@@ -186,32 +203,65 @@ Format JSON attendu :
         const jsonText = response.text || "{}";
         const result = JSON.parse(jsonText.replace(/```json/g, '').replace(/```/g, '').trim());
 
-        if (!result.modifiedFiles || result.modifiedFiles.length === 0) {
-            return NextResponse.json({ error: "Aucun fichier à modifier trouvé pour cette consigne." }, { status: 400 });
+        const hasMods = result.modifications && result.modifications.length > 0;
+        const hasNew = result.newFiles && result.newFiles.length > 0;
+
+        if (!hasMods && !hasNew) {
+            return NextResponse.json({ error: "Aucune modification applicable trouvée pour cette consigne." }, { status: 400 });
         }
 
-        // Création du backup avant écriture
+        // Création du dossier de sauvegarde
         const currentBackupId = `backup-${Date.now()}`;
         const specificBackupDir = path.join(BACKUP_DIR, currentBackupId);
         await fs.mkdir(specificBackupDir, { recursive: true });
 
         const appliedFiles: string[] = [];
 
-        for (const mod of result.modifiedFiles) {
-            const targetFilePath = path.join(BASE_APP_DIR, mod.relativePath);
-            
-            // Backup si le fichier existe
-            try {
-                const currentContent = await fs.readFile(targetFilePath);
-                const safeFileName = mod.relativePath.replace(/\//g, '_');
-                await fs.writeFile(path.join(specificBackupDir, safeFileName), currentContent);
-                await fs.writeFile(path.join(specificBackupDir, `${safeFileName}.meta.json`), JSON.stringify({ originalPath: mod.relativePath }));
-            } catch {}
+        // 1. Appliquer les modifications ciblées sur les fichiers existants
+        if (hasMods) {
+            for (const mod of result.modifications) {
+                const targetFilePath = path.join(BASE_APP_DIR, mod.relativePath);
+                try {
+                    const currentContent = await fs.readFile(targetFilePath, 'utf-8');
 
-            // Écriture du nouveau contenu
-            await fs.mkdir(path.dirname(targetFilePath), { recursive: true });
-            await fs.writeFile(targetFilePath, mod.newContent, 'utf-8');
-            appliedFiles.push(mod.relativePath);
+                    // Sauvegarde
+                    const safeFileName = mod.relativePath.replace(/\//g, '_');
+                    await fs.writeFile(path.join(specificBackupDir, safeFileName), currentContent, 'utf-8');
+                    await fs.writeFile(path.join(specificBackupDir, `${safeFileName}.meta.json`), JSON.stringify({ originalPath: mod.relativePath }));
+
+                    // Remplacement ciblé
+                    if (currentContent.includes(mod.targetContent)) {
+                        const updated = currentContent.replace(mod.targetContent, mod.replacementContent);
+                        await fs.writeFile(targetFilePath, updated, 'utf-8');
+                        appliedFiles.push(mod.relativePath);
+                    } else {
+                        console.warn(`[Studio] TargetContent non trouvé exactement dans ${mod.relativePath}`);
+                        // Essayer de normaliser les retours à la ligne
+                        const normCurrent = currentContent.replace(/\r\n/g, '\n');
+                        const normTarget = mod.targetContent.replace(/\r\n/g, '\n');
+                        if (normCurrent.includes(normTarget)) {
+                            const updated = normCurrent.replace(normTarget, mod.replacementContent);
+                            await fs.writeFile(targetFilePath, updated, 'utf-8');
+                            appliedFiles.push(mod.relativePath);
+                        } else {
+                            throw new Error(`Impossible de localiser l'emplacement précis dans ${mod.relativePath}.`);
+                        }
+                    }
+                } catch (e) {
+                    console.error(`[Studio] Erreur sur ${mod.relativePath}:`, e);
+                    throw e;
+                }
+            }
+        }
+
+        // 2. Créer les nouveaux fichiers
+        if (hasNew) {
+            for (const n of result.newFiles) {
+                const targetFilePath = path.join(BASE_APP_DIR, n.relativePath);
+                await fs.mkdir(path.dirname(targetFilePath), { recursive: true });
+                await fs.writeFile(targetFilePath, n.content, 'utf-8');
+                appliedFiles.push(n.relativePath);
+            }
         }
 
         return NextResponse.json({
@@ -224,6 +274,6 @@ Format JSON attendu :
 
     } catch (error: unknown) {
         console.error("[API Studio] Erreur :", error);
-        return NextResponse.json({ error: error instanceof Error ? error.message : "Erreur interne Studio" }, { status: 500 });
+        return NextResponse.json({ error: error instanceof Error ? error.message : "Erreur Studio" }, { status: 500 });
     }
 }
