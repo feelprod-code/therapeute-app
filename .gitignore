@@ -37,3 +37,8 @@ next-env.d.ts
 .env.production
 test_key.mjs
 test_sdk.mjs
+.studio_backups/
+*.webm
+*.mp3
+*.sql
+*.mjs

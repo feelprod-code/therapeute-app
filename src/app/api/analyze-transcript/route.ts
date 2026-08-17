@@ -162,17 +162,13 @@ Voici le transcript exact de la conversation bilingue :
             config: {
                 systemInstruction: "Tu retournes uniquement du JSON.",
                 responseMimeType: 'application/json',
-                maxOutputTokens: 8192,
+                maxOutputTokens: 16384,
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
                         patientName: {
                             type: Type.STRING,
                             description: "Nom et Prénom trouvés (ou chaîne vide si aucun)"
-                        },
-                        transcription: {
-                            type: Type.STRING,
-                            description: "Ne change rien, renvoie simplement le texte qu'on t'a donné"
                         },
                         resume: {
                             type: Type.STRING,
@@ -181,9 +177,13 @@ Voici le transcript exact de la conversation bilingue :
                         synthese: {
                             type: Type.STRING,
                             description: "La synthèse médicale formatée en Markdown"
+                        },
+                        transcription: {
+                            type: Type.STRING,
+                            description: "Ne change rien, renvoie simplement le texte qu'on t'a donné"
                         }
                     },
-                    required: ["patientName", "transcription", "resume", "synthese"]
+                    required: ["patientName", "resume", "synthese", "transcription"]
                 }
             }
         });
