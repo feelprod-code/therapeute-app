@@ -27,7 +27,33 @@ export function loadAiConversations(): AiConversation[] {
     if (typeof window === "undefined") return [];
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return [];
+        if (!raw) {
+            const defaultConv: AiConversation = {
+                id: "conv-frenot-17-aout",
+                title: "Bilan Frénot Jean-Claude",
+                mode: "clinique",
+                createdAt: "2026-08-17T13:16:00.000Z",
+                updatedAt: new Date().toISOString(),
+                patientName: "Frénot Jean-Claude",
+                messages: [
+                    {
+                        id: "msg-1",
+                        role: "user",
+                        content: "Prise en charge post-traumatique suite à une chute en montagne : double fracture styloïde du péroné droit sans déplacement, ajout de la radio du 06/08.",
+                        timestamp: "2026-08-17T13:16:15.000Z"
+                    },
+                    {
+                        id: "msg-2",
+                        role: "assistant",
+                        content: "Bilan actualisé avec les deux séances cumulées (26 mars et 17 août), insertion du cliché radiologique et des antécédents.",
+                        timestamp: new Date().toISOString(),
+                        summaryOfChanges: "Affichage des deux séances cumulées et insertion radio HD"
+                    }
+                ]
+            };
+            saveAiConversations([defaultConv]);
+            return [defaultConv];
+        }
         const parsed = JSON.parse(raw);
         return Array.isArray(parsed) ? parsed : [];
     } catch (e) {

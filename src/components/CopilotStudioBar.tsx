@@ -5,6 +5,7 @@ import { Sparkles, Mic, MicOff, Send, Loader2, Undo2, Check, Code, Stethoscope, 
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { CopilotChatDrawer } from "./CopilotChatDrawer";
+import { loadAiConversations, createNewConversation, appendMessageToConversation } from "@/lib/ai-conversations";
 
 interface CopilotStudioBarProps {
     synthese?: string;
@@ -49,15 +50,7 @@ export function CopilotStudioBar({
         const handleKeyDown = (e: KeyboardEvent) => {
             if ((e.metaKey || e.ctrlKey) && e.key === "k") {
                 e.preventDefault();
-                if (mode === "clinique") {
-                    setIsChatDrawerOpen(prev => !prev);
-                } else {
-                    setIsOpen(prev => {
-                        const next = !prev;
-                        if (next) setTimeout(() => inputRef.current?.focus(), 150);
-                        return next;
-                    });
-                }
+                setIsChatDrawerOpen(prev => !prev);
             }
             if (e.key === "Escape") {
                 if (isChatDrawerOpen) setIsChatDrawerOpen(false);
@@ -115,6 +108,21 @@ export function CopilotStudioBar({
         }
     };
 
+    // Obtenir ou créer la conversation active pour l'archivage
+    const getOrCreateConversation = () => {
+        const all = loadAiConversations();
+        let target = all.find(c => mode === "clinique" ? (c.mode === "clinique" && c.patientName === patientName) : c.mode === "studio");
+        if (!target) {
+            target = createNewConversation(
+                mode,
+                mode === "clinique" ? (patientName ? `Bilan ${patientName}` : "Retouche bilan") : "Session Studio",
+                undefined,
+                patientName
+            );
+        }
+        return target;
+    };
+
     // Soumission de texte
     const handleSubmitText = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
@@ -122,6 +130,14 @@ export function CopilotStudioBar({
         if (!text) return;
 
         setIsLoading(true);
+        const conv = getOrCreateConversation();
+
+        // Enregistrer le message utilisateur dans l'historique
+        appendMessageToConversation(conv.id, {
+            role: "user",
+            content: text
+        }, text.slice(0, 35));
+
         try {
             if (mode === "clinique") {
                 const prevSynthese = synthese;
@@ -148,6 +164,16 @@ export function CopilotStudioBar({
                         data.summaryOfChanges || `Correction: "${text}"`
                     );
                 }
+
+                // Archiver la réponse assistant
+                appendMessageToConversation(conv.id, {
+                    role: "assistant",
+                    content: data.summaryOfChanges || "Bilan mis à jour avec succès.",
+                    summaryOfChanges: data.summaryOfChanges,
+                    previousSynthese: prevSynthese,
+                    previousPatientName: prevName,
+                    learnedRule: data.learnedRule
+                });
 
                 setLastAction({
                     type: "clinique",
@@ -176,6 +202,14 @@ export function CopilotStudioBar({
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || "Erreur Studio");
 
+                // Archiver la réponse studio
+                appendMessageToConversation(conv.id, {
+                    role: "assistant",
+                    content: data.summary || "Application modifiée avec succès.",
+                    summaryOfChanges: data.summary,
+                    backupId: data.backupId
+                });
+
                 setLastAction({
                     type: "studio",
                     summary: data.summary || "Application modifiée",
@@ -191,6 +225,10 @@ export function CopilotStudioBar({
             }
         } catch (err: any) {
             console.error("Erreur Copilot/Studio:", err);
+            appendMessageToConversation(conv.id, {
+                role: "assistant",
+                content: `⚠️ Erreur : ${err?.message || "Une erreur est survenue."}`
+            });
             toast({
                 title: mode === "clinique" ? "Erreur Copilote" : "Erreur Studio",
                 description: err?.message || "Une erreur est survenue.",
@@ -204,6 +242,8 @@ export function CopilotStudioBar({
     // Soumission d'un audio enregistré
     const handleSubmitAudio = async (base64Audio: string) => {
         setIsLoading(true);
+        const conv = getOrCreateConversation();
+
         try {
             if (mode === "clinique") {
                 const prevSynthese = synthese;
@@ -223,6 +263,21 @@ export function CopilotStudioBar({
 
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || "Erreur audio Copilot");
+
+                // Archiver l'échange
+                appendMessageToConversation(conv.id, {
+                    role: "user",
+                    content: data.recognizedInstruction || "🎤 Consigne vocale"
+                }, (data.recognizedInstruction || "Consigne vocale").slice(0, 35));
+
+                appendMessageToConversation(conv.id, {
+                    role: "assistant",
+                    content: data.summaryOfChanges || "Bilan mis à jour avec succès.",
+                    summaryOfChanges: data.summaryOfChanges,
+                    previousSynthese: prevSynthese,
+                    previousPatientName: prevName,
+                    learnedRule: data.learnedRule
+                });
 
                 if (onUpdateSynthese && data.synthese) {
                     await onUpdateSynthese(
@@ -256,6 +311,18 @@ export function CopilotStudioBar({
 
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || "Erreur audio Studio");
+
+                appendMessageToConversation(conv.id, {
+                    role: "user",
+                    content: data.recognizedInstruction || "🎤 Consigne Studio vocale"
+                });
+
+                appendMessageToConversation(conv.id, {
+                    role: "assistant",
+                    content: data.summary || "Application modifiée avec succès.",
+                    summaryOfChanges: data.summary,
+                    backupId: data.backupId
+                });
 
                 setLastAction({
                     type: "studio",
