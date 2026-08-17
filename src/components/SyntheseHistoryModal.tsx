@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
-import { History, Eye, Undo2, Trash2, X, Check, FileText, Sparkles, ChevronRight, Calendar, AlertCircle } from "lucide-react";
+import { History, Eye, Undo2, Trash2, X, Check, FileText, Sparkles, ChevronRight, Calendar, AlertCircle, MessageSquare, Bot } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
@@ -16,6 +16,8 @@ export interface SyntheseVersionItem {
     type: "synthese_version";
     date: string;
     label: string;
+    userPrompt?: string;
+    aiResponseSummary?: string;
     synthese: string;
     patient_name?: string;
 }
@@ -101,10 +103,10 @@ export function SyntheseHistoryModal({
                         </div>
                         <div>
                             <DialogTitle className="font-bebas text-2xl tracking-wide text-[#594c42] leading-none">
-                                Historique des révisions du bilan
+                                Historique des révisions & demandes archivées
                             </DialogTitle>
                             <p className="text-xs text-[#8c7b6d] mt-0.5">
-                                {sortedVersions.length} version{sortedVersions.length > 1 ? "s" : ""} archivée{sortedVersions.length > 1 ? "s" : ""} pour ce dossier
+                                {sortedVersions.length} version{sortedVersions.length > 1 ? "s" : ""} archivée{sortedVersions.length > 1 ? "s" : ""} (demandes du praticien et réponses de l'IA)
                             </p>
                         </div>
                     </div>
@@ -148,9 +150,19 @@ export function SyntheseHistoryModal({
                                                 </span>
                                             )}
                                         </div>
-                                        <p className="text-xs text-[#594c42] font-medium line-clamp-2 mt-0.5">
-                                            {v.label || `Version #${sortedVersions.length - idx}`}
+
+                                        {/* Titre / Consigne */}
+                                        <p className="text-xs text-[#594c42] font-semibold line-clamp-2 mt-0.5">
+                                            {v.userPrompt ? `🗣️ "${v.userPrompt}"` : (v.label || `Version #${sortedVersions.length - idx}`)}
                                         </p>
+
+                                        {/* Réponse courte */}
+                                        {v.aiResponseSummary && (
+                                            <p className="text-[11px] text-[#8c7b6d] line-clamp-1 italic">
+                                                🤖 {v.aiResponseSummary}
+                                            </p>
+                                        )}
+
                                         <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-100/80">
                                             <span className="text-[10px] text-slate-400">
                                                 {v.synthese.length} caractères
@@ -162,7 +174,7 @@ export function SyntheseHistoryModal({
                                                 className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-600 rounded transition-all"
                                                 title="Supprimer cette version de l'historique"
                                             >
-                                                <Trash2 className="w-3 h-3" />
+                                                <Trash2 className="w-3.5 h-3.5" />
                                             </button>
                                         </div>
                                     </div>
@@ -175,28 +187,48 @@ export function SyntheseHistoryModal({
                     <div className="flex-1 flex flex-col bg-[#fdfbf6] overflow-hidden">
                         {activePreview ? (
                             <>
-                                {/* Barre d'action de la version */}
-                                <div className="px-6 py-3 bg-white/70 border-b border-[#ebd9c8] flex items-center justify-between shrink-0">
-                                    <div className="min-w-0 pr-4">
-                                        <p className="text-xs font-semibold text-[#594c42] truncate">
-                                            {activePreview.label}
-                                        </p>
-                                        <p className="text-[10px] text-[#8c7b6d]">
+                                {/* Encart : Ce que vous avez demandé et la réponse de l'IA */}
+                                <div className="p-4 bg-white/90 border-b border-[#ebd9c8] flex flex-col gap-2 shrink-0">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <span className="text-[11px] text-[#8c7b6d] font-medium flex items-center gap-1.5">
+                                            <Calendar className="w-3 h-3 text-[#bd613c]" />
                                             Enregistré le {format(new Date(activePreview.date), "dd MMMM yyyy 'à' HH:mm:ss", { locale: fr })}
-                                        </p>
+                                        </span>
+                                        <Button
+                                            size="sm"
+                                            onClick={() => handleRestore(activePreview)}
+                                            disabled={isRestoring || activePreview.synthese.trim() === currentSynthese?.trim()}
+                                            className="bg-[#bd613c] hover:bg-[#a55231] text-white rounded-xl text-xs h-7 px-3 gap-1.5 shadow-sm shrink-0"
+                                        >
+                                            <Undo2 className="w-3 h-3" />
+                                            {activePreview.synthese.trim() === currentSynthese?.trim() ? "Version actuelle" : "Restaurer cet état"}
+                                        </Button>
                                     </div>
-                                    <Button
-                                        size="sm"
-                                        onClick={() => handleRestore(activePreview)}
-                                        disabled={isRestoring || activePreview.synthese.trim() === currentSynthese?.trim()}
-                                        className="bg-[#bd613c] hover:bg-[#a55231] text-white rounded-xl text-xs h-8 px-3 gap-1.5 shadow-sm shrink-0"
-                                    >
-                                        <Undo2 className="w-3.5 h-3.5" />
-                                        {activePreview.synthese.trim() === currentSynthese?.trim() ? "Version actuelle" : "Restaurer cette version"}
-                                    </Button>
+
+                                    {/* Bloc Demande */}
+                                    <div className="p-2.5 bg-[#fbf6f0] border border-[#ebd9c8]/70 rounded-lg flex items-start gap-2">
+                                        <span className="text-[11px] font-bold text-[#bd613c] uppercase shrink-0 mt-0.5">
+                                            🗣️ Ce que vous avez demandé :
+                                        </span>
+                                        <span className="text-xs text-[#594c42] font-medium">
+                                            {activePreview.userPrompt || activePreview.label || "Demande du praticien"}
+                                        </span>
+                                    </div>
+
+                                    {/* Bloc Réponse IA */}
+                                    {activePreview.aiResponseSummary && (
+                                        <div className="p-2.5 bg-emerald-50/70 border border-emerald-200/60 rounded-lg flex items-start gap-2">
+                                            <span className="text-[11px] font-bold text-emerald-800 uppercase shrink-0 mt-0.5">
+                                                🤖 Réponse & Action de l'IA :
+                                            </span>
+                                            <span className="text-xs text-emerald-900">
+                                                {activePreview.aiResponseSummary}
+                                            </span>
+                                        </div>
+                                    )}
                                 </div>
 
-                                {/* Contenu Markdown rendu */}
+                                {/* Contenu Markdown résultant */}
                                 <div className="flex-1 p-6 overflow-y-auto prose prose-stone max-w-none text-sm leading-relaxed">
                                     <ReactMarkdown
                                         remarkPlugins={[remarkGfm]}

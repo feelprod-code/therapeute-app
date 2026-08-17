@@ -11,7 +11,7 @@ interface CopilotStudioBarProps {
     synthese?: string;
     transcription?: string;
     patientName?: string;
-    onUpdateSynthese?: (newSynthese: string, newPatientName?: string, actionLabel?: string) => Promise<void> | void;
+    onUpdateSynthese?: (newSynthese: string, newPatientName?: string, actionLabel?: string, userPrompt?: string, aiResponseSummary?: string) => Promise<void> | void;
     currentPath?: string;
     onOpenHistory?: () => void;
     versionCount?: number;
@@ -167,7 +167,9 @@ export function CopilotStudioBar({
                     await onUpdateSynthese(
                         data.synthese,
                         data.patientName,
-                        data.summaryOfChanges || `Correction: "${text}"`
+                        data.summaryOfChanges || `Correction: "${text}"`,
+                        text,
+                        data.summaryOfChanges
                     );
                 }
 
@@ -289,7 +291,9 @@ export function CopilotStudioBar({
                     await onUpdateSynthese(
                         data.synthese,
                         data.patientName,
-                        data.summaryOfChanges || `Consigne vocale: "${data.recognizedInstruction || 'retouche'}"`
+                        data.summaryOfChanges || `Consigne vocale: "${data.recognizedInstruction || 'retouche'}"`,
+                        data.recognizedInstruction || "Consigne vocale",
+                        data.summaryOfChanges
                     );
                 }
 

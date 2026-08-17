@@ -153,7 +153,13 @@ export default function ConsultationDetail() {
     (item: any) => item && item.type === 'synthese_version' && item.synthese
   );
 
-  const saveSyntheseWithHistory = async (newSynthese: string, newPatientName?: string, actionLabel: string = "Modification") => {
+  const saveSyntheseWithHistory = async (
+    newSynthese: string, 
+    newPatientName?: string, 
+    actionLabel: string = "Modification",
+    userPrompt?: string,
+    aiResponseSummary?: string
+  ) => {
     try {
       const currentFollowUps = data?.follow_ups || [];
       const currentSynthese = data?.synthese;
@@ -166,6 +172,8 @@ export default function ConsultationDetail() {
           type: 'synthese_version',
           date: new Date().toISOString(),
           label: actionLabel,
+          userPrompt: userPrompt || actionLabel,
+          aiResponseSummary: aiResponseSummary,
           synthese: currentSynthese,
           patient_name: data?.patient_name
         };

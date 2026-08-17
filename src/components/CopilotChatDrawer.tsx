@@ -27,7 +27,7 @@ interface CopilotChatDrawerProps {
     transcription?: string;
     patientName?: string;
     currentPath?: string;
-    onUpdateSynthese?: (newSynthese: string, newPatientName?: string, actionLabel?: string) => Promise<void> | void;
+    onUpdateSynthese?: (newSynthese: string, newPatientName?: string, actionLabel?: string, userPrompt?: string, aiResponseSummary?: string) => Promise<void> | void;
     initialMode?: "clinique" | "studio";
     onOpenHistory?: () => void;
     versionCount?: number;
@@ -236,7 +236,9 @@ export function CopilotChatDrawer({
                     await onUpdateSynthese(
                         data.synthese,
                         data.patientName,
-                        data.summaryOfChanges || `Correction: "${data.recognizedInstruction || queryText}"`
+                        data.summaryOfChanges || `Correction: "${data.recognizedInstruction || queryText}"`,
+                        data.recognizedInstruction || queryText,
+                        data.summaryOfChanges
                     );
                 }
 
