@@ -436,14 +436,13 @@ ${previousContext.synthese || 'Aucune synthèse précédente.'}
 
 Instructions de MISE A JOUR:
 Ton objectif est de mettre à jour la synthèse PRÉCÉDENTE en FUSIONNANT de manière cohérente les nouveaux éléments issus de l'audio/document/texte dans les sections appropriées existantes.
-- RÈGLE GÉNÉRALE: Maintiens la structure globale de la synthèse médicale. Intègre intelligemment les nouvelles plaintes ou informations DANS les sections pertinentes. Si la nouvelle note ressemble à une consigne du thérapeute (ex: "ajoute que...", "corrige la douleur..."), tu dois exécuter cette consigne pour améliorer le bilan, sans jamais recopier la consigne elle-même.
-- FORMATAGE DES AJOUTS: Corrige toujours l'orthographe du texte ajouté si nécessaire, et intègre-le naturellement sous forme d'un nouveau tiret dans les listes à puces existantes. NE COMMENCE JAMAIS tes ajouts par "Ajout de", "Nouvelle information" ou "Note du thérapeute".
-- DOCUMENTS JOINTS: Si un document (PDF, image, texte) t'est fourni, extrais minutieusement les informations médicales et intègre-les au bilan.
-- INTERDICTION: NE CRÉE SURTOUT PAS EN BAS DE PAGE une section "Ajout d'informations" ou "Nouvelles informations". Le bilan doit rester un document unifié, écrit de façon fluide comme s'il avait été rédigé en une seule fois.
-- EXCEPTION (NOM DU PATIENT): Si les nouveaux documents/audios te permettent de découvrir le VRAI nom et prénom du patient (et que la synthèse précédente disait "Patient Anonyme" ou était incomplète), tu as l'OBLIGATION de le mettre à jour. N'oublie pas non plus de renseigner le champ "patientName" de ta réponse JSON.
-- EXCEPTION (DATE DE LA CONSULTATION): Si les nouvelles notes précisent la vraie date de la consultation (ex: "la première séance était le 12 octobre"), tu as l'OBLIGATION de la mettre à jour dans ton texte Markdown ET de renseigner cette date au format AAAA-MM-JJ dans la clé "consultationDate" du JSON.
-- Pour la transcription : Tu dois produire EXCLUSIVEMENT la retranscription/extraction de l'audio (nouveau vocal) si présent. IL EST STRICTEMENT INTERDIT DE RECOPIER L'ANCIENNE TRANSCRIPTION ni de transcrire les nouveaux documents PDF/images dans ce champ (la transcription des documents est déjà gérée et fusionnée directement par le serveur).
-- EXCEPTION (RÉSUMÉ) : IL EST ABSOLUMENT OBLIGATOIRE que la clé "resume" contienne un résumé GLOBAL de TOUT LE BILAN FINAL (c'est-à-dire le texte généré dans la clé "synthese"). Ne résume SURTOUT PAS seulement les ajouts ! Le résumé doit donner l'état complet du patient.
+- MULTI-SÉANCES & SUIVI CHRONOLOGIQUE : Si les nouvelles informations correspondent à une NOUVELLE SÉANCE ou consultation à une date différente, CONSERVE TOUJOURS LE BILAN DE LA SÉANCE PRÉCÉDENTE au début et structure le document avec les séances successives (ex: "## 📅 Séance 1 : [Date 1]" puis "## 📅 Séance 2 : [Date 2]"). L'onglet Bilan doit afficher l'intégralité des séances de façon cumulative sans jamais effacer la séance précédente.
+- FORMATAGE DES AJOUTS D'UNE MÊME SÉANCE : Si c'est une précision pour la même séance, intègre-le naturellement dans les listes à puces existantes sans section isolée "Ajout".
+- DOCUMENTS JOINTS : Si un document (PDF, image, texte) t'est fourni, extrais minutieusement les informations médicales et intègre-les au bilan.
+- EXCEPTION (NOM DU PATIENT) : Respecte la casse sobre et naturelle (ex: Jean-Claude Frénot).
+- EXCEPTION (DATE DE LA CONSULTATION) : Si les nouvelles notes précisent les dates, affiche-les dans le titre (# Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- [Date 1] & [Date 2]</span>).
+- Pour la transcription : Tu dois produire EXCLUSIVEMENT la retranscription/extraction du nouveau vocal si présent.
+- EXCEPTION (RÉSUMÉ) : IL EST ABSOLUMENT OBLIGATOIRE que la clé "resume" contienne un résumé GLOBAL de TOUT LE BILAN FINAL (c'est-à-dire l'ensemble des séances).
 `;
         } else {
             contextInstruction = `\n- DOCUMENTS JOINTS: Si des documents (PDF, images, textes) te sont fournis, analyse-les pour rédiger le bilan (motif, histoire, examens, ATCD), mais ne génère pas leur transcription textuelle dans la clé "transcription" (elle est extraite et gérée directement par le serveur).`;
@@ -547,7 +546,7 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
             config: {
                 systemInstruction: systemPrompt,
                 responseMimeType: 'application/json',
-                maxOutputTokens: 8192,
+                maxOutputTokens: 16384,
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
@@ -559,10 +558,6 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
                             type: Type.STRING,
                             description: "Date trouvée dans le texte (ex: 2024-10-14). Si aucune date précise n'est mentionnée, renvoie null ou une chaîne vide."
                         },
-                        transcription: {
-                            type: Type.STRING,
-                            description: "Retranscription EXACTE et LITTÉRALE de l'audio si présent. La transcription des documents PDF/images est gérée directement par le serveur, ne l'inclus pas ici."
-                        },
                         resume: {
                             type: Type.STRING,
                             description: "Un résumé narratif GLOBAL en 3 à 5 phrases, synthétisant tout le document final complet généré dans 'synthese' (anciennes ET nouvelles informations). Sous forme d'un paragraphe continu unique (AUCUNE liste, AUCUN tiret, AUCUNE puce)."
@@ -570,9 +565,13 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
                         synthese: {
                             type: Type.STRING,
                             description: "La synthèse médicale formatée en Markdown"
+                        },
+                        transcription: {
+                            type: Type.STRING,
+                            description: "Retranscription EXACTE et LITTÉRALE de l'audio si présent. La transcription des documents PDF/images est gérée directement par le serveur, ne l'inclus pas ici."
                         }
                     },
-                    required: ["patientName", "consultationDate", "transcription", "resume", "synthese"]
+                    required: ["patientName", "consultationDate", "resume", "synthese", "transcription"]
                 }
             }
         });
