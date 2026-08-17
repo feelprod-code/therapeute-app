@@ -9,6 +9,36 @@ import { ensureLastNameFirst } from '@/lib/utils';
 
 export const maxDuration = 120;
 
+const PREFS_PATH = path.join(process.cwd(), 'src', 'lib', 'practitioner-preferences.json');
+
+async function getPractitionerRules(): Promise<string[]> {
+    try {
+        const raw = await fs.readFile(PREFS_PATH, 'utf-8');
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed.rules) ? parsed.rules : [];
+    } catch {
+        return [];
+    }
+}
+
+async function addPractitionerRule(newRule: string): Promise<string[]> {
+    try {
+        const raw = await fs.readFile(PREFS_PATH, 'utf-8').catch(() => '{"rules":[]}');
+        const parsed = JSON.parse(raw);
+        const rules = Array.isArray(parsed.rules) ? parsed.rules : [];
+        const clean = newRule.trim();
+        if (clean && !rules.includes(clean)) {
+            rules.push(clean);
+            parsed.rules = rules;
+            parsed.lastUpdated = new Date().toISOString();
+            await fs.writeFile(PREFS_PATH, JSON.stringify(parsed, null, 2), 'utf-8');
+        }
+        return rules;
+    } catch {
+        return [];
+    }
+}
+
 export async function POST(req: Request) {
     try {
         const apiKey = process.env.GEMINI_API_KEY;
@@ -20,7 +50,7 @@ export async function POST(req: Request) {
 
         const body = await req.json();
         let { instruction } = body;
-        const { synthese, transcription, patientName, audioBase64, mimeType } = body;
+        const { synthese, transcription, patientName, audioBase64, mimeType, conversationHistory } = body;
 
         if (!instruction && !audioBase64) {
             return NextResponse.json({ error: "Aucune instruction ou fichier audio fourni." }, { status: 400 });
@@ -52,10 +82,28 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Impossible de comprendre l'instruction audio." }, { status: 400 });
         }
 
+        // Charger les règles et préférences du praticien
+        const practitionerRules = await getPractitionerRules();
+
+        // Détection de mémorisation de règle directe
+        let learnedRuleMessage: string | null = null;
+        const lowerInst = instruction.toLowerCase().trim();
+        if (lowerInst.startsWith('mémorise que') || lowerInst.startsWith('mémorise :') || lowerInst.startsWith('apprends que') || lowerInst.startsWith('garde en mémoire que')) {
+            const ruleText = instruction.replace(/^(mémorise que|mémorise :|apprends que|garde en mémoire que)/i, '').trim();
+            if (ruleText) {
+                await addPractitionerRule(ruleText);
+                learnedRuleMessage = `Règle mémorisée dans votre profil : "${ruleText}"`;
+            }
+        }
+
         const ai = new GoogleGenAI({ apiKey });
 
+        const historyContext = Array.isArray(conversationHistory) && conversationHistory.length > 0
+            ? `\n=== HISTORIQUE DE CONVERSATION RÉCENTE ===\n${conversationHistory.map((m: any) => `${m.role === 'user' ? 'Praticien' : 'Copilote'}: ${m.content}`).join('\n')}\n`
+            : '';
+
         const prompt = `Tu es l'agent copilote expert clinique de l'application Micro Thérapeute (ostéopathie, biokinergie, thérapie manuelle).
-Le praticien te demande d'effectuer une RETOUCHE / MODIFICATION précise sur le bilan ou la fiche patient.
+Le praticien te demande d'effectuer une RETOUCHE, un AJOUT ou une PRÉCISION sur le bilan ou la fiche patient.
 
 === FICHE ACTUELLE DU PATIENT ===
 Nom du patient : ${patientName || "Non renseigné"}
@@ -63,26 +111,30 @@ Nom du patient : ${patientName || "Non renseigné"}
 === BILAN DE CONSULTATION ACTUEL (MARKDOWN) ===
 ${synthese || "(Aucun bilan rédigé pour le moment)"}
 
-${transcription ? `=== TRANSCRIPTION VOCALE SOURCE (RÉFÉRENCE MOT-À-MOT) ===\n${transcription.slice(0, 3000)}...` : ""}
-
+${transcription ? `=== TRANSCRIPTION VOCALE SOURCE (RÉFÉRENCE MOT-À-MOT) ===\n${transcription.slice(0, 4000)}...` : ""}
+${historyContext}
 === INSTRUCTION DE MODIFICATION DU THÉRAPEUTE ===
 "${instruction}"
 
-=== RÈGLES CLINIQUES & DE FORMATAGE IMPÉRATIVES ===
-1. TITRE DU BILAN : Le titre principal doit TOUJOURS respecter strictement le format suivant :
+=== RÈGLES ET PRÉFÉRENCES APPRISES DU PRATICIEN (DNA SKILL) ===
+${practitionerRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}
+
+=== RÈGLES CRITIQUES DE FUSION & SÉCURISATION DES DONNÉES ===
+1. TITRE DU BILAN : Le titre principal doit TOUJOURS respecter strictement :
    # Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- [Date]</span>
-   (Si la consigne change la date, mets à jour [Date] dans ce span. Ne supprime jamais le span).
-2. FUSION FLUIDE : Intègre harmonieusement la correction demandée dans la bonne section (Motif, Anamnèse, Antécédents, Examen clinique, Conclusion).
-   INTERDICTION : Ne crée JAMAIS de bloc "Ajout" ou "Complément d'information" isolé en bas. Tout doit être intégré comme si le bilan avait été rédigé ainsi dès l'origine.
-3. PRÉSERVATION DES DONNÉES : Conserve l'intégralité des autres informations cliniques intactes, ne résume pas à l'excès et ne perds aucun élément clé.
-4. TON & VOCABULAIRE : Sensible, clinique, épuré, respectueux du vivant.
-5. Si l'instruction demande de modifier le nom du patient, renvoie le nom corrigé dans 'patientName'.
+   (Si la consigne modifie la date, ajuste [Date] dans ce span sans jamais supprimer le span).
+2. INTÉGRATION SANS ÉCRASEMENT : Tu dois CONSERVER L'INTÉGRALITÉ des sections cliniques déjà rédigées (Motif, Histoire de la maladie, Examens complémentaires, Photos/Radios insérées, Antécédents, Traitement, Conclusion).
+   - N'efface JAMAIS une section existante sauf si le praticien demande explicitement de la supprimer.
+   - Si le praticien ajoute une précision (ex: une radio, un nouveau symptôme, une précision d'anamnèse), insère-la chirurgicalement dans la section correspondante.
+   - Ne crée JAMAIS de bloc "Ajout" ou "Complément" séparé en bas : intègre les données harmonieusement dans le corps du texte.
+3. NOM DU PATIENT : Si l'instruction demande de modifier le nom, renvoie-le dans 'patientName' au format NOM Prénom (ex: DUPONT Jean). Sinon renvoie le nom actuel.
+4. TON : Professionnel, épuré, sensible, médicalement rigoureux.
 
 Format JSON attendu :
 {
   "patientName": "Nom et prénom du patient",
-  "synthese": "Le bilan complet mis à jour en Markdown",
-  "summaryOfChanges": "Une phrase très courte et épurée décrivant la retouche effectuée (ex: 'Diagnostic réajusté en sacro-iliaque droite et date mise à jour au 14 juillet.')"
+  "synthese": "Le bilan complet mis à jour en Markdown (conservant toutes les autres sections)",
+  "summaryOfChanges": "Une phrase courte décrivant exactement la retouche appliquée"
 }`;
 
         const response = await ai.models.generateContent({
@@ -111,7 +163,8 @@ Format JSON attendu :
             patientName: ensureLastNameFirst(result.patientName || patientName),
             synthese: result.synthese,
             summaryOfChanges: result.summaryOfChanges,
-            recognizedInstruction: instruction
+            recognizedInstruction: instruction,
+            learnedRule: learnedRuleMessage
         });
 
     } catch (error: unknown) {

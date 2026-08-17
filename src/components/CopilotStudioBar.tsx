@@ -1,17 +1,19 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Sparkles, Mic, MicOff, Send, Loader2, Undo2, Check, Code, Stethoscope, ChevronUp, ChevronDown, X } from "lucide-react";
+import { Sparkles, Mic, MicOff, Send, Loader2, Undo2, Check, Code, Stethoscope, ChevronUp, ChevronDown, X, MessageSquare, History } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
+import { CopilotChatDrawer } from "./CopilotChatDrawer";
 
 interface CopilotStudioBarProps {
-    // Props optionnelles pour le mode clinique (quand on est sur une fiche bilan)
     synthese?: string;
     transcription?: string;
     patientName?: string;
-    onUpdateSynthese?: (newSynthese: string, newPatientName?: string) => void;
+    onUpdateSynthese?: (newSynthese: string, newPatientName?: string, actionLabel?: string) => Promise<void> | void;
     currentPath?: string;
+    onOpenHistory?: () => void;
+    versionCount?: number;
 }
 
 export function CopilotStudioBar({
@@ -19,9 +21,12 @@ export function CopilotStudioBar({
     transcription,
     patientName,
     onUpdateSynthese,
-    currentPath = "/"
+    currentPath = "/",
+    onOpenHistory,
+    versionCount = 0
 }: CopilotStudioBarProps) {
     const [isOpen, setIsOpen] = useState(false);
+    const [isChatDrawerOpen, setIsChatDrawerOpen] = useState(false);
     const [mode, setMode] = useState<"clinique" | "studio">(synthese ? "clinique" : "studio");
     const [instruction, setInstruction] = useState("");
     const [isLoading, setIsLoading] = useState(false);
@@ -44,19 +49,24 @@ export function CopilotStudioBar({
         const handleKeyDown = (e: KeyboardEvent) => {
             if ((e.metaKey || e.ctrlKey) && e.key === "k") {
                 e.preventDefault();
-                setIsOpen(prev => {
-                    const next = !prev;
-                    if (next) setTimeout(() => inputRef.current?.focus(), 150);
-                    return next;
-                });
+                if (mode === "clinique") {
+                    setIsChatDrawerOpen(prev => !prev);
+                } else {
+                    setIsOpen(prev => {
+                        const next = !prev;
+                        if (next) setTimeout(() => inputRef.current?.focus(), 150);
+                        return next;
+                    });
+                }
             }
-            if (e.key === "Escape" && isOpen) {
-                setIsOpen(false);
+            if (e.key === "Escape") {
+                if (isChatDrawerOpen) setIsChatDrawerOpen(false);
+                if (isOpen) setIsOpen(false);
             }
         };
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [isOpen]);
+    }, [isOpen, isChatDrawerOpen, mode]);
 
     // Basculer automatiquement en mode clinique si un bilan est présent
     useEffect(() => {
@@ -68,7 +78,6 @@ export function CopilotStudioBar({
     // Gestion de l'enregistrement vocal direct
     const toggleRecording = async () => {
         if (isRecording) {
-            // Arrêter l'enregistrement et traiter
             mediaRecorderRef.current?.stop();
             setIsRecording(false);
         } else {
@@ -98,128 +107,195 @@ export function CopilotStudioBar({
             } catch (err) {
                 console.error("Erreur accès microphone :", err);
                 toast({
-                    title: "Microphone inaccessible",
-                    description: "Veuillez autoriser l'accès au microphone.",
+                    title: "Accès micro refusé",
+                    description: "Veuillez autoriser le microphone dans votre navigateur.",
                     variant: "destructive"
                 });
             }
         }
     };
 
-    const handleSubmitAudio = async (audioBase64: string) => {
-        setIsLoading(true);
-        try {
-            if (mode === "clinique") {
-                await executeClinique({ audioBase64, mimeType: "audio/webm" });
-            } else {
-                await executeStudio({ audioBase64, mimeType: "audio/webm" });
-            }
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
+    // Soumission de texte
     const handleSubmitText = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
-        if (!instruction.trim() || isLoading) return;
+        const text = instruction.trim();
+        if (!text) return;
 
-        const currentText = instruction.trim();
-        setInstruction("");
         setIsLoading(true);
-
         try {
             if (mode === "clinique") {
-                await executeClinique({ instruction: currentText });
+                const prevSynthese = synthese;
+                const prevName = patientName;
+
+                const res = await fetch("/api/copilot", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        instruction: text,
+                        synthese,
+                        transcription,
+                        patientName
+                    })
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Erreur de traitement");
+
+                if (onUpdateSynthese && data.synthese) {
+                    await onUpdateSynthese(
+                        data.synthese,
+                        data.patientName,
+                        data.summaryOfChanges || `Correction: "${text}"`
+                    );
+                }
+
+                setLastAction({
+                    type: "clinique",
+                    summary: data.summaryOfChanges || "Bilan mis à jour",
+                    previousSynthese: prevSynthese,
+                    previousPatientName: prevName
+                });
+
+                toast({
+                    title: "Bilan mis à jour",
+                    description: data.summaryOfChanges || "Retouche appliquée avec succès."
+                });
+
+                setInstruction("");
             } else {
-                await executeStudio({ instruction: currentText });
+                // Mode Studio (Code de l'application)
+                const res = await fetch("/api/studio", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        instruction: text,
+                        currentPath
+                    })
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Erreur Studio");
+
+                setLastAction({
+                    type: "studio",
+                    summary: data.summary || "Application modifiée",
+                    backupId: data.backupId
+                });
+
+                toast({
+                    title: "Modification Studio appliquée !",
+                    description: `${data.summary || 'Code mis à jour.'} (${data.appliedFiles?.join(', ') || ''})`
+                });
+
+                setInstruction("");
             }
+        } catch (err: any) {
+            console.error("Erreur Copilot/Studio:", err);
+            toast({
+                title: mode === "clinique" ? "Erreur Copilote" : "Erreur Studio",
+                description: err?.message || "Une erreur est survenue.",
+                variant: "destructive"
+            });
         } finally {
             setIsLoading(false);
         }
     };
 
-    const executeClinique = async (payload: { instruction?: string; audioBase64?: string; mimeType?: string }) => {
+    // Soumission d'un audio enregistré
+    const handleSubmitAudio = async (base64Audio: string) => {
+        setIsLoading(true);
         try {
-            const res = await fetch("/api/copilot", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    ...payload,
-                    synthese,
-                    transcription,
-                    patientName
-                })
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || "Erreur de traitement");
+            if (mode === "clinique") {
+                const prevSynthese = synthese;
+                const prevName = patientName;
 
-            // Sauvegarder pour pouvoir annuler
-            setLastAction({
-                type: "clinique",
-                summary: data.summaryOfChanges || "Bilan mis à jour",
-                previousSynthese: synthese,
-                previousPatientName: patientName
-            });
+                const res = await fetch("/api/copilot", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        audioBase64: base64Audio,
+                        mimeType: "audio/webm",
+                        synthese,
+                        transcription,
+                        patientName
+                    })
+                });
 
-            if (onUpdateSynthese) {
-                onUpdateSynthese(data.synthese, data.patientName);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Erreur audio Copilot");
+
+                if (onUpdateSynthese && data.synthese) {
+                    await onUpdateSynthese(
+                        data.synthese,
+                        data.patientName,
+                        data.summaryOfChanges || `Consigne vocale: "${data.recognizedInstruction || 'retouche'}"`
+                    );
+                }
+
+                setLastAction({
+                    type: "clinique",
+                    summary: data.summaryOfChanges || "Bilan mis à jour",
+                    previousSynthese: prevSynthese,
+                    previousPatientName: prevName
+                });
+
+                toast({
+                    title: "Consigne vocale appliquée",
+                    description: data.summaryOfChanges || "Bilan réajusté avec succès."
+                });
+            } else {
+                const res = await fetch("/api/studio", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        audioBase64: base64Audio,
+                        mimeType: "audio/webm",
+                        currentPath
+                    })
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Erreur audio Studio");
+
+                setLastAction({
+                    type: "studio",
+                    summary: data.summary || "Application modifiée",
+                    backupId: data.backupId
+                });
+
+                toast({
+                    title: "Studio : Modification vocale appliquée",
+                    description: data.summary || "Code mis à jour."
+                });
             }
-
+        } catch (err: any) {
+            console.error("Erreur audio Copilot/Studio:", err);
             toast({
-                title: "✨ Bilan ajusté",
-                description: data.summaryOfChanges || "Modifications intégrées avec succès."
-            });
-        } catch (err) {
-            toast({
-                title: "Erreur",
-                description: err instanceof Error ? err.message : "Échec de l'opération",
+                title: "Erreur d'analyse vocale",
+                description: err?.message || "Impossible de traiter la consigne audio.",
                 variant: "destructive"
             });
+        } finally {
+            setIsLoading(false);
         }
     };
 
-    const executeStudio = async (payload: { instruction?: string; audioBase64?: string; mimeType?: string }) => {
-        try {
-            const res = await fetch("/api/studio", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    action: "execute",
-                    ...payload,
-                    currentPath
-                })
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || "Erreur de modification");
-
-            setLastAction({
-                type: "studio",
-                summary: data.summary || "Application mise à jour",
-                backupId: data.backupId
-            });
-
-            toast({
-                title: "🚀 Application modifiée en direct",
-                description: data.summary || `${data.appliedFiles?.length || 0} fichier(s) mis à jour.`
-            });
-        } catch (err) {
-            toast({
-                title: "Erreur Studio",
-                description: err instanceof Error ? err.message : "Échec de la modification",
-                variant: "destructive"
-            });
-        }
-    };
-
+    // Rollback / Annuler la dernière action
     const handleUndo = async () => {
         if (!lastAction) return;
 
         if (lastAction.type === "clinique" && lastAction.previousSynthese && onUpdateSynthese) {
-            onUpdateSynthese(lastAction.previousSynthese, lastAction.previousPatientName);
+            await onUpdateSynthese(
+                lastAction.previousSynthese,
+                lastAction.previousPatientName,
+                "Restauration avant dernière retouche"
+            );
+            toast({
+                title: "Modification annulée",
+                description: "Le bilan a été restauré dans son état précédent."
+            });
             setLastAction(null);
-            toast({ title: "↩️ Annulation", description: "Bilan rétabli à l'état précédent." });
         } else if (lastAction.type === "studio" && lastAction.backupId) {
-            setIsLoading(true);
             try {
                 const res = await fetch("/api/studio", {
                     method: "POST",
@@ -230,153 +306,202 @@ export function CopilotStudioBar({
                     })
                 });
                 const data = await res.json();
-                if (!res.ok) throw new Error(data.error);
+                if (!res.ok) throw new Error(data.error || "Erreur d'annulation");
+
+                toast({
+                    title: "Code restauré avec succès !",
+                    description: data.message || "Les fichiers d'origine ont été rétablis."
+                });
                 setLastAction(null);
-                toast({ title: "↩️ Code restauré", description: data.message });
-            } catch (err) {
-                toast({ title: "Erreur Rollback", description: String(err), variant: "destructive" });
-            } finally {
-                setIsLoading(false);
+            } catch (e: any) {
+                toast({
+                    title: "Erreur lors de l'annulation",
+                    description: e?.message,
+                    variant: "destructive"
+                });
             }
         }
     };
 
     return (
-        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 w-full max-w-2xl px-4 pointer-events-none">
-            <div className="pointer-events-auto flex flex-col items-center gap-2">
-                {/* Bannière de récapitulatif & Annulation */}
-                <AnimatePresence>
-                    {lastAction && (
-                        <motion.div
-                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                            className="bg-[#1a1918]/90 backdrop-blur-md text-white text-xs px-3.5 py-1.5 rounded-full shadow-lg flex items-center gap-2 border border-white/10"
-                        >
-                            <Check className="w-3.5 h-3.5 text-emerald-400" />
-                            <span className="truncate max-w-xs">{lastAction.summary}</span>
-                            <button
-                                onClick={handleUndo}
-                                className="ml-1 px-2 py-0.5 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center gap-1 transition-colors"
+        <>
+            {/* Volet Latéral de Tchat Conversationnel */}
+            <CopilotChatDrawer
+                isOpen={isChatDrawerOpen}
+                onClose={() => setIsChatDrawerOpen(false)}
+                synthese={synthese}
+                transcription={transcription}
+                patientName={patientName}
+                currentPath={currentPath}
+                onUpdateSynthese={onUpdateSynthese}
+                onOpenHistory={onOpenHistory}
+                versionCount={versionCount}
+            />
+
+            {/* Capsule Flottante en Bas */}
+            <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-full max-w-xl px-4 pointer-events-none">
+                <div className="flex flex-col items-center gap-2 pointer-events-auto">
+                    {/* Bannière de confirmation / annulation rapide */}
+                    <AnimatePresence>
+                        {lastAction && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                className="bg-white/95 backdrop-blur-md border border-[#ebd9c8] shadow-lg rounded-full px-4 py-1.5 flex items-center gap-3 text-xs text-[#594c42]"
                             >
-                                <Undo2 className="w-3 h-3" />
-                                <span>Annuler</span>
-                            </button>
-                            <button
-                                onClick={() => setLastAction(null)}
-                                className="text-white/60 hover:text-white ml-1"
-                            >
-                                <X className="w-3 h-3" />
-                            </button>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-
-                {/* Barre principale ultra-épurée */}
-                <motion.div
-                    layout
-                    className={`bg-white/92 backdrop-blur-2xl border border-[#e5e2dd] shadow-2xl rounded-full px-3 py-1.5 flex items-center gap-2 w-full transition-all duration-300 ${
-                        isOpen ? "ring-2 ring-[#bd613c]/20" : "hover:border-[#d0ccc6]"
-                    }`}
-                >
-                    {/* Bouton de bascule de Mode */}
-                    <div className="flex items-center bg-[#f5f2eb] rounded-full p-0.5 border border-[#e8e4dc]">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setMode("clinique");
-                                if (!isOpen) setIsOpen(true);
-                            }}
-                            className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all ${
-                                mode === "clinique"
-                                    ? "bg-white text-[#bd613c] shadow-xs"
-                                    : "text-[#8c7b6d] hover:text-[#4a3f35]"
-                            }`}
-                            title="Mode Clinique : retouche du bilan en cours"
-                        >
-                            <Stethoscope className="w-3 h-3" />
-                            <span className="hidden sm:inline">Bilan</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setMode("studio");
-                                if (!isOpen) setIsOpen(true);
-                            }}
-                            className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all ${
-                                mode === "studio"
-                                    ? "bg-white text-[#1a1918] shadow-xs"
-                                    : "text-[#8c7b6d] hover:text-[#4a3f35]"
-                            }`}
-                            title="Mode Studio : modification de l'application en direct"
-                        >
-                            <Code className="w-3 h-3" />
-                            <span className="hidden sm:inline">Studio</span>
-                        </button>
-                    </div>
-
-                    {/* Champ de saisie fluide */}
-                    <form onSubmit={handleSubmitText} className="flex-1 flex items-center min-w-0">
-                        <input
-                            ref={inputRef}
-                            type="text"
-                            value={instruction}
-                            onChange={(e) => setInstruction(e.target.value)}
-                            onFocus={() => setIsOpen(true)}
-                            placeholder={
-                                mode === "clinique"
-                                    ? "Une retouche sur le bilan ? (ex: 'Corrige la date', 'Précise la douleur...')"
-                                    : "Une amélioration sur l'app ? (ex: 'Ajoute un bouton d'export...')"
-                            }
-                            disabled={isLoading || isRecording}
-                            className="w-full bg-transparent text-xs text-[#4a3f35] placeholder:text-[#8c7b6d]/60 focus:outline-none px-2 py-1"
-                        />
-                    </form>
-
-                    {/* Bouton Enregistrement Vocal */}
-                    <button
-                        type="button"
-                        onClick={toggleRecording}
-                        disabled={isLoading}
-                        className={`relative p-2 rounded-full transition-all ${
-                            isRecording
-                                ? "bg-[#bd613c] text-white shadow-md animate-pulse"
-                                : "bg-[#f5f2eb] text-[#8c7b6d] hover:text-[#bd613c] hover:bg-[#ede8df]"
-                        }`}
-                        title={isRecording ? "Arrêter l'écoute" : "Dicter votre consigne"}
-                    >
-                        {isRecording ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
-                        {isRecording && (
-                            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-ping" />
+                                <span className="flex items-center gap-1 font-medium text-emerald-700">
+                                    <Check className="w-3.5 h-3.5" />
+                                    {lastAction.summary}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={handleUndo}
+                                    className="text-[#bd613c] hover:underline font-semibold flex items-center gap-1 transition-all"
+                                >
+                                    <Undo2 className="w-3 h-3" />
+                                    Annuler
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setLastAction(null)}
+                                    className="text-slate-400 hover:text-slate-600 ml-1"
+                                >
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </motion.div>
                         )}
-                    </button>
+                    </AnimatePresence>
 
-                    {/* Bouton d'envoi ou Loader */}
-                    {isLoading ? (
-                        <div className="p-2 text-[#bd613c]">
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    {/* Capsule Principale */}
+                    <motion.div
+                        className={`w-full bg-white/92 backdrop-blur-2xl border border-[#ebd9c8] shadow-xl rounded-full p-1.5 flex items-center gap-2 transition-all ${
+                            isOpen ? "ring-2 ring-[#bd613c]/30 shadow-2xl" : "hover:border-[#bd613c]/50"
+                        }`}
+                    >
+                        {/* Bouton de bascule de Mode */}
+                        <div className="flex items-center bg-[#f5f2eb] rounded-full p-0.5 border border-[#e8e4dc] shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setMode("clinique");
+                                    if (!isOpen) setIsOpen(true);
+                                }}
+                                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all ${
+                                    mode === "clinique"
+                                        ? "bg-white text-[#bd613c] shadow-xs"
+                                        : "text-[#8c7b6d] hover:text-[#4a3f35]"
+                                }`}
+                                title="Mode Clinique : retouche du bilan en cours"
+                            >
+                                <Stethoscope className="w-3 h-3" />
+                                <span className="hidden sm:inline">Bilan</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setMode("studio");
+                                    if (!isOpen) setIsOpen(true);
+                                }}
+                                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all ${
+                                    mode === "studio"
+                                        ? "bg-white text-[#1a1918] shadow-xs"
+                                        : "text-[#8c7b6d] hover:text-[#4a3f35]"
+                                }`}
+                                title="Mode Studio : modification de l'application en direct"
+                            >
+                                <Code className="w-3 h-3" />
+                                <span className="hidden sm:inline">Studio</span>
+                            </button>
                         </div>
-                    ) : (
+
+                        {/* Champ de saisie */}
+                        <form onSubmit={handleSubmitText} className="flex-1 flex items-center min-w-0">
+                            <input
+                                ref={inputRef}
+                                type="text"
+                                value={instruction}
+                                onChange={(e) => setInstruction(e.target.value)}
+                                onFocus={() => setIsOpen(true)}
+                                placeholder={
+                                    mode === "clinique"
+                                        ? "Une retouche sur le bilan ? (ex: 'Corrige la date', 'Précise la douleur...')"
+                                        : "Une amélioration sur l'app ? (ex: 'Ajoute un bouton d'export...')"
+                                }
+                                disabled={isLoading || isRecording}
+                                className="w-full bg-transparent text-xs text-[#4a3f35] placeholder:text-[#8c7b6d]/60 focus:outline-none px-2 py-1"
+                            />
+                        </form>
+
+                        {/* Bouton Tchat Déroulant (en mode clinique) */}
+                        {mode === "clinique" && (
+                            <button
+                                type="button"
+                                onClick={() => setIsChatDrawerOpen(true)}
+                                className="p-2 rounded-full transition-all bg-[#f5f2eb] text-[#8c7b6d] hover:text-[#bd613c] hover:bg-[#ede8df] shrink-0"
+                                title="Ouvrir le tchat conversationnel complet"
+                            >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                            </button>
+                        )}
+
+                        {/* Bouton Historique (si présent) */}
+                        {onOpenHistory && mode === "clinique" && (
+                            <button
+                                type="button"
+                                onClick={onOpenHistory}
+                                className="p-2 rounded-full transition-all bg-[#f5f2eb] text-[#8c7b6d] hover:text-[#bd613c] hover:bg-[#ede8df] shrink-0"
+                                title={`Consulter l'historique (${versionCount} versions)`}
+                            >
+                                <History className="w-3.5 h-3.5" />
+                            </button>
+                        )}
+
+                        {/* Bouton Enregistrement Vocal */}
                         <button
                             type="button"
-                            onClick={() => handleSubmitText()}
-                            disabled={!instruction.trim()}
-                            className={`p-2 rounded-full transition-all ${
-                                instruction.trim()
-                                    ? "bg-[#bd613c] text-white shadow-xs hover:bg-[#a64f2d]"
-                                    : "bg-transparent text-[#8c7b6d]/40"
+                            onClick={toggleRecording}
+                            disabled={isLoading}
+                            className={`relative p-2 rounded-full transition-all shrink-0 ${
+                                isRecording
+                                    ? "bg-[#bd613c] text-white shadow-md animate-pulse"
+                                    : "bg-[#f5f2eb] text-[#8c7b6d] hover:text-[#bd613c] hover:bg-[#ede8df]"
                             }`}
+                            title={isRecording ? "Arrêter l'écoute" : "Dicter votre consigne"}
                         >
-                            <Send className="w-3.5 h-3.5" />
+                            {isRecording ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+                            {isRecording && (
+                                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-ping" />
+                            )}
                         </button>
-                    )}
 
-                    {/* Raccourci subtil */}
-                    <span className="hidden md:inline-block text-[10px] text-[#8c7b6d]/50 font-mono pr-1">
-                        ⌘K
-                    </span>
-                </motion.div>
+                        {/* Bouton d'envoi ou Loader */}
+                        {isLoading ? (
+                            <div className="p-2 text-[#bd613c] shrink-0">
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            </div>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={() => handleSubmitText()}
+                                disabled={!instruction.trim()}
+                                className={`p-2 rounded-full transition-all shrink-0 ${
+                                    instruction.trim()
+                                        ? "bg-[#bd613c] text-white shadow-xs hover:bg-[#a64f2d]"
+                                        : "bg-transparent text-[#8c7b6d]/40"
+                                }`}
+                            >
+                                <Send className="w-3.5 h-3.5" />
+                            </button>
+                        )}
+
+                        {/* Raccourci subtil */}
+                        <span className="hidden md:inline-block text-[10px] text-[#8c7b6d]/50 font-mono pr-1 shrink-0">
+                            ⌘K
+                        </span>
+                    </motion.div>
+                </div>
             </div>
-        </div>
+        </>
     );
 }

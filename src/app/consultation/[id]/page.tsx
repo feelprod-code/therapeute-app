@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon, Trash2, Square, ExternalLink, ArrowLeftRight } from "lucide-react";
+import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon, Trash2, Square, ExternalLink, ArrowLeftRight, History } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import ReactMarkdown from "react-markdown";
@@ -20,6 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import imageCompression from 'browser-image-compression';
 import { swapFirstLastName } from "@/lib/utils";
 import { CopilotStudioBar } from "@/components/CopilotStudioBar";
+import { SyntheseHistoryModal, SyntheseVersionItem } from "@/components/SyntheseHistoryModal";
 
 export default function ConsultationDetail() {
   const params = useParams();
@@ -37,6 +38,9 @@ export default function ConsultationDetail() {
   const [isRecordingModalOpen, setIsRecordingModalOpen] = useState(false);
   const [isTextModalOpen, setIsTextModalOpen] = useState(false);
   const [textContent, setTextContent] = useState("");
+
+  // Nouveaux états pour l'historique des versions
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
 
   // Nouveaux états pour l'override de séance
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
@@ -144,14 +148,86 @@ export default function ConsultationDetail() {
     }
   };
 
+  const historyVersions: SyntheseVersionItem[] = (data?.follow_ups || []).filter(
+    (item: any) => item && item.type === 'synthese_version' && item.synthese
+  );
+
+  const saveSyntheseWithHistory = async (newSynthese: string, newPatientName?: string, actionLabel: string = "Modification") => {
+    try {
+      const currentFollowUps = data?.follow_ups || [];
+      const currentSynthese = data?.synthese;
+
+      let updatedFollowUps = [...currentFollowUps];
+
+      if (currentSynthese && currentSynthese.trim() !== newSynthese.trim()) {
+        const versionEntry: SyntheseVersionItem = {
+          id: crypto.randomUUID(),
+          type: 'synthese_version',
+          date: new Date().toISOString(),
+          label: actionLabel,
+          synthese: currentSynthese,
+          patient_name: data?.patient_name
+        };
+        updatedFollowUps = [versionEntry, ...currentFollowUps];
+      }
+
+      const updatePayload: any = {
+        synthese: newSynthese,
+        follow_ups: updatedFollowUps
+      };
+      if (newPatientName) {
+        updatePayload.patient_name = newPatientName;
+      }
+
+      const { data: updated, error } = await supabase
+        .from('consultations')
+        .update(updatePayload)
+        .eq('id', params.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setData(updated || {
+        ...data,
+        synthese: newSynthese,
+        follow_ups: updatedFollowUps,
+        ...(newPatientName ? { patient_name: newPatientName } : {})
+      });
+    } catch (e: any) {
+      console.error("Erreur sauvegarde synthèse avec historique:", e);
+      throw e;
+    }
+  };
+
+  const handleRestoreVersion = async (version: SyntheseVersionItem) => {
+    await saveSyntheseWithHistory(
+      version.synthese,
+      version.patient_name,
+      `Restauration de la version du ${format(new Date(version.date), "dd/MM/yyyy HH:mm")}`
+    );
+  };
+
+  const handleDeleteVersion = async (versionId: string) => {
+    const currentFollowUps = data?.follow_ups || [];
+    const updatedFollowUps = currentFollowUps.filter((item: any) => !(item.type === 'synthese_version' && item.id === versionId));
+
+    const { data: updated, error } = await supabase
+      .from('consultations')
+      .update({ follow_ups: updatedFollowUps })
+      .eq('id', params.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    setData(updated || { ...data, follow_ups: updatedFollowUps });
+  };
+
   const handleSaveBilan = async () => {
     try {
-      const { error } = await supabase.from('consultations').update({ synthese: editBilanContent }).eq('id', params.id);
-      if (error) throw error;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setData((prev: any) => ({ ...prev, synthese: editBilanContent }));
+      await saveSyntheseWithHistory(editBilanContent, undefined, "Édition manuelle du bilan");
       setIsEditingBilan(false);
-      toast({ title: "Bilan mis à jour", description: "Vos modifications ont été enregistrées." });
+      toast({ title: "Bilan mis à jour", description: "Vos modifications ont été enregistrées avec un point d'historique." });
     } catch (e) {
       console.error(e);
       toast({ title: "Erreur", description: "Impossible de sauvegarder le bilan.", variant: "destructive" });
@@ -1264,6 +1340,21 @@ export default function ConsultationDetail() {
                   <div className="flex items-center gap-2">
                     {data.synthese && !isEditingBilan && (
                       <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setIsHistoryModalOpen(true)}
+                          className="border-[#ebd9c8] text-[#bd613c] hover:bg-[#ebd9c8]/30 print:hidden h-8 px-2.5 rounded-lg text-xs font-medium gap-1 shadow-xs"
+                          title="Historique des versions du bilan"
+                        >
+                          <History className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Historique</span>
+                          {historyVersions.length > 0 && (
+                            <span className="bg-[#bd613c]/15 text-[#bd613c] px-1.5 py-0.5 rounded-full text-[10px] font-bold">
+                              {historyVersions.length}
+                            </span>
+                          )}
+                        </Button>
                         <Button variant="ghost" size="sm" onClick={() => handleExportPDF(`bilan_${data.patient_name || 'patient'}`)} className="text-[#bd613c] hover:bg-[#ebd9c8]/30 print:hidden h-8 px-3 rounded-lg" data-html2canvas-ignore="true">
                           <Share className="w-4 h-4 sm:mr-2" /> <span className="hidden sm:inline text-sm font-medium">Exporter PDF</span>
                         </Button>
@@ -1971,32 +2062,19 @@ export default function ConsultationDetail() {
         transcription={data?.transcription}
         patientName={data?.patient_name}
         currentPath={`/consultation/${params.id}`}
-        onUpdateSynthese={async (newSynthese, newPatientName) => {
-          try {
-            const updatePayload: any = { synthese: newSynthese };
-            if (newPatientName) {
-              updatePayload.patient_name = newPatientName;
-            }
-            const { data: updated, error } = await supabase
-              .from('consultations')
-              .update(updatePayload)
-              .eq('id', params.id)
-              .select()
-              .single();
+        onUpdateSynthese={saveSyntheseWithHistory}
+        onOpenHistory={() => setIsHistoryModalOpen(true)}
+        versionCount={historyVersions.length}
+      />
 
-            if (!error && updated) {
-              setData(updated);
-            } else {
-              setData((prev: any) => ({
-                ...prev,
-                synthese: newSynthese,
-                ...(newPatientName ? { patient_name: newPatientName } : {})
-              }));
-            }
-          } catch (e) {
-            console.error("Erreur mise à jour Supabase Copilot:", e);
-          }
-        }}
+      <SyntheseHistoryModal
+        isOpen={isHistoryModalOpen}
+        onClose={() => setIsHistoryModalOpen(false)}
+        versions={historyVersions}
+        currentSynthese={data?.synthese || ""}
+        currentPatientName={data?.patient_name}
+        onRestoreVersion={handleRestoreVersion}
+        onDeleteVersion={handleDeleteVersion}
       />
     </main>
   );
