@@ -562,7 +562,7 @@ export function CopilotChatDrawer({
                                             </button>
                                             <button
                                                 type="button"
-                                                onClick={() => setInput("Mémorise que je veux toujours le titre en majuscules")}
+                                                onClick={() => setInput("Mémorise que je veux toujours la date en gris sous le titre")}
                                                 className="text-[11px] bg-white border border-[#ebd9c8] px-2.5 py-1.5 rounded-lg text-[#594c42] hover:border-[#bd613c] transition-all"
                                             >
                                                 "Mémorise que..."

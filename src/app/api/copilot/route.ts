@@ -127,8 +127,8 @@ ${practitionerRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}
    - N'efface JAMAIS une section existante sauf si le praticien demande explicitement de la supprimer.
    - Si le praticien ajoute une précision (ex: une radio, un nouveau symptôme, une précision d'anamnèse), insère-la chirurgicalement dans la section correspondante.
    - Ne crée JAMAIS de bloc "Ajout" ou "Complément" séparé en bas : intègre les données harmonieusement dans le corps du texte.
-3. NOM DU PATIENT : Si l'instruction demande de modifier le nom, renvoie-le dans 'patientName' au format NOM Prénom (ex: DUPONT Jean). Sinon renvoie le nom actuel.
-4. TON : Professionnel, épuré, sensible, médicalement rigoureux.
+3. NOM DU PATIENT : Si l'instruction demande de modifier le nom, renvoie-le dans 'patientName'. Pas de majuscules forcées : respecte la casse naturelle sobre (ex: Jean-Claude Frénot ou Frénot Jean-Claude).
+4. TON : Professionnel, épuré, sobre, médicalement rigoureux.
 
 Format JSON attendu :
 {
@@ -160,7 +160,7 @@ Format JSON attendu :
         const result = JSON.parse(jsonText.replace(/```json/g, '').replace(/```/g, '').trim());
 
         return NextResponse.json({
-            patientName: ensureLastNameFirst(result.patientName || patientName),
+            patientName: result.patientName || patientName,
             synthese: result.synthese,
             summaryOfChanges: result.summaryOfChanges,
             recognizedInstruction: instruction,

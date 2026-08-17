@@ -1,9 +1,9 @@
 {
   "rules": [
     "Le titre principal du bilan doit toujours respecter strictement : # Bilan de consultation <span style=\"font-size: 0.6em; color: #8c7b6d;\">- [Date]</span>",
-    "Toujours placer le NOM de famille en majuscules en premier suivi du Prénom dans les titres et fiches (ex: DUPONT Jean).",
+    "Pas de MAJUSCULES forcées : écrire les noms, prénoms et titres de manière naturelle et sobre (ex: Jean-Claude Frénot).",
     "Intégrer les nouvelles informations dans les sections existantes (Motif, Histoire, Examen, ATCD) sans jamais créer de section 'Ajout' ou 'Complément' isolée.",
     "Conserver toutes les données cliniques, bilans d'imagerie et examens complémentaires existants lors des retouches successives."
   ],
-  "lastUpdated": "2026-08-17T15:50:00.000Z"
+  "lastUpdated": "2026-08-17T17:58:00.000Z"
 }
