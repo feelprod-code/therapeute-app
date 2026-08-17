@@ -1966,7 +1966,6 @@ export default function ConsultationDetail() {
         </Tabs>
       </div>
 
-      {/* Barre Copilote & Studio intégrée */}
       <CopilotStudioBar
         synthese={data?.synthese}
         transcription={data?.transcription}

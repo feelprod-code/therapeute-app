@@ -69,14 +69,6 @@ function EmptyState() {
   );
 }
 
-export default function HomeWrapper() {
-  return (
-    <ProtectedRoute>
-      <Home />
-    </ProtectedRoute>
-  );
-}
-
 function Folder({ title, defaultOpen = false, children }: { title: React.ReactNode, defaultOpen?: boolean, children: React.ReactNode }) {
   return (
     <details open={defaultOpen} className="group mb-4 bg-white/50 border border-[#bd613c]/20 rounded-xl overflow-hidden [&_summary::-webkit-details-marker]:hidden">
@@ -129,7 +121,7 @@ function getClassificationLetter(fullName: string): string {
   return firstChar.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
 }
 
-function Home() {
+export default function Home() {
   const { toast } = useToast();
   const [recorderMode, setRecorderMode] = useState('standard');
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
@@ -1405,7 +1397,6 @@ function Home() {
 
       </div >
 
-      {/* Barre Copilote & Studio intégrée */}
       <CopilotStudioBar currentPath="/" />
     </main >
   );
