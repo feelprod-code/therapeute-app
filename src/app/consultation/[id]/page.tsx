@@ -19,6 +19,7 @@ import { AudioRecorder } from "@/components/AudioRecorder";
 import { useToast } from "@/hooks/use-toast";
 import imageCompression from 'browser-image-compression';
 import { swapFirstLastName } from "@/lib/utils";
+import { CopilotStudioBar } from "@/components/CopilotStudioBar";
 
 export default function ConsultationDetail() {
   const params = useParams();
@@ -1964,6 +1965,40 @@ export default function ConsultationDetail() {
           </div>
         </Tabs>
       </div>
+
+      {/* Barre Copilote & Studio intégrée */}
+      <CopilotStudioBar
+        synthese={data?.synthese}
+        transcription={data?.transcription}
+        patientName={data?.patient_name}
+        currentPath={`/consultation/${params.id}`}
+        onUpdateSynthese={async (newSynthese, newPatientName) => {
+          try {
+            const updatePayload: any = { synthese: newSynthese };
+            if (newPatientName) {
+              updatePayload.patient_name = newPatientName;
+            }
+            const { data: updated, error } = await supabase
+              .from('consultations')
+              .update(updatePayload)
+              .eq('id', params.id)
+              .select()
+              .single();
+
+            if (!error && updated) {
+              setData(updated);
+            } else {
+              setData((prev: any) => ({
+                ...prev,
+                synthese: newSynthese,
+                ...(newPatientName ? { patient_name: newPatientName } : {})
+              }));
+            }
+          } catch (e) {
+            console.error("Erreur mise à jour Supabase Copilot:", e);
+          }
+        }}
+      />
     </main>
   );
 }

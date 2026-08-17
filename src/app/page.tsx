@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
 import { swapFirstLastName } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CopilotStudioBar } from "@/components/CopilotStudioBar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -1403,6 +1404,9 @@ function Home() {
         </div>
 
       </div >
+
+      {/* Barre Copilote & Studio intégrée */}
+      <CopilotStudioBar currentPath="/" />
     </main >
   );
 }
