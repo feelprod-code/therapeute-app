@@ -106,13 +106,12 @@ export async function POST(req: Request) {
                         await scanDir(full);
                     }
                 } else if (entry.isFile() && (entry.name.endsWith('.tsx') || entry.name.endsWith('.ts') || entry.name.endsWith('.css'))) {
-                    if (rel.includes('consultation') || rel.includes('components') || rel.includes('app/page.tsx') || rel.includes('globals.css')) {
+                    if (rel.includes('consultation') || rel.includes('components') || rel.includes('app/page.tsx') || rel.includes('globals.css') || rel.includes('layout.tsx')) {
                         try {
                             const content = await fs.readFile(full, 'utf-8');
-                            // On extrait un extrait contextuel concis pour ne pas surcharger le prompt
                             relevantFiles.push({
                                 relativePath: rel,
-                                content: content.length > 20000 ? content.slice(0, 20000) + "\n// ... [reste du fichier]" : content
+                                content: content
                             });
                         } catch {}
                     }
@@ -125,7 +124,7 @@ export async function POST(req: Request) {
         const ai = new GoogleGenAI({ apiKey });
 
         const systemPrompt = `Tu es l'architecte développeur en direct (Mode Studio) de l'application Micro Thérapeute (Next.js 14, React 18, Tailwind CSS, TypeScript).
-Le praticien / concepteur te demande d'effectuer une amélioration, ajouter un bouton, modifier un style ou ajouter une fonctionnalité.
+Le praticien / concepteur te demande d'effectuer une amélioration, ajouter/supprimer un bouton, modifier un style ou ajouter une fonctionnalité.
 
 === CONTEXTE ACTUEL DE L'APPLICATION ===
 Page active : ${currentPath || "/"}
@@ -137,18 +136,19 @@ ${relevantFiles.map(f => `--- FICHIER: ${f.relativePath} ---\n${f.content}\n--- 
 "${instruction}"
 
 === RÈGLES CRITIQUES D'ÉDITION CIBLÉE (PATCH) ===
-1. PATCH CIBLÉ OBLIGATOIRE : Au lieu de réécrire tout un gros fichier de 1000 lignes, fournis UNIQUEMENT le bloc exact de code à remplacer (targetContent) et le nouveau bloc de remplacement (replacementContent).
-2. TARGETCONTENT EXACT : Le targetContent doit être une sous-chaîne EXACTE (caractère pour caractère) existante dans le fichier cible.
-3. NOUVEAUX FICHIERS : Si la demande nécessite de créer un nouveau composant dans src/components/, place-le dans 'newFiles'.
-4. DESIGN ÉPURÉ : Palette blanc #ffffff, ivoire #fdfbf6, texte #4a3f35, accent #bd613c, bordures douces #e5e2dd.
+1. PATCH CIBLÉ OBLIGATOIRE : Fournis le bloc exact de code à remplacer (targetContent) et le nouveau bloc de remplacement (replacementContent).
+2. TARGETCONTENT : Copie fidèlement les lignes exactes à modifier ou supprimer telles qu'elles apparaissent dans le fichier source ci-dessus (avec 1 ou 2 lignes de contexte autour si nécessaire pour lever toute ambiguïté).
+3. SUPPRESSION D'UN ÉLÉMENT : Pour supprimer un élément ou un bouton, mets dans 'targetContent' le bloc du bouton/élément à retirer, et dans 'replacementContent' une chaîne vide "" ou le code nettoyé.
+4. NOUVEAUX FICHIERS : Si la demande nécessite de créer un nouveau composant dans src/components/, place-le dans 'newFiles'.
+5. DESIGN ÉPURÉ : Palette blanc #ffffff, ivoire #fdfbf6, texte #4a3f35, accent #bd613c, bordures douces #e5e2dd.
 
 Format JSON attendu :
 {
   "modifications": [
     {
       "relativePath": "src/app/page.tsx",
-      "targetContent": "le bloc exact de code à remplacer",
-      "replacementContent": "le nouveau code à insérer à la place"
+      "targetContent": "le bloc exact de code à remplacer ou supprimer",
+      "replacementContent": "le nouveau code à insérer à la place (ou \"\" pour supprimer)"
     }
   ],
   "newFiles": [
@@ -217,6 +217,58 @@ Format JSON attendu :
 
         const appliedFiles: string[] = [];
 
+        // Fonction robuste d'application de patch
+        const applyPatchRobust = (original: string, target: string, replacement: string): string | null => {
+            // 1. Correspondance exacte directe
+            if (original.includes(target)) {
+                return original.replace(target, replacement);
+            }
+
+            // 2. Normalisation CRLF
+            const normOriginal = original.replace(/\r\n/g, '\n');
+            const normTarget = target.replace(/\r\n/g, '\n').trim();
+            if (normOriginal.includes(normTarget)) {
+                return normOriginal.replace(normTarget, replacement);
+            }
+
+            // 3. Sliding Window ligne par ligne (insensible aux différences d'indentation)
+            const origLines = normOriginal.split('\n');
+            const targetLines = normTarget.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+            if (targetLines.length > 0) {
+                for (let i = 0; i <= origLines.length - targetLines.length; i++) {
+                    let matches = true;
+                    for (let j = 0; j < targetLines.length; j++) {
+                        if (origLines[i + j].trim() !== targetLines[j]) {
+                            matches = false;
+                            break;
+                        }
+                    }
+                    if (matches) {
+                        const before = origLines.slice(0, i).join('\n');
+                        const after = origLines.slice(i + targetLines.length).join('\n');
+                        const prefix = before.length > 0 ? before + '\n' : '';
+                        const suffix = after.length > 0 ? '\n' + after : '';
+                        return prefix + replacement + suffix;
+                    }
+                }
+            }
+
+            // 4. Regex flexible sur les espaces
+            try {
+                const escaped = normTarget
+                    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                    .replace(/\\s\+/g, '\\s+')
+                    .replace(/\s+/g, '\\s+');
+                const re = new RegExp(escaped, 'm');
+                if (re.test(normOriginal)) {
+                    return normOriginal.replace(re, replacement);
+                }
+            } catch {}
+
+            return null;
+        };
+
         // 1. Appliquer les modifications ciblées sur les fichiers existants
         if (hasMods) {
             for (const mod of result.modifications) {
@@ -229,23 +281,15 @@ Format JSON attendu :
                     await fs.writeFile(path.join(specificBackupDir, safeFileName), currentContent, 'utf-8');
                     await fs.writeFile(path.join(specificBackupDir, `${safeFileName}.meta.json`), JSON.stringify({ originalPath: mod.relativePath }));
 
-                    // Remplacement ciblé
-                    if (currentContent.includes(mod.targetContent)) {
-                        const updated = currentContent.replace(mod.targetContent, mod.replacementContent);
+                    // Remplacement avec moteur robuste
+                    const updated = applyPatchRobust(currentContent, mod.targetContent, mod.replacementContent);
+
+                    if (updated !== null) {
                         await fs.writeFile(targetFilePath, updated, 'utf-8');
                         appliedFiles.push(mod.relativePath);
                     } else {
-                        console.warn(`[Studio] TargetContent non trouvé exactement dans ${mod.relativePath}`);
-                        // Essayer de normaliser les retours à la ligne
-                        const normCurrent = currentContent.replace(/\r\n/g, '\n');
-                        const normTarget = mod.targetContent.replace(/\r\n/g, '\n');
-                        if (normCurrent.includes(normTarget)) {
-                            const updated = normCurrent.replace(normTarget, mod.replacementContent);
-                            await fs.writeFile(targetFilePath, updated, 'utf-8');
-                            appliedFiles.push(mod.relativePath);
-                        } else {
-                            throw new Error(`Impossible de localiser l'emplacement précis dans ${mod.relativePath}.`);
-                        }
+                        console.error(`[Studio] TargetContent non localisable dans ${mod.relativePath}:`, mod.targetContent);
+                        throw new Error(`Impossible de localiser l'emplacement précis dans ${mod.relativePath}.`);
                     }
                 } catch (e) {
                     console.error(`[Studio] Erreur sur ${mod.relativePath}:`, e);

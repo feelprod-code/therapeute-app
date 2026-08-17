@@ -1143,14 +1143,7 @@ export default function Home() {
 
         {/* Bouton Agenda et En-tête */}
         <div className="relative mt-2 sm:mt-6 md:mt-4 mb-3 sm:mb-8 flex flex-col items-center justify-center pt-2 sm:pt-0">
-          <div className="absolute top-0 right-0 z-20">
-            <Button asChild variant="outline" className="text-[#bd613c] border-[#bd613c]/30 hover:bg-[#ebd9c8]/30 rounded-xl h-9 sm:h-10 px-3 sm:px-4 shadow-sm bg-white/50 backdrop-blur-sm">
-              <Link href="/calendrier">
-                <CalendarDays className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
-                <span className="hidden sm:inline font-medium">Mon Agenda</span>
-              </Link>
-            </Button>
-          </div>
+
 
           <div className="text-center shrink-0 w-full px-2 sm:px-[140px] md:px-[180px] pt-2 sm:pt-0">
             <h1 className="font-bebas text-3xl sm:text-5xl md:text-6xl text-[#bd613c] tracking-wide uppercase leading-tight md:leading-none mb-1 text-balance">
