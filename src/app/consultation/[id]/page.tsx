@@ -39,8 +39,9 @@ export default function ConsultationDetail() {
   const [isTextModalOpen, setIsTextModalOpen] = useState(false);
   const [textContent, setTextContent] = useState("");
 
-  // Nouveaux états pour l'historique des versions
+  // Nouveaux états pour l'historique des versions et le tchat IA
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [isCopilotChatOpen, setIsCopilotChatOpen] = useState(false);
 
   // Nouveaux états pour l'override de séance
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
@@ -1337,18 +1338,28 @@ export default function ConsultationDetail() {
                       </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     {data.synthese && !isEditingBilan && (
                       <>
                         <Button
                           variant="outline"
                           size="sm"
+                          onClick={() => setIsCopilotChatOpen(true)}
+                          className="border-[#bd613c]/30 bg-[#bd613c]/10 text-[#bd613c] hover:bg-[#bd613c]/20 print:hidden h-8 px-3 rounded-lg text-xs font-semibold gap-1.5 shadow-xs"
+                          title="Ouvrir le tchat et l'historique des échanges avec l'IA"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-[#bd613c]" />
+                          <span>Tchat & Copilote IA</span>
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => setIsHistoryModalOpen(true)}
-                          className="border-[#ebd9c8] text-[#bd613c] hover:bg-[#ebd9c8]/30 print:hidden h-8 px-2.5 rounded-lg text-xs font-medium gap-1 shadow-xs"
-                          title="Historique des versions du bilan"
+                          className="border-[#ebd9c8] text-[#594c42] hover:bg-[#ebd9c8]/30 print:hidden h-8 px-2.5 rounded-lg text-xs font-medium gap-1 shadow-xs"
+                          title="Historique des versions du document médical"
                         >
                           <History className="w-3.5 h-3.5" />
-                          <span className="hidden sm:inline">Historique</span>
+                          <span className="hidden sm:inline">Versions</span>
                           {historyVersions.length > 0 && (
                             <span className="bg-[#bd613c]/15 text-[#bd613c] px-1.5 py-0.5 rounded-full text-[10px] font-bold">
                               {historyVersions.length}
@@ -2065,6 +2076,8 @@ export default function ConsultationDetail() {
         onUpdateSynthese={saveSyntheseWithHistory}
         onOpenHistory={() => setIsHistoryModalOpen(true)}
         versionCount={historyVersions.length}
+        isChatDrawerOpenExternal={isCopilotChatOpen}
+        onToggleChatDrawerExternal={setIsCopilotChatOpen}
       />
 
       <SyntheseHistoryModal

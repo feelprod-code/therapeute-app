@@ -15,6 +15,8 @@ interface CopilotStudioBarProps {
     currentPath?: string;
     onOpenHistory?: () => void;
     versionCount?: number;
+    isChatDrawerOpenExternal?: boolean;
+    onToggleChatDrawerExternal?: (open: boolean) => void;
 }
 
 export function CopilotStudioBar({
@@ -24,10 +26,14 @@ export function CopilotStudioBar({
     onUpdateSynthese,
     currentPath = "/",
     onOpenHistory,
-    versionCount = 0
+    versionCount = 0,
+    isChatDrawerOpenExternal,
+    onToggleChatDrawerExternal
 }: CopilotStudioBarProps) {
     const [isOpen, setIsOpen] = useState(false);
-    const [isChatDrawerOpen, setIsChatDrawerOpen] = useState(false);
+    const [internalChatDrawerOpen, setInternalChatDrawerOpen] = useState(false);
+    const isChatDrawerOpen = isChatDrawerOpenExternal !== undefined ? isChatDrawerOpenExternal : internalChatDrawerOpen;
+    const setIsChatDrawerOpen = onToggleChatDrawerExternal || setInternalChatDrawerOpen;
     const [mode, setMode] = useState<"clinique" | "studio">(synthese ? "clinique" : "studio");
     const [instruction, setInstruction] = useState("");
     const [isLoading, setIsLoading] = useState(false);
@@ -50,7 +56,7 @@ export function CopilotStudioBar({
         const handleKeyDown = (e: KeyboardEvent) => {
             if ((e.metaKey || e.ctrlKey) && e.key === "k") {
                 e.preventDefault();
-                setIsChatDrawerOpen(prev => !prev);
+                setIsChatDrawerOpen(!isChatDrawerOpen);
             }
             if (e.key === "Escape") {
                 if (isChatDrawerOpen) setIsChatDrawerOpen(false);
