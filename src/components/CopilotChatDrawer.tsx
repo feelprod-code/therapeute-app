@@ -390,7 +390,7 @@ export function CopilotChatDrawer({
                         className="fixed top-0 right-0 bottom-0 w-full sm:w-[500px] bg-[#fdfbf6] border-l border-[#ebd9c8] shadow-2xl z-50 flex flex-col overflow-hidden"
                     >
                         {/* En-tête du Tchat */}
-                        <div className="px-4 py-3.5 bg-white/90 border-b border-[#ebd9c8] flex items-center justify-between shrink-0">
+                        <div className="px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-3.5 bg-white/95 border-b border-[#ebd9c8] flex items-center justify-between shrink-0">
                             <div className="flex items-center gap-2 min-w-0">
                                 <Button
                                     variant="ghost"
@@ -625,7 +625,7 @@ export function CopilotChatDrawer({
                         </div>
 
                         {/* Zone de saisie & Micro */}
-                        <div className="p-3 bg-white/90 border-t border-[#ebd9c8] shrink-0">
+                        <div className="p-3 pb-[max(0.875rem,env(safe-area-inset-bottom))] bg-white/95 border-t border-[#ebd9c8] shrink-0">
                             <form
                                 onSubmit={(e) => {
                                     e.preventDefault();

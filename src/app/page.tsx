@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Copy, Plus, Trash2, ArrowRight, Loader2, RefreshCw, FileText, Check, MessageSquare, ListTodo, MoreHorizontal, Merge, Search, Mic, Type, FileUp, X as XIcon, CalendarDays, Folder as FolderIcon, ChevronDown, Combine, Paperclip, Image as ImageIcon, X, Download, Square, ArrowLeftRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
-import { swapFirstLastName } from "@/lib/utils";
+import { swapFirstLastName, extractLastName, extractFirstName, getClassificationLetter } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopilotStudioBar } from "@/components/CopilotStudioBar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -84,41 +84,6 @@ function Folder({ title, defaultOpen = false, children }: { title: React.ReactNo
       </div>
     </details>
   );
-}
-
-function extractLastName(fullName: string): string {
-  if (!fullName) return "";
-  const cleanName = fullName.trim();
-  const words = cleanName.split(/\s+/).filter(w => w.length > 0);
-  if (words.length === 0) return "";
-  if (words.length === 1) return words[0];
-
-  const uppercaseWords = words.filter(w => {
-    const cleanWord = w.replace(/[^a-zA-ZÀ-ÖØ-öø-ÿ]/g, '');
-    return cleanWord.length > 1 && cleanWord === cleanWord.toUpperCase();
-  });
-
-  if (uppercaseWords.length > 0) {
-    return uppercaseWords.join(" ");
-  }
-
-  return words[words.length - 1];
-}
-
-function extractFirstName(fullName: string, lastName: string): string {
-  if (!fullName) return "";
-  if (!lastName) return fullName;
-  const escapedLastName = lastName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-  const regex = new RegExp(`\\b${escapedLastName}\\b`, 'gi');
-  const firstName = fullName.replace(regex, '').trim();
-  return firstName.replace(/^[,\s-]+|[,\s-]+$/g, '').replace(/\s+/g, ' ') || fullName;
-}
-
-function getClassificationLetter(fullName: string): string {
-  const lastName = extractLastName(fullName);
-  if (!lastName) return "";
-  const firstChar = lastName.trim().charAt(0);
-  return firstChar.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
 }
 
 export default function Home() {
