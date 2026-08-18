@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { 
     Sparkles, Mic, MicOff, Send, Loader2, Undo2, X, History, Brain, 
     ChevronRight, Stethoscope, MessageSquare, Bot, User, Check, RefreshCw, 
-    Plus, Trash2, ChevronLeft, Search, Code, CornerDownLeft
+    Plus, Trash2, ChevronLeft, Search, Code, CornerDownLeft, ArrowLeft
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -114,9 +114,10 @@ export function CopilotChatDrawer({
         setTimeout(() => inputRef.current?.focus(), 150);
     };
 
-    // Supprimer une conversation
+    // Supprimer une conversation avec confirmation
     const handleDeleteChat = (e: React.MouseEvent, convId: string) => {
         e.stopPropagation();
+        if (!confirm("Voulez-vous vraiment supprimer cette conversation ?")) return;
         const updated = deleteAiConversation(convId);
         setConversations(updated);
         if (activeConvId === convId) {
@@ -300,7 +301,7 @@ export function CopilotChatDrawer({
             });
             appendMessageToConversation(currentConv.id, {
                 role: "assistant",
-                content: `⚠️ Erreur : ${e?.message || "Impossible d'appliquer la consigne."}`
+                content: `⚠️ Erreur : ${e?.message || "Échec de traitement"}`
             });
             setConversations(loadAiConversations());
         } finally {
@@ -308,7 +309,7 @@ export function CopilotChatDrawer({
         }
     };
 
-    // Annuler / Revert d'une action passée
+    // Annuler / Revert d'un message
     const handleRevert = async (msg: AiChatMessage) => {
         if (msg.previousSynthese && onUpdateSynthese) {
             try {
@@ -332,53 +333,34 @@ export function CopilotChatDrawer({
                     body: JSON.stringify({ action: "rollback", backupId: msg.backupId })
                 });
                 const data = await res.json();
-                if (!res.ok) throw new Error(data.error || "Erreur de rollback");
+                if (!res.ok) throw new Error(data.error || "Échec du rollback");
                 toast({
-                    title: "Code restauré",
-                    description: data.message || "Fichiers d'origine rétablis."
+                    title: "Annulation Studio réussie",
+                    description: "Les fichiers modifiés ont été restaurés."
                 });
             } catch (e: any) {
-                toast({ title: "Erreur", description: e?.message, variant: "destructive" });
+                toast({ title: "Erreur Studio", description: e?.message, variant: "destructive" });
             }
         }
     };
 
-    // Mémoriser une règle
-    const handleMemorizeCustomRule = async (ruleText: string) => {
-        try {
-            const res = await fetch("/api/learn-rule", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ rule: ruleText })
-            });
-            const d = await res.json();
-            if (res.ok) {
-                fetchRules();
-                toast({
-                    title: "🧠 Règle enregistrée dans votre ADN Thérapeute",
-                    description: `"${ruleText}" sera appliquée automatiquement sur vos futurs bilans.`
-                });
-            }
-        } catch (e: any) {
-            toast({ title: "Erreur", description: e?.message, variant: "destructive" });
-        }
-    };
-
-    const filteredConversations = conversations.filter(c => 
-        !searchConv || c.title.toLowerCase().includes(searchConv.toLowerCase())
-    );
+    const filteredConversations = conversations.filter(c => {
+        if (!searchConv.trim()) return true;
+        const q = searchConv.toLowerCase();
+        return c.title.toLowerCase().includes(q) || c.messages.some(m => m.content.toLowerCase().includes(q));
+    });
 
     return (
         <AnimatePresence>
             {isOpen && (
                 <>
-                    {/* Overlay de fond */}
+                    {/* Arrière-plan assombri */}
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         onClick={onClose}
-                        className="fixed inset-0 bg-black/25 backdrop-blur-xs z-50 transition-opacity"
+                        className="fixed inset-0 bg-black/30 backdrop-blur-xs z-50 transition-opacity"
                     />
 
                     {/* Volet Latéral Principal */}
@@ -387,29 +369,21 @@ export function CopilotChatDrawer({
                         animate={{ x: 0 }}
                         exit={{ x: "100%" }}
                         transition={{ type: "spring", damping: 28, stiffness: 280 }}
-                        className="fixed top-0 right-0 bottom-0 w-full sm:w-[500px] bg-[#fdfbf6] border-l border-[#ebd9c8] shadow-2xl z-50 flex flex-col overflow-hidden"
+                        className="fixed top-0 right-0 bottom-0 w-full sm:w-[500px] bg-[#fdfbf6] border-l border-[#ebd9c8] shadow-2xl z-50 flex flex-col overflow-hidden max-h-[100dvh]"
                     >
-                        {/* En-tête du Tchat */}
-                        <div className="px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-3.5 bg-white/95 border-b border-[#ebd9c8] flex items-center justify-between shrink-0">
+                        {/* En-tête du Tchat avec Safe-Area iOS */}
+                        <div className="px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-3.5 bg-white/95 border-b border-[#ebd9c8] flex items-center justify-between shrink-0 shadow-xs">
                             <div className="flex items-center gap-2 min-w-0">
                                 <Button
-                                    variant="ghost"
-                                    size="icon"
+                                    variant="outline"
+                                    size="sm"
                                     onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                                    className={`h-8 w-8 rounded-xl ${isSidebarOpen ? "bg-[#bd613c] text-white" : "text-[#594c42] hover:bg-[#ebd9c8]/30"}`}
+                                    className={`h-9 px-2.5 rounded-xl border-[#ebd9c8] gap-1.5 text-xs font-semibold ${isSidebarOpen ? "bg-[#bd613c] text-white border-[#bd613c]" : "text-[#594c42] bg-[#fdfbf6] hover:bg-[#ebd9c8]/30"}`}
                                     title="Historique des discussions avec l'IA"
                                 >
-                                    <History className="w-4 h-4" />
+                                    <History className="w-4 h-4 text-[#bd613c] group-hover:text-inherit" />
+                                    <span>Discussions ({conversations.length})</span>
                                 </Button>
-
-                                <div className="min-w-0">
-                                    <h3 className="font-bebas text-xl text-[#594c42] leading-tight tracking-wide truncate">
-                                        {activeConversation?.title || "Conversation IA"}
-                                    </h3>
-                                    <span className="text-[10px] text-[#8c7b6d] flex items-center gap-1">
-                                        {activeConversation?.mode === "clinique" ? "🩺 Copilote Bilan" : "💻 Mode Studio (App)"}
-                                    </span>
-                                </div>
                             </div>
 
                             <div className="flex items-center gap-1.5 shrink-0">
@@ -417,26 +391,28 @@ export function CopilotChatDrawer({
                                     variant="outline"
                                     size="sm"
                                     onClick={() => handleNewChat()}
-                                    className="h-8 px-2.5 rounded-xl border-[#ebd9c8] text-[#bd613c] hover:bg-[#ebd9c8]/30 gap-1 text-xs"
+                                    className="h-9 px-2.5 rounded-xl border-[#ebd9c8] text-[#bd613c] hover:bg-[#ebd9c8]/30 gap-1 text-xs font-medium"
                                     title="Démarrer une nouvelle discussion"
                                 >
-                                    <Plus className="w-3.5 h-3.5" />
+                                    <Plus className="w-4 h-4" />
                                     <span className="hidden sm:inline">Nouveau</span>
                                 </Button>
 
                                 <Button
                                     variant="ghost"
-                                    size="icon"
+                                    size="sm"
                                     onClick={onClose}
-                                    className="h-8 w-8 rounded-xl text-slate-400 hover:text-[#bd613c]"
+                                    className="h-9 px-2.5 rounded-xl text-slate-500 hover:text-[#bd613c] hover:bg-[#ebd9c8]/30 font-medium text-xs gap-1"
                                 >
                                     <X className="w-4 h-4" />
+                                    <span>Fermer</span>
                                 </Button>
                             </div>
                         </div>
 
                         {/* Corps principal : Tchat ou Volet Historique des Conversations */}
                         <div className="flex-1 relative overflow-hidden flex flex-col">
+                            
                             {/* Volet Tiroir : Historique des discussions */}
                             <AnimatePresence>
                                 {isSidebarOpen && (
@@ -448,20 +424,19 @@ export function CopilotChatDrawer({
                                         className="absolute inset-0 bg-[#fdfbf6] z-20 flex flex-col p-4 border-r border-[#ebd9c8]"
                                     >
                                         <div className="flex items-center justify-between pb-3 border-b border-[#ebd9c8]">
-                                            <div className="flex items-center gap-2">
-                                                <History className="w-4 h-4 text-[#bd613c]" />
-                                                <h4 className="font-bebas text-lg text-[#594c42] tracking-wide">
-                                                    Mes Conversations ({conversations.length})
-                                                </h4>
-                                            </div>
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
                                                 onClick={() => setIsSidebarOpen(false)}
-                                                className="h-7 text-xs text-[#8c7b6d] hover:text-[#594c42]"
+                                                className="h-8 px-2 text-xs font-semibold text-[#bd613c] hover:bg-[#ebd9c8]/30 gap-1.5 -ml-1"
                                             >
-                                                Fermer
+                                                <ArrowLeft className="w-4 h-4" />
+                                                <span>Retour au Tchat</span>
                                             </Button>
+
+                                            <h4 className="font-bebas text-lg text-[#594c42] tracking-wide">
+                                                Mes Conversations ({conversations.length})
+                                            </h4>
                                         </div>
 
                                         {/* Recherche de conversation */}
@@ -472,12 +447,15 @@ export function CopilotChatDrawer({
                                                 value={searchConv}
                                                 onChange={(e) => setSearchConv(e.target.value)}
                                                 placeholder="Rechercher une discussion..."
-                                                className="w-full bg-white border border-[#ebd9c8] rounded-xl pl-8 pr-3 py-1.5 text-xs text-[#4a3f35] placeholder:text-[#8c7b6d]/60 focus:outline-none focus:border-[#bd613c]"
+                                                className="w-full bg-white border border-[#ebd9c8] rounded-xl pl-8 pr-3 py-2 text-xs text-[#4a3f35] placeholder:text-[#8c7b6d]/60 focus:outline-none focus:border-[#bd613c]"
                                             />
                                         </div>
 
-                                        {/* Liste des conversations */}
-                                        <div className="flex-1 overflow-y-auto flex flex-col gap-2">
+                                        {/* Liste des conversations avec boutons de suppression tactiles toujours visibles */}
+                                        <div 
+                                            className="flex-1 overflow-y-auto flex flex-col gap-2 overscroll-y-contain touch-pan-y"
+                                            style={{ WebkitOverflowScrolling: "touch" }}
+                                        >
                                             {filteredConversations.length === 0 ? (
                                                 <div className="py-12 text-center text-xs text-[#8c7b6d]">
                                                     Aucune discussion trouvée.
@@ -492,15 +470,15 @@ export function CopilotChatDrawer({
                                                                 setActiveConvId(c.id);
                                                                 setIsSidebarOpen(false);
                                                             }}
-                                                            className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between group ${
+                                                            className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
                                                                 isSelected
                                                                     ? "bg-white border-[#bd613c] shadow-xs ring-1 ring-[#bd613c]/30"
-                                                                    : "bg-white/70 border-[#ebd9c8]/70 hover:bg-white hover:border-[#bd613c]/40"
+                                                                    : "bg-white/80 border-[#ebd9c8]/80 hover:bg-white hover:border-[#bd613c]/40 shadow-xs"
                                                             }`}
                                                         >
                                                             <div className="min-w-0 flex-1 pr-2">
                                                                 <div className="flex items-center gap-1.5">
-                                                                    <span className={`w-1.5 h-1.5 rounded-full ${c.mode === 'clinique' ? 'bg-[#bd613c]' : 'bg-slate-700'}`} />
+                                                                    <span className={`w-2 h-2 rounded-full shrink-0 ${c.mode === 'clinique' ? 'bg-[#bd613c]' : 'bg-slate-700'}`} />
                                                                     <p className="text-xs font-semibold text-[#594c42] truncate">
                                                                         {c.title}
                                                                     </p>
@@ -510,13 +488,14 @@ export function CopilotChatDrawer({
                                                                 </p>
                                                             </div>
 
+                                                            {/* Bouton Poubelle tactile toujours accessible */}
                                                             <button
                                                                 type="button"
                                                                 onClick={(e) => handleDeleteChat(e, c.id)}
-                                                                className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-all"
+                                                                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all shrink-0"
                                                                 title="Supprimer cette discussion"
                                                             >
-                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                                <Trash2 className="w-4 h-4" />
                                                             </button>
                                                         </div>
                                                     );
@@ -528,7 +507,7 @@ export function CopilotChatDrawer({
                                         <div className="pt-3 border-t border-[#ebd9c8]">
                                             <Button
                                                 onClick={() => handleNewChat()}
-                                                className="w-full bg-[#bd613c] hover:bg-[#a55231] text-white rounded-xl text-xs h-9 gap-1.5"
+                                                className="w-full bg-[#bd613c] hover:bg-[#a55231] text-white rounded-xl text-xs h-10 gap-1.5 font-medium shadow-sm"
                                             >
                                                 <Plus className="w-4 h-4" />
                                                 Nouvelle Discussion
@@ -538,15 +517,18 @@ export function CopilotChatDrawer({
                                 )}
                             </AnimatePresence>
 
-                            {/* Fil des messages du tchat */}
-                            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+                            {/* Fil des messages du tchat avec scrolling tactile fluide pour iPhone */}
+                            <div 
+                                className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 overscroll-y-contain touch-pan-y"
+                                style={{ WebkitOverflowScrolling: "touch" }}
+                            >
                                 {activeConversation?.messages.length === 0 ? (
                                     <div className="my-auto py-8 px-4 text-center text-[#8c7b6d] flex flex-col items-center gap-3">
                                         <div className="w-12 h-12 rounded-2xl bg-[#bd613c]/10 text-[#bd613c] flex items-center justify-center shadow-xs">
                                             <Bot className="w-6 h-6" />
                                         </div>
                                         <div>
-                                            <p className="font-medium text-sm text-[#594c42]">
+                                            <p className="font-semibold text-sm text-[#594c42]">
                                                 {activeConversation.mode === "clinique" ? "Copilote Bilan Consultation" : "Copilote Studio (Code App)"}
                                             </p>
                                             <p className="text-xs text-[#8c7b6d] mt-1 max-w-[280px] leading-relaxed">
@@ -590,31 +572,29 @@ export function CopilotChatDrawer({
 
                                                 {m.learnedRule && (
                                                     <div className="mt-2 pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[10px] text-amber-800 font-semibold">
-                                                        <Brain className="w-3 h-3 text-amber-600" />
+                                                        <Brain className="w-3.5 h-3.5 text-amber-600" />
                                                         <span>{m.learnedRule}</span>
                                                     </div>
                                                 )}
                                             </div>
 
-                                            {/* Actions sous le message assistant */}
+                                            {/* Bouton Annuler bien visible et tactile */}
                                             {m.role === "assistant" && (m.previousSynthese || m.backupId) && (
-                                                <div className="flex items-center gap-3 pl-1">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleRevert(m)}
-                                                        className="text-[10px] text-[#8c7b6d] hover:text-[#bd613c] flex items-center gap-1 transition-colors"
-                                                    >
-                                                        <Undo2 className="w-3 h-3" />
-                                                        Annuler cette retouche
-                                                    </button>
-                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRevert(m)}
+                                                    className="mt-1 px-2.5 py-1 bg-amber-50/80 border border-amber-200/70 rounded-lg text-[11px] font-semibold text-amber-900 hover:bg-amber-100 flex items-center gap-1.5 transition-all shadow-2xs"
+                                                >
+                                                    <Undo2 className="w-3 h-3 text-amber-700" />
+                                                    <span>Annuler cette retouche</span>
+                                                </button>
                                             )}
                                         </div>
                                     ))
                                 )}
 
                                 {isLoading && (
-                                    <div className="flex items-center gap-2 text-xs text-[#8c7b6d] bg-white border border-[#ebd9c8] p-3 rounded-2xl max-w-[70%] shadow-xs">
+                                    <div className="flex items-center gap-2 text-xs text-[#8c7b6d] bg-white border border-[#ebd9c8] p-3 rounded-2xl max-w-[75%] shadow-xs">
                                         <Loader2 className="w-3.5 h-3.5 animate-spin text-[#bd613c]" />
                                         <span>L'IA analyse et applique votre consigne...</span>
                                     </div>
@@ -624,8 +604,8 @@ export function CopilotChatDrawer({
                             </div>
                         </div>
 
-                        {/* Zone de saisie & Micro */}
-                        <div className="p-3 pb-[max(0.875rem,env(safe-area-inset-bottom))] bg-white/95 border-t border-[#ebd9c8] shrink-0">
+                        {/* Zone de saisie & Micro avec Safe-Area iOS */}
+                        <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] bg-white/95 border-t border-[#ebd9c8] shrink-0 shadow-xs">
                             <form
                                 onSubmit={(e) => {
                                     e.preventDefault();
@@ -638,15 +618,15 @@ export function CopilotChatDrawer({
                                     type="text"
                                     value={input}
                                     onChange={(e) => setInput(e.target.value)}
-                                    placeholder="Posez une question, corrigez ou dites 'Mémorise que...'"
-                                    className="flex-1 bg-transparent text-xs text-[#4a3f35] placeholder:text-[#8c7b6d]/60 focus:outline-none px-2 py-1"
+                                    placeholder="Posez une question, corrigez ou 'Mémorise que...'"
+                                    className="flex-1 bg-transparent text-xs text-[#4a3f35] placeholder:text-[#8c7b6d]/60 focus:outline-none px-2 py-1.5"
                                     disabled={isLoading || isRecording}
                                 />
 
                                 <button
                                     type="button"
                                     onClick={toggleRecording}
-                                    className={`relative p-2 rounded-lg transition-all ${
+                                    className={`relative p-2 rounded-lg transition-all shrink-0 ${
                                         isRecording
                                             ? "bg-red-500 text-white animate-pulse"
                                             : "bg-[#f5f2eb] text-[#8c7b6d] hover:text-[#bd613c] hover:bg-[#ede8df]"
@@ -659,7 +639,7 @@ export function CopilotChatDrawer({
                                 <button
                                     type="submit"
                                     disabled={isLoading || (!input.trim() && !isRecording)}
-                                    className={`p-2 rounded-lg transition-all ${
+                                    className={`p-2 rounded-lg transition-all shrink-0 ${
                                         input.trim()
                                             ? "bg-[#bd613c] text-white hover:bg-[#a55231] shadow-xs"
                                             : "bg-transparent text-[#8c7b6d]/40"
