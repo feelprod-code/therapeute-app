@@ -19,7 +19,6 @@ import { AudioRecorder } from "@/components/AudioRecorder";
 import { useToast } from "@/hooks/use-toast";
 import imageCompression from 'browser-image-compression';
 import { swapFirstLastName } from "@/lib/utils";
-import { CopilotStudioBar } from "@/components/CopilotStudioBar";
 import { SyntheseHistoryModal, SyntheseVersionItem } from "@/components/SyntheseHistoryModal";
 
 export default function ConsultationDetail() {
@@ -39,9 +38,8 @@ export default function ConsultationDetail() {
   const [isTextModalOpen, setIsTextModalOpen] = useState(false);
   const [textContent, setTextContent] = useState("");
 
-  // Nouveaux états pour l'historique des versions et le tchat IA
+  // État pour l'historique des versions
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
-  const [isCopilotChatOpen, setIsCopilotChatOpen] = useState(false);
 
   // Nouveaux états pour l'override de séance
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
@@ -1352,16 +1350,6 @@ export default function ConsultationDetail() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => setIsCopilotChatOpen(true)}
-                          className="border-[#bd613c]/30 bg-[#bd613c]/10 text-[#bd613c] hover:bg-[#bd613c]/20 print:hidden h-8 px-3 rounded-lg text-xs font-semibold gap-1.5 shadow-xs"
-                          title="Ouvrir le tchat et l'historique des échanges avec l'IA"
-                        >
-                          <MessageSquare className="w-3.5 h-3.5 text-[#bd613c]" />
-                          <span>Tchat & Copilote IA</span>
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
                           onClick={() => setIsHistoryModalOpen(true)}
                           className="border-[#ebd9c8] text-[#594c42] hover:bg-[#ebd9c8]/30 print:hidden h-8 px-2.5 rounded-lg text-xs font-medium gap-1 shadow-xs"
                           title="Historique des versions du document médical"
@@ -2075,18 +2063,6 @@ export default function ConsultationDetail() {
           </div>
         </Tabs>
       </div>
-
-      <CopilotStudioBar
-        synthese={data?.synthese}
-        transcription={data?.transcription}
-        patientName={data?.patient_name}
-        currentPath={`/consultation/${params.id}`}
-        onUpdateSynthese={saveSyntheseWithHistory}
-        onOpenHistory={() => setIsHistoryModalOpen(true)}
-        versionCount={historyVersions.length}
-        isChatDrawerOpenExternal={isCopilotChatOpen}
-        onToggleChatDrawerExternal={setIsCopilotChatOpen}
-      />
 
       <SyntheseHistoryModal
         isOpen={isHistoryModalOpen}
