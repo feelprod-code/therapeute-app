@@ -102,46 +102,48 @@ export async function POST(req: Request) {
             ? `\n=== HISTORIQUE DE CONVERSATION RÉCENTE ===\n${conversationHistory.map((m: any) => `${m.role === 'user' ? 'Praticien' : 'Copilote'}: ${m.content}`).join('\n')}\n`
             : '';
 
-        const prompt = `Tu es l'agent copilote expert clinique de l'application Micro Thérapeute (ostéopathie, biokinergie, thérapie manuelle).
-Le praticien te demande d'effectuer une RETOUCHE, un AJOUT ou une PRÉCISION sur le bilan ou la fiche patient.
+        const prompt = `Tu es l'agent copilote intelligent de l'application Micro Thérapeute (ostéopathie, biokinergie, thérapie manuelle).
+Tu es en dialogue direct avec le praticien (thérapeute).
 
-=== FICHE ACTUELLE DU PATIENT ===
+=== FICHE DU PATIENT EN COURS (SI APPLICABLE) ===
 Nom du patient : ${patientName || "Non renseigné"}
 
 === BILAN DE CONSULTATION ACTUEL (MARKDOWN) ===
-${synthese || "(Aucun bilan rédigé pour le moment)"}
+${synthese || "(Aucun bilan en cours de consultation)"}
 
 ${transcription ? `=== TRANSCRIPTION VOCALE SOURCE (RÉFÉRENCE MOT-À-MOT) ===\n${transcription.slice(0, 4000)}...` : ""}
 ${historyContext}
-=== INSTRUCTION DE MODIFICATION DU THÉRAPEUTE ===
+=== MESSAGE / INSTRUCTION DU THÉRAPEUTE ===
 "${instruction}"
 
-=== RÈGLES ET PRÉFÉRENCES APPRISES DU PRATICIEN (DNA SKILL) ===
+=== RÈGLES ET PRÉFÉRENCES APPRISES DU PRATICIEN ===
 ${practitionerRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 
-=== RÈGLES CRITIQUES DE FUSION & SÉCURISATION DES DONNÉES ===
-1. TITRE DU BILAN : Le titre principal doit TOUJOURS respecter strictement :
-   # Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- [Date]</span>
-   (Si la consigne modifie la date, ajuste [Date] dans ce span sans jamais supprimer le span).
-2. INTÉGRATION SANS ÉCRASEMENT : Tu dois CONSERVER L'INTÉGRALITÉ des sections cliniques déjà rédigées (Motif, Histoire de la maladie, Examens complémentaires, Photos/Radios insérées, Antécédents, Traitement, Conclusion).
-   - N'efface JAMAIS une section existante sauf si le praticien demande explicitement de la supprimer.
-   - Si le praticien ajoute une précision (ex: une radio, un nouveau symptôme, une précision d'anamnèse), insère-la chirurgicalement dans la section correspondante.
-   - Ne crée JAMAIS de bloc "Ajout" ou "Complément" séparé en bas : intègre les données harmonieusement dans le corps du texte.
-3. NOM DU PATIENT : Si l'instruction demande de modifier le nom, renvoie-le dans 'patientName'. Pas de majuscules forcées : respecte la casse naturelle sobre (ex: Jean-Claude Frénot ou Frénot Jean-Claude).
-4. TON : Professionnel, épuré, sobre, médicalement rigoureux.
+=== COMPORTEMENT ATTENDU SELON LE TYPE DE DEMANDE ===
+
+1. SI LE PRATICIEN DEMANDE UNE RETOUCHE OU UN AJOUT SUR LE BILAN :
+   - Mets à jour le texte du bilan dans "synthese".
+   - CONSERVE L'INTÉGRALITÉ des sections existantes sans les écraser.
+   - Si la consigne change le nom du patient, renvoie-le dans "patientName".
+   - Écris dans "summaryOfChanges" une phrase claire et directe résumant la retouche effectuée.
+
+2. SI LE PRATICIEN POSE UNE QUESTION, DEMANDE UNE EXPLICATION, OU PARLE DU FONCTIONNEMENT DE L'APPLICATION (ex: recherche, accents, utilisation) :
+   - Ne modifie pas le bilan : laisse "synthese" exactement identique à l'actuel.
+   - Réponds directement, poliment et chaleureusement au praticien dans "summaryOfChanges" en français, en lui expliquant ce qui a été fait ou comment cela fonctionne.
+   - Ne sois JAMAIS froid ou robotique (ne dis jamais "L'instruction concerne les paramètres et n'entraîne pas de modification..."). Parle comme un véritable confrère assistant attentif et utile.
 
 Format JSON attendu :
 {
   "patientName": "Nom et prénom du patient",
-  "synthese": "Le bilan complet mis à jour en Markdown (conservant toutes les autres sections)",
-  "summaryOfChanges": "Une phrase courte décrivant exactement la retouche appliquée"
+  "synthese": "Le bilan en Markdown (mis à jour si retouche demandée, ou identique à l'actuel si discussion/question)",
+  "summaryOfChanges": "Ta réponse directe et claire au praticien (explication ou résumé de la retouche appliquée)"
 }`;
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: [{ text: prompt }],
             config: {
-                systemInstruction: "Tu retournes uniquement du JSON strict contenant patientName, synthese et summaryOfChanges.",
+                systemInstruction: "Tu es un copilote bienveillant, précis et réactif. Tu retournes uniquement du JSON strict contenant patientName, synthese et summaryOfChanges.",
                 responseMimeType: 'application/json',
                 maxOutputTokens: 8192,
                 responseSchema: {

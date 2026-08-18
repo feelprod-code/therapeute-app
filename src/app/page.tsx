@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Copy, Plus, Trash2, ArrowRight, Loader2, RefreshCw, FileText, Check, MessageSquare, ListTodo, MoreHorizontal, Merge, Search, Mic, Type, FileUp, X as XIcon, CalendarDays, Folder as FolderIcon, ChevronDown, Combine, Paperclip, Image as ImageIcon, X, Download, Square, ArrowLeftRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
-import { swapFirstLastName, extractLastName, extractFirstName, getClassificationLetter } from "@/lib/utils";
+import { swapFirstLastName, extractLastName, extractFirstName, getClassificationLetter, normalizeSearch } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopilotStudioBar } from "@/components/CopilotStudioBar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -614,9 +614,10 @@ export default function Home() {
   };
 
   const filteredConsultations = (consultations || []).filter(c => {
-    if (!searchTerm) return true;
-    const name = c.patientName || c.patient_name || "";
-    return name.toLowerCase().includes(searchTerm.toLowerCase().trim());
+    if (!searchTerm.trim()) return true;
+    const name = normalizeSearch(c.patientName || c.patient_name || "");
+    const query = normalizeSearch(searchTerm);
+    return name.includes(query);
   });
 
   const sortByDate = [...filteredConsultations].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -1301,9 +1302,13 @@ export default function Home() {
                   <div className="mb-8 flex flex-wrap gap-2 sm:gap-3 justify-center max-w-3xl mx-auto">
                     {Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map(letter => {
                       const isActive = selectedLetter === letter;
-                      // Optionally check if we have any patients starting with this letter to style differently (optional but good UI)
-                      const hasPatients = sortByName?.some(c => {
+                      const hasPatients = (consultations || []).some(c => {
                         const n = c.patientName || c.patient_name || "";
+                        if (searchTerm.trim()) {
+                          const query = normalizeSearch(searchTerm);
+                          const nameNorm = normalizeSearch(n);
+                          if (!nameNorm.includes(query)) return false;
+                        }
                         return getClassificationLetter(n) === letter;
                       });
 
@@ -1326,9 +1331,45 @@ export default function Home() {
                   </div>
 
                   {(() => {
-                    if (!sortByName || !selectedLetter) return (
-                      <p className="text-center text-slate-500 italic mt-8">Sélectionnez une lettre pour afficher les patients.</p>
-                    );
+                    // 1. Si une recherche textuelle est saisie
+                    if (searchTerm.trim()) {
+                      const displayedList = selectedLetter
+                        ? sortByName.filter(c => getClassificationLetter(c.patientName || c.patient_name || "") === selectedLetter)
+                        : sortByName;
+
+                      if (displayedList.length === 0) {
+                        return (
+                          <div className="text-center py-10 text-slate-500 italic">
+                            <p>Aucun patient ne correspond à "{searchTerm}"{selectedLetter ? ` pour la lettre ${selectedLetter}` : ""}.</p>
+                            {selectedLetter && (
+                              <button
+                                onClick={() => setSelectedLetter(null)}
+                                className="mt-2 text-xs text-[#bd613c] underline font-medium not-italic"
+                              >
+                                Afficher tous les résultats pour "{searchTerm}" sans filtre de lettre
+                              </button>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="flex flex-col gap-3">
+                          {displayedList.map((consult) => (
+                            <ConsultationCard key={consult.id} consult={consult} />
+                          ))}
+                        </div>
+                      );
+                    }
+
+                    // 2. Si aucune recherche textuelle n'est saisie
+                    if (!selectedLetter) {
+                      return (
+                        <p className="text-center text-slate-500 italic mt-8">
+                          Sélectionnez une lettre ci-dessus ou recherchez un nom dans la barre.
+                        </p>
+                      );
+                    }
 
                     const filteredByName = sortByName.filter(consult => {
                       const name = consult.patientName || consult.patient_name || "";
