@@ -597,11 +597,17 @@ export default function ConsultationDetail() {
         if (!response.ok) throw new Error("Erreur lors de la mise à jour par l'IA.");
         const result = await response.json();
 
+        await saveSyntheseWithHistory(
+          result.synthese,
+          result.patientName || data.patient_name,
+          "Ajout de document au bilan",
+          `Ajout de ${uploadedFiles.length} fichier(s)`,
+          result.resume
+        );
+
         const { data: updatedData } = await supabase.from('consultations').update({
-          synthese: result.synthese,
           transcription: result.transcription,
           resume: result.resume,
-          patient_name: result.patientName || data.patient_name
         }).eq('id', params.id).select().single();
 
         if (updatedData) setData(updatedData);
@@ -713,11 +719,17 @@ export default function ConsultationDetail() {
         if (!response.ok) throw new Error("Erreur lors de la mise à jour par l'IA.");
         const result = await response.json();
 
+        await saveSyntheseWithHistory(
+          result.synthese,
+          result.patientName || data.patient_name,
+          "Ajout vocal au bilan",
+          "Mise à jour par enregistrement audio",
+          result.resume
+        );
+
         const { data: updatedData } = await supabase.from('consultations').update({
-          synthese: result.synthese,
           transcription: result.transcription,
           resume: result.resume,
-          patient_name: result.patientName || data.patient_name
         }).eq('id', params.id).select().single();
 
         if (updatedData) setData(updatedData);
@@ -813,11 +825,17 @@ export default function ConsultationDetail() {
         if (!response.ok) throw new Error("Erreur lors de la mise à jour par l'IA.");
         const result = await response.json();
 
+        await saveSyntheseWithHistory(
+          result.synthese,
+          result.patientName || data.patient_name,
+          "Ajout textuel au bilan",
+          textContent,
+          result.resume
+        );
+
         const { data: updatedData } = await supabase.from('consultations').update({
-          synthese: result.synthese,
           transcription: result.transcription,
           resume: result.resume,
-          patient_name: result.patientName || data.patient_name
         }).eq('id', params.id).select().single();
 
         if (updatedData) setData(updatedData);
@@ -955,7 +973,7 @@ export default function ConsultationDetail() {
           .eq("id", params.id)
           .single();
 
-        let finalDocs = [...loadedDocs];
+        const finalDocs = [...loadedDocs];
         if (consultData && consultData.audio_path) {
           const alreadyExists = loadedDocs.some(d => d.name === consultData.audio_path);
           if (!alreadyExists) {

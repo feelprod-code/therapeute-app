@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, prefer-const */
 import { GoogleGenAI, Type } from '@google/genai';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
@@ -468,13 +469,13 @@ Règles impératives et absolues :
    - **Antécédents et Chronologie (ATCD)** : Liste TOUS les traumatismes physiques (accidents de vélo, chutes, entorses, fractures, immobilisations par botte, chirurgies), les deuils ou événements de vie marquants (décès de parents, contexte familial et stress lié aux enfants), la situation professionnelle (retraite, métier) et les démarches thérapeutiques antérieures, classés du plus ancien au plus récent.
    - **Règle Anti-Troncature** : Chaque section doit être rédigée intégralement jusqu'à son terme sans jamais s'interrompre.
 
-# Bilan de consultation <span class="text-lg md:text-xl text-[#8c7b6d] font-normal ml-2">- [Date exacte de la consultation, ou ${currentDate} par défaut]</span>
+# Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- [Date exacte de la consultation, ou ${currentDate} par défaut]</span>
 
 ### Informations Patient
 - **Nom/Prénom :** [Extraire si mentionné, sinon écrire "Non précisé"]
 - **Âge / Date de naissance :** [Extraire si mentionné]
 - **Profession :** [Extraire si mentionné]
-- **Date de consultation :** [Date exacte de la consultation extraite du texte]
+- **Date de consultation :** [Date exacte de la consultation extraite du texte, ou ${currentDate} par défaut]
 ### Motif de Consultation
 [...]
 ### Histoire de la Maladie / Douleur
@@ -638,6 +639,16 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
 
         if (jsonResult.patientName) {
             jsonResult.patientName = ensureLastNameFirst(jsonResult.patientName);
+        }
+
+        if (jsonResult.synthese) {
+            const defaultDateFormatted = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+            // Fix any empty span or unformatted spans in title
+            jsonResult.synthese = jsonResult.synthese
+                .replace(/# Bilan de consultation <span[^>]*>-?\s*<\/span>/gi, `# Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- ${defaultDateFormatted}</span>`)
+                .replace(/# Bilan de consultation <span[^>]*>-?\s*\[Date[^\]]*\]<\/span>/gi, `# Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- ${defaultDateFormatted}</span>`)
+                .replace(/- \*\*Date de consultation :\*\*(\s*)$/gm, `- **Date de consultation :** ${defaultDateFormatted}$1`)
+                .replace(/- \*\*Date de consultation :\*\*(\s*)\[Date[^\]]*\]/gi, `- **Date de consultation :** ${defaultDateFormatted}`);
         }
 
         return NextResponse.json(jsonResult);

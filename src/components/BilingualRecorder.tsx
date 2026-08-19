@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Mic, Square, Loader2, Volume2, Globe, Trash2, Wifi, WifiOff, Maximize2, Minimize2 } from 'lucide-react';

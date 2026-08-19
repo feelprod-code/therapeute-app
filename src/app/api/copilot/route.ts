@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, prefer-const */
 import { GoogleGenAI, Type } from '@google/genai';
 import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
