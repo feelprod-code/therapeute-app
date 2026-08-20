@@ -748,7 +748,19 @@ export default function Home() {
             throw new Error(errData.error || "Erreur lors de la fusion IA.");
           }
 
-          const result = await response.json();
+          let finalFollowUps = [...updatedFollowUps];
+          if (targetConsult.synthese && targetConsult.synthese.trim() !== result.synthese?.trim()) {
+            finalFollowUps = [{
+              id: crypto.randomUUID(),
+              type: 'synthese_version',
+              date: new Date().toISOString(),
+              label: "Fusion de dossiers (Bilan)",
+              userPrompt: `Fusion avec le dossier de ${consult.patient_name || 'Patient'} (${format(new Date(consult.date || consult.createdAt || new Date()), "dd/MM/yyyy")})`,
+              aiResponseSummary: result.resume,
+              synthese: targetConsult.synthese,
+              patient_name: targetConsult.patientName || targetConsult.patient_name
+            }, ...finalFollowUps];
+          }
 
           // 1. Mettre à jour la cible
           const { error: updateError } = await supabase.from('consultations').update({
@@ -756,7 +768,7 @@ export default function Home() {
             transcription: result.transcription,
             resume: result.resume,
             patient_name: result.patientName || targetConsult.patientName || targetConsult.patient_name,
-            follow_ups: updatedFollowUps
+            follow_ups: finalFollowUps
           }).eq('id', targetConsult.id);
 
           if (updateError) throw updateError;
@@ -823,11 +835,30 @@ export default function Home() {
         if (!response.ok) throw new Error("Erreur lors de la mise à jour par l'IA.");
         const result = await response.json();
 
+        const currentFollowUps = consult.follow_ups || [];
+        const currentSynthese = consult.synthese;
+        let updatedFollowUps = [...currentFollowUps];
+
+        if (currentSynthese && currentSynthese.trim() !== result.synthese?.trim()) {
+          const versionEntry = {
+            id: crypto.randomUUID(),
+            type: 'synthese_version',
+            date: new Date().toISOString(),
+            label: "Ajout vocal au bilan",
+            userPrompt: "Mise à jour du bilan par enregistrement audio",
+            aiResponseSummary: result.resume,
+            synthese: currentSynthese,
+            patient_name: consult.patient_name || consult.patientName
+          };
+          updatedFollowUps = [versionEntry, ...currentFollowUps];
+        }
+
         await supabase.from('consultations').update({
           synthese: result.synthese,
           transcription: result.transcription,
           resume: result.resume,
-          patient_name: result.patientName || consult.patient_name
+          patient_name: result.patientName || consult.patient_name,
+          follow_ups: updatedFollowUps
         }).eq('id', consult.id);
 
         toast({ title: "Bilan mis à jour", description: "L'enregistrement a bien été ajouté au dossier." });
