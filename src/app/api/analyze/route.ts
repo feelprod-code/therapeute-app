@@ -77,25 +77,24 @@ function extractKeyValues(jsonStr: string): Record<string, string> | null {
     const keys = ["patientName", "consultationDate", "transcription", "resume", "synthese"];
     const result: Record<string, string> = {};
     
-    const positions = keys.map(key => {
-        let index = jsonStr.indexOf(`"${key}"`);
-        if (index === -1) index = jsonStr.indexOf(`'${key}'`);
-        return { key, index };
-    });
-    
-    positions.sort((a, b) => a.index - b.index);
-    
-    if (positions.some(p => p.index === -1)) {
-        return null;
+    const positions: { key: string; index: number }[] = [];
+    for (const key of keys) {
+        const regex = new RegExp(`"(?:${key})"\\s*:`, 'g');
+        const match = regex.exec(jsonStr);
+        if (match) {
+            positions.push({ key, index: match.index });
+        }
     }
+    
+    if (positions.length === 0) return null;
+    positions.sort((a, b) => a.index - b.index);
     
     for (let i = 0; i < positions.length; i++) {
         const current = positions[i];
         const next = positions[i + 1];
         
-        const keyEnd = current.index + current.key.length + 2;
-        const colonIndex = jsonStr.indexOf(':', keyEnd);
-        if (colonIndex === -1) return null;
+        const colonIndex = jsonStr.indexOf(':', current.index);
+        if (colonIndex === -1) continue;
         
         let valStart = colonIndex + 1;
         while (valStart < jsonStr.length && /\s/.test(jsonStr[valStart])) {
@@ -105,9 +104,10 @@ function extractKeyValues(jsonStr: string): Record<string, string> | null {
         let valEnd = jsonStr.length;
         if (next) {
             valEnd = next.index;
-            let commaIndex = jsonStr.lastIndexOf(',', valEnd);
-            if (commaIndex !== -1 && commaIndex > valStart) {
-                valEnd = commaIndex;
+            const beforeNext = jsonStr.substring(valStart, valEnd);
+            const commaMatch = beforeNext.match(/,\s*$/);
+            if (commaMatch && commaMatch.index !== undefined) {
+                valEnd = valStart + commaMatch.index;
             }
         } else {
             const lastCurly = jsonStr.lastIndexOf('}');
@@ -118,10 +118,10 @@ function extractKeyValues(jsonStr: string): Record<string, string> | null {
         
         let rawVal = jsonStr.substring(valStart, valEnd).trim();
         
-        if (rawVal.startsWith('"') && rawVal.endsWith('"')) {
+        if ((rawVal.startsWith('"') && rawVal.endsWith('"')) || (rawVal.startsWith("'") && rawVal.endsWith("'"))) {
             rawVal = rawVal.substring(1, rawVal.length - 1);
-        } else if (rawVal.startsWith("'") && rawVal.endsWith("'")) {
-            rawVal = rawVal.substring(1, rawVal.length - 1);
+        } else if (rawVal.startsWith('"')) {
+            rawVal = rawVal.substring(1);
         }
         
         result[current.key] = rawVal
@@ -449,12 +449,17 @@ Ton objectif est de mettre à jour la synthèse PRÉCÉDENTE en FUSIONNANT de ma
             contextInstruction = `\n- DOCUMENTS JOINTS: Si des documents (PDF, images, textes) te sont fournis, analyse-les pour rédiger le bilan (motif, histoire, examens, ATCD), mais ne génère pas leur transcription textuelle dans la clé "transcription" (elle est extraite et gérée directement par le serveur).`;
         }
 
+        const isAudioInput = Boolean(audioFile && audioFile.fileName && !finalMimeType.startsWith('text/'));
+        const transcriptionPromptRule = isAudioInput
+            ? `Pour un audio : Génère la retranscription EXACTE, LITTÉRALE (Verbatim) et INTÉGRALE de tout le dialogue. RÈGLE ABSOLUE : Retranscris CHAQUE MOT de l'audio.`
+            : `Laisse ce champ STRICTEMENT vide "" car la transcription textuelle est déjà traitée et préservée par le serveur. Ne gaspille aucun token à la recopier pour consacrer 100% de ta capacité de génération à la rédaction clinique exhaustive de la clé 'synthese'.`;
+
         const systemPrompt = `Tu es un assistant médical clinique expert (ostéopathie, biokinergie, thérapie manuelle). Ton rôle est d'analyser l'intégralité de la transcription de l'interrogatoire patient (et/ou des documents) et de produire un bilan médical exhaustif, riche et rigoureusement structuré.${contextInstruction}
 Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme ceci :
 {
   "patientName": "Nom et Prénom trouvés (ou chaîne vide si aucun)",
   "consultationDate": "Date trouvée dans le texte (ex: 2024-10-14). Si aucune date précise n'est mentionnée, renvoie null ou une chaîne vide.",
-  "transcription": "Pour un audio : Génère la retranscription EXACTE, LITTÉRALE (Verbatim) et INTÉGRALE de tout le dialogue. RÈGLE ABSOLUE : Retranscris CHAQUE MOT de l'audio. Pour les documents (PDF/Image) : laisse ce champ vide ou n'y mets que le texte de l'audio si présent (la transcription des documents est gérée par le serveur).",
+  "transcription": "${transcriptionPromptRule}",
   "resume": "Un résumé narratif GLOBAL en 3 à 5 phrases, synthétisant TOUT le document final complet généré dans 'synthese' (anciennes ET nouvelles informations). Sous forme d'un paragraphe continu unique (AUCUNE liste, AUCUN tiret, AUCUNE puce).",
   "synthese": "La synthèse médicale formatée en Markdown"
 }
@@ -462,7 +467,7 @@ Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme 
 Règles impératives et absolues :
 1. "patientName" : Extrait le NOM (en MAJUSCULES) suivi du Prénom (ex: "DONNADIEU Nathalie"). S'il n'est pas mentionné, laisse cette chaîne vide "".
 2. "consultationDate" : Si le texte mentionne EXPLICITEMENT la date de la séance (ex: "bilan du 14 octobre", "vu le 12/03/2021"), extrait-la au format string ISO AAAA-MM-JJ. Si AUCUNE date n'est prononcée ou écrite dans les documents, tu DOIS IMPÉRATIVEMENT renvoyer une chaîne vide "". Ne déduis PAS la date et ne mets JAMAIS la date d'aujourd'hui par défaut dans ce champ JSON.
-3. "transcription" : Pour l'audio, retranscription mot pour mot (Verbatim) avec les hésitations. Pour les documents PDF/images, laisse ce champ vide ou n'y mets que l'audio.
+3. "transcription" : ${transcriptionPromptRule}
 4. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil (paragraphe continu unique résumant l'ensemble du bilan).
 5. "synthese" : RÈGLE D'EXHAUSTIVITÉ CLINIQUE MAXIMALE (ZÉRO PERTE D'INFORMATION). Ne jamais écourter ou résumer à l'excès.
    - **Histoire de la Maladie** : Décris exhaustivement les symptômes, leur localisation, leur date d'apparition précise, les circonstances déclenchantes (ex: amaigrissement rapide, reprise de sport/poids inadaptée, faux-pas), les traitements déjà tentés (AINS, kinésithérapie, ostéopathie, etc.) et leur inefficacité.

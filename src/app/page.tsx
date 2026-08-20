@@ -748,6 +748,8 @@ export default function Home() {
             throw new Error(errData.error || "Erreur lors de la fusion IA.");
           }
 
+          const result = await response.json();
+
           let finalFollowUps = [...updatedFollowUps];
           if (targetConsult.synthese && targetConsult.synthese.trim() !== result.synthese?.trim()) {
             finalFollowUps = [{
@@ -755,7 +757,7 @@ export default function Home() {
               type: 'synthese_version',
               date: new Date().toISOString(),
               label: "Fusion de dossiers (Bilan)",
-              userPrompt: `Fusion avec le dossier de ${consult.patient_name || 'Patient'} (${format(new Date(consult.date || consult.createdAt || new Date()), "dd/MM/yyyy")})`,
+              userPrompt: `Fusion avec le dossier de ${consult.patient_name || 'Patient'} (${format(new Date(consult.date || consult.created_at || new Date()), "dd/MM/yyyy")})`,
               aiResponseSummary: result.resume,
               synthese: targetConsult.synthese,
               patient_name: targetConsult.patientName || targetConsult.patient_name

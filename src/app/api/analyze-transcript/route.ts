@@ -106,50 +106,46 @@ export async function POST(req: Request) {
 
         const currentDate = new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-        const systemPrompt = `Tu es un assistant médical clinique expert. Ton rôle est de lire l'historique d'une conversation entre un thérapeute et son patient et de produire un bilan.
+        const systemPrompt = `Tu es un assistant médical clinique expert (ostéopathie, biokinergie, thérapie manuelle). Ton rôle est d'analyser l'intégralité de la transcription de l'interrogatoire patient et de produire un bilan médical exhaustif, riche et rigoureusement structuré.
 Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme ceci :
 {
   "patientName": "Nom et Prénom trouvés (ou chaîne vide si aucun)",
-  "transcription": "Ne change rien, renvoie simplement le texte qu'on t'a donné",
-  "resume": "Un résumé narratif en 3 à 5 phrases, sous forme d'un paragraphe continu unique (AUCUNE liste, AUCUN tiret, AUCUNE puce). Intègre l'essentiel de façon fluide.",
+  "consultationDate": "Date trouvée dans le texte (ex: 2024-10-14). Si aucune date précise n'est mentionnée, renvoie null ou une chaîne vide.",
+  "transcription": "",
+  "resume": "Un résumé narratif GLOBAL en 3 à 5 phrases, synthétisant tout le document final complet généré dans 'synthese'. Sous forme d'un paragraphe continu unique (AUCUNE liste, AUCUN tiret, AUCUNE puce).",
   "synthese": "La synthèse médicale formatée en Markdown"
 }
 
-**Règles pour la clé "resume" :**
-Rédige un paragraphe de texte narratif et continu. NE CRÉE AUCUN TIRETS NI PUCE ET N'UTILISE AUCUNE LISTE. Si le thérapeute ne parle d'aucun examen (radio, IRM...), n'invente rien et n'en fais pas mention.
+Règles impératives et absolues :
+1. "patientName" : Extrait le NOM (en MAJUSCULES) suivi du Prénom (ex: "DONNADIEU Nathalie"). S'il n'est pas mentionné, laisse cette chaîne vide "".
+2. "consultationDate" : Si le texte mentionne EXPLICITEMENT la date de la séance (ex: "bilan du 14 octobre", "vu le 12/03/2021"), extrait-la au format string ISO AAAA-MM-JJ. Si AUCUNE date n'est prononcée ou écrite dans les documents, tu DOIS IMPÉRATIVEMENT renvoyer une chaîne vide "".
+3. "transcription" : Laisse ce champ STRICTEMENT vide "" car la transcription est déjà entièrement gérée par le serveur.
+4. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil (paragraphe continu unique résumant l'ensemble du bilan).
+5. "synthese" : RÈGLE D'EXHAUSTIVITÉ CLINIQUE MAXIMALE (ZÉRO PERTE D'INFORMATION). Ne jamais écourter ou résumer à l'excès.
+   - **Histoire de la Maladie** : Décris exhaustivement les symptômes, leur localisation, leur date d'apparition précise, les circonstances déclenchantes (ex: traumatisme, soirée dansante, efforts, faux-pas), les traitements déjà tentés et leur inefficacité.
+   - **Antécédents et Chronologie (ATCD)** : Liste TOUS les traumatismes physiques (accidents, chutes, entorses, fractures), les deuils ou événements de vie marquants, la situation professionnelle et les démarches thérapeutiques antérieures, classés du plus ancien au plus récent.
+   - **Règle Anti-Troncature** : Chaque section doit être rédigée intégralement jusqu'à son terme sans jamais s'interrompre.
 
-**Règles pour la clé "synthese" (Formatage de ton texte) :**
-Utilise des titres clairs (avec ###), des paragraphes aérés, et **exclusivement des listes à puces** pour les énumérations.
-**TRÈS IMPORTANT:** N'inclus JAMAIS une section, un titre ou une puce s'il n'y a aucune information à ce sujet (par exemple, si aucune radio ou IRM n'est mentionnée, ne crée pas la section "Examens Complémentaires" ni de puce "Radio"). Élimine toute mention type "Non mentionné", "Pas de description" ou "Rien à signaler" ; supprime simplement la ligne ou la section entière. NE CRÉE PAS de catégories vides.
+# Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- [Date exacte de la consultation, ou ${currentDate} par défaut]</span>
 
-Structure attendue dans ce texte Markdown (pour la clé synthese) :
-### Identité du Patient
-- **Nom / Prénom :** [Extraire si mentionné]
+### Informations Patient
+- **Nom/Prénom :** [Extraire si mentionné, sinon écrire "Non précisé"]
+- **Âge / Date de naissance :** [Extraire si mentionné]
 - **Profession :** [Extraire si mentionné]
-- **Date de consultation :** La consultation se passe aujourd'hui le ${currentDate}.
-
+- **Date de consultation :** [Date exacte de la consultation extraite du texte, ou ${currentDate} par défaut]
 ### Motif de Consultation
-- **Motif principal :** [Extraire]
-- **Historique du problème :** [Extraire]
-- **Douleur :** [Localisation, type, intensité sur 10 si mentionnée]
+[...]
+### Histoire de la Maladie / Douleur
+- **Description :** [...]
+- **Intensité :** [...]
+- **Fréquence :** [...]
+- **Circonstances d'apparition :** [...]
+### Examens Complémentaires
+- **Photos / PDF / Textes :** Aucun document joint
+### Antécédents (ATCD) et Chronologie
+- [Année] - [Description]
 
-### Antécédents
-- **Médicaux :** [Extraire]
-- **Chirurgicaux / Traumatiques :** [Extraire]
-- **Traitements en cours :** [Extraire]
-
-### Bilan Thérapeutique
-- **Tests et observations :** [Tests effectués et résultats]
-- **Diagnostic ou hypothèse :** [Conclusion du thérapeute]
-- **Avis Médical :** [Si un avis médical est nécessaire ou suggéré]
-
-### Plan de Traitement (Techniques Douces Tissulaires)
-- **Techniques utilisées :** [Ce qui a été fait pendant la séance]
-- **Conseils post-séance :** [Exercices, repos, hydratation...]
-- **Suivi prévu :** [Prochain rendez-vous ou consignes]
-
-Voici le transcript exact de la conversation bilingue :
-`;
+TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
 
         const parts: Array<{ text?: string, fileData?: { fileUri: string, mimeType: string } }> = allUploads.map(up => ({
             fileData: { fileUri: up.uri, mimeType: up.mimeType }
@@ -206,6 +202,17 @@ Voici le transcript exact de la conversation bilingue :
 
         if (jsonResult.patientName) {
             jsonResult.patientName = ensureLastNameFirst(jsonResult.patientName);
+        }
+
+        jsonResult.transcription = transcript;
+
+        if (jsonResult.synthese) {
+            const defaultDateFormatted = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+            jsonResult.synthese = jsonResult.synthese
+                .replace(/# Bilan de consultation <span[^>]*>-?\s*<\/span>/gi, `# Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- ${defaultDateFormatted}</span>`)
+                .replace(/# Bilan de consultation <span[^>]*>-?\s*\[Date[^\]]*\]<\/span>/gi, `# Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- ${defaultDateFormatted}</span>`)
+                .replace(/- \*\*Date de consultation :\*\*(\s*)$/gm, `- **Date de consultation :** ${defaultDateFormatted}$1`)
+                .replace(/- \*\*Date de consultation :\*\*(\s*)\[Date[^\]]*\]/gi, `- **Date de consultation :** ${defaultDateFormatted}`);
         }
 
         return NextResponse.json(jsonResult);

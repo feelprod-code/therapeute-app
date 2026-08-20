@@ -4,13 +4,16 @@ export interface SupabaseConsultation {
     id: string;
     user_id?: string;
     date: string | Date;
+    created_at?: string;
     patientName?: string;
     patient_name?: string;
     synthese?: string;
     transcription?: string;
     resume?: string;
     audioBlob?: Blob;
+    audio_path?: string;
     isProcessing?: boolean;
+    patient_id?: string;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     follow_ups?: any[];
 }
