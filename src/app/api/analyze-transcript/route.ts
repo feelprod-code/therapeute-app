@@ -158,7 +158,7 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
             config: {
                 systemInstruction: "Tu retournes uniquement du JSON.",
                 responseMimeType: 'application/json',
-                maxOutputTokens: 16384,
+                maxOutputTokens: 65536,
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
@@ -173,13 +173,9 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
                         synthese: {
                             type: Type.STRING,
                             description: "La synthèse médicale formatée en Markdown"
-                        },
-                        transcription: {
-                            type: Type.STRING,
-                            description: "Ne change rien, renvoie simplement le texte qu'on t'a donné"
                         }
                     },
-                    required: ["patientName", "resume", "synthese", "transcription"]
+                    required: ["patientName", "resume", "synthese"]
                 }
             }
         });

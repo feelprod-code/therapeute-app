@@ -413,7 +413,31 @@ export async function POST(req: Request) {
             }
         }
 
-        // --- 3. ANALYSE GEMINI (TEXTE + DOCUMENTS) ---
+        // --- ETAPE 1 (PASS 1) : TRANSCRIPTION INTEGRALE DE L'AUDIO SI PRESENT ---
+        const isAudioInput = Boolean(audioFile && audioFile.fileName && !finalMimeType.startsWith('text/'));
+        let directAudioTranscription = "";
+        if (isAudioInput && allUploads.length > 0) {
+            console.log(`[API PASS 1] Retranscription intégrale mot à mot de l'audio via Gemini 2.5 Flash...`);
+            try {
+                const audioUpload = allUploads[0];
+                const transcribeRes = await ai.models.generateContent({
+                    model: 'gemini-2.5-flash',
+                    contents: [
+                        { fileData: { fileUri: audioUpload.uri, mimeType: audioUpload.mimeType } },
+                        { text: "Retranscris l'intégralité exacte, mot à mot (verbatim) de cet enregistrement audio médical en français. Retranscris CHAQUE MOT prononcé par le patient et le thérapeute, avec les hésitations, sans aucun résumé, sans omission et sans couper." }
+                    ],
+                    config: {
+                        maxOutputTokens: 65536
+                    }
+                });
+                directAudioTranscription = transcribeRes.text?.trim() || "";
+                console.log(`[API PASS 1] Transcription audio réussie (${directAudioTranscription.length} caractères).`);
+            } catch (err) {
+                console.error("[API PASS 1] Erreur transcription audio dédiée :", err);
+            }
+        }
+
+        // --- ETAPE 2 (PASS 2) : ANALYSE CLINIQUE ET SYNTHESE EXHAUSTIVE ---
         const currentDate = new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
         const isUpdate = previousContext && (previousContext.synthese || previousContext.transcription);
@@ -442,24 +466,17 @@ Ton objectif est de mettre à jour la synthèse PRÉCÉDENTE en FUSIONNANT de ma
 - DOCUMENTS JOINTS : Si un document (PDF, image, texte) t'est fourni, extrais minutieusement les informations médicales et intègre-les au bilan.
 - EXCEPTION (NOM DU PATIENT) : Respecte la casse sobre et naturelle (ex: Jean-Claude Frénot).
 - EXCEPTION (DATE DE LA CONSULTATION) : Si les nouvelles notes précisent les dates, affiche-les dans le titre (# Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- [Date 1] & [Date 2]</span>).
-- Pour la transcription : Tu dois produire EXCLUSIVEMENT la retranscription/extraction du nouveau vocal si présent.
 - EXCEPTION (RÉSUMÉ) : IL EST ABSOLUMENT OBLIGATOIRE que la clé "resume" contienne un résumé GLOBAL de TOUT LE BILAN FINAL (c'est-à-dire l'ensemble des séances).
 `;
         } else {
-            contextInstruction = `\n- DOCUMENTS JOINTS: Si des documents (PDF, images, textes) te sont fournis, analyse-les pour rédiger le bilan (motif, histoire, examens, ATCD), mais ne génère pas leur transcription textuelle dans la clé "transcription" (elle est extraite et gérée directement par le serveur).`;
+            contextInstruction = `\n- DOCUMENTS JOINTS: Si des documents (PDF, images, textes) te sont fournis, analyse-les pour rédiger le bilan (motif, histoire, examens, ATCD).`;
         }
-
-        const isAudioInput = Boolean(audioFile && audioFile.fileName && !finalMimeType.startsWith('text/'));
-        const transcriptionPromptRule = isAudioInput
-            ? `Pour un audio : Génère la retranscription EXACTE, LITTÉRALE (Verbatim) et INTÉGRALE de tout le dialogue. RÈGLE ABSOLUE : Retranscris CHAQUE MOT de l'audio.`
-            : `Laisse ce champ STRICTEMENT vide "" car la transcription textuelle est déjà traitée et préservée par le serveur. Ne gaspille aucun token à la recopier pour consacrer 100% de ta capacité de génération à la rédaction clinique exhaustive de la clé 'synthese'.`;
 
         const systemPrompt = `Tu es un assistant médical clinique expert (ostéopathie, biokinergie, thérapie manuelle). Ton rôle est d'analyser l'intégralité de la transcription de l'interrogatoire patient (et/ou des documents) et de produire un bilan médical exhaustif, riche et rigoureusement structuré.${contextInstruction}
 Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme ceci :
 {
   "patientName": "Nom et Prénom trouvés (ou chaîne vide si aucun)",
   "consultationDate": "Date trouvée dans le texte (ex: 2024-10-14). Si aucune date précise n'est mentionnée, renvoie null ou une chaîne vide.",
-  "transcription": "${transcriptionPromptRule}",
   "resume": "Un résumé narratif GLOBAL en 3 à 5 phrases, synthétisant TOUT le document final complet généré dans 'synthese' (anciennes ET nouvelles informations). Sous forme d'un paragraphe continu unique (AUCUNE liste, AUCUN tiret, AUCUNE puce).",
   "synthese": "La synthèse médicale formatée en Markdown"
 }
@@ -467,12 +484,11 @@ Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme 
 Règles impératives et absolues :
 1. "patientName" : Extrait le NOM (en MAJUSCULES) suivi du Prénom (ex: "DONNADIEU Nathalie"). S'il n'est pas mentionné, laisse cette chaîne vide "".
 2. "consultationDate" : Si le texte mentionne EXPLICITEMENT la date de la séance (ex: "bilan du 14 octobre", "vu le 12/03/2021"), extrait-la au format string ISO AAAA-MM-JJ. Si AUCUNE date n'est prononcée ou écrite dans les documents, tu DOIS IMPÉRATIVEMENT renvoyer une chaîne vide "". Ne déduis PAS la date et ne mets JAMAIS la date d'aujourd'hui par défaut dans ce champ JSON.
-3. "transcription" : ${transcriptionPromptRule}
-4. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil (paragraphe continu unique résumant l'ensemble du bilan).
-5. "synthese" : RÈGLE D'EXHAUSTIVITÉ CLINIQUE MAXIMALE (ZÉRO PERTE D'INFORMATION). Ne jamais écourter ou résumer à l'excès.
-   - **Histoire de la Maladie** : Décris exhaustivement les symptômes, leur localisation, leur date d'apparition précise, les circonstances déclenchantes (ex: amaigrissement rapide, reprise de sport/poids inadaptée, faux-pas), les traitements déjà tentés (AINS, kinésithérapie, ostéopathie, etc.) et leur inefficacité.
-   - **Antécédents et Chronologie (ATCD)** : Liste TOUS les traumatismes physiques (accidents de vélo, chutes, entorses, fractures, immobilisations par botte, chirurgies), les deuils ou événements de vie marquants (décès de parents, contexte familial et stress lié aux enfants), la situation professionnelle (retraite, métier) et les démarches thérapeutiques antérieures, classés du plus ancien au plus récent.
-   - **Règle Anti-Troncature** : Chaque section doit être rédigée intégralement jusqu'à son terme sans jamais s'interrompre.
+3. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil (paragraphe continu unique résumant l'ensemble du bilan).
+4. "synthese" : RÈGLE D'EXHAUSTIVITÉ CLINIQUE MAXIMALE (ZÉRO PERTE D'INFORMATION). Ne jamais écourter ou résumer à l'excès.
+   - **Histoire de la Maladie** : Décris exhaustivement les symptômes, leur localisation, leur date d'apparition précise, les circonstances déclenchantes (ex: amaigrissement rapide, reprise de sport/poids inadaptée, faux-pas, manipulations inadaptées), les traitements déjà tentés (AINS, kinésithérapie, ostéopathie, etc.) et leur inefficacité.
+   - **Antécédents et Chronologie (ATCD)** : Liste TOUS les traumatismes physiques (accidents de la route, chutes, entorses, fractures, immobilisations par botte, chirurgies), les deuils ou événements de vie marquants (décès de parents, contexte familial et stress lié aux enfants), la situation professionnelle (retraite, métier) et les démarches thérapeutiques antérieures, classés du plus ancien au plus récent.
+   - **Règle Anti-Troncature Absolue** : Chaque section doit être rédigée intégralement jusqu'à son terme sans jamais s'interrompre.
 
 # Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- [Date exacte de la consultation, ou ${currentDate} par défaut]</span>
 
@@ -534,26 +550,54 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
             }
         }
 
-        if (attachedDocsContext) {
-            parts.push({ text: attachedDocsContext });
+        const synthesisParts: Array<{ text?: string; fileData?: { fileUri: string, mimeType: string } }> = [];
+
+        if (directAudioTranscription) {
+            synthesisParts.push({
+                text: `\n\n--- TRANSCRIPTION INTÉGRALE MOT À MOT DU DIALOGUE DE LA CONSULTATION ---\n${directAudioTranscription}\n--- FIN DE LA TRANSCRIPTION ---\n`
+            });
         }
 
-        parts.push({ text: systemPrompt });
+        // Ajouter les pièces jointes (images/PDFs) pour analyse visuelle
+        for (const uploaded of uploadedDocs) {
+            synthesisParts.push({
+                fileData: { fileUri: uploaded.uri, mimeType: uploaded.mimeType }
+            });
+        }
 
+        // Ajouter les documents textes
+        textFilesContent.forEach(item => {
+            synthesisParts.push({
+                text: `\n\n--- Document texte joint (${item.cleanName}) ---\n${item.text}\n--- Fin du document ---\n`
+            });
+        });
 
-        console.log(`[API] Generating content...`);
+        // Ajouter les notes directes
+        if (newText) {
+            synthesisParts.push({
+                text: `\n\n--- Nouvelle Note Ajoutée ---\n${newText}\n--- Fin de la note ---\n`
+            });
+        }
+
+        if (attachedDocsContext) {
+            synthesisParts.push({ text: attachedDocsContext });
+        }
+
+        synthesisParts.push({ text: systemPrompt });
+
+        console.log(`[API PASS 2] Génération de la synthèse clinique exhaustive (budget: 65536 tokens)...`);
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: [
                 {
                     role: 'user',
-                    parts: parts
+                    parts: synthesisParts
                 }
             ],
             config: {
                 systemInstruction: systemPrompt,
                 responseMimeType: 'application/json',
-                maxOutputTokens: 16384,
+                maxOutputTokens: 65536,
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
@@ -572,13 +616,9 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
                         synthese: {
                             type: Type.STRING,
                             description: "La synthèse médicale formatée en Markdown"
-                        },
-                        transcription: {
-                            type: Type.STRING,
-                            description: "Retranscription EXACTE et LITTÉRALE de l'audio si présent. La transcription des documents PDF/images est gérée directement par le serveur, ne l'inclus pas ici."
                         }
                     },
-                    required: ["patientName", "consultationDate", "resume", "synthese", "transcription"]
+                    required: ["patientName", "consultationDate", "resume", "synthese"]
                 }
             }
         });
@@ -618,7 +658,7 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
         }
 
         // Fusion de la transcription de l'audio avec celle des documents extraits sur le serveur
-        let finalTranscription = jsonResult.transcription || "";
+        let finalTranscription = directAudioTranscription || "";
         
         // Si c'est un document texte brut en guise d'audio principal
         if (audioFile && audioFile.fileName && finalMimeType.startsWith('text/')) {
@@ -639,8 +679,6 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
             const separator = "\n\n---\n**Ajout d'information :**\n";
             jsonResult.transcription = previousContext.transcription + separator + (jsonResult.transcription || "");
         }
-
-        // CLEANUP (Not needed anymore since we use inlineData!)
 
         if (jsonResult.patientName) {
             jsonResult.patientName = ensureLastNameFirst(jsonResult.patientName);

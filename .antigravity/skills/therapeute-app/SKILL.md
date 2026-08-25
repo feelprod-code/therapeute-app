@@ -10,7 +10,7 @@ okf_version: "0.2"
 status: stable
 trust_level: verified
 verified_by: Guillaume Philippe
-last_updated: "2026-08-18"
+last_updated: "2026-08-25"
 provenance: human_curated
 ---
 
@@ -79,10 +79,15 @@ Whenever embedding medical documents, OCT scans, operative reports, or visual co
 - **Module d'Évaluation Visuelle Comparative (Avant vs Après Opération) :**
   - For pre-op vs post-op comparisons, include a side-by-side visual gallery (`grid-template-columns: repeat(auto-fit, minmax(280px, 1fr))`) showing the pre-op authentic scan image (red alert border) next to the post-op authentic scan image (green progress border), accompanied by a comparative data table (Central Thickness, Max Thickness, Volume) highlighting percentage reductions.
 
-### 5. Règle Absolue d'Exhaustivité Clinique & Anti-Troncature (Zero Information Loss)
+### 5. Règle Absolue d'Exhaustivité Clinique & Architecture Anti-Troncature (Zero Information Loss)
 Whenever generating, reanalyzing, or updating a patient consultation Bilan:
-- **Exhaustivité Maximale :** L'IA doit extraire et consigner TOUS les éléments abordés lors de l'interrogatoire (symptômes, localisation, intensité, date de début, facteurs déclenchants comme une perte de poids ou le port de charges, inefficacité des traitements antérieurs comme les AINS ou la kinésithérapie, traumatismes physiques, accidents de la voie publique, chutes, fractures, immobilisations en botte, deuils, stress familial, situation professionnelle et retraite).
-- **Interdiction de Tronquer :** Aucune section ne doit être interrompue ou tronquée en plein milieu. Si la transcription est longue, l'IA doit allouer le budget de tokens maximal (`16384`) et rédiger chaque section jusqu'à son terme.
+- **Architecture Découplée en 2 Passes Obligatoire :**
+  - **Passe 1 (Transcription pure)** : Si un fichier audio est fourni, Gemini extrait UNIQUEMENT la retranscription brute intégrale mot-à-mot du dialogue (`transcription`). Pas de JSON, pas de synthèse, 100% de la génération dédiée au verbatim.
+  - **Passe 2 (Synthèse clinique complète)** : On injecte ce texte intégral dans l'analyseur clinique pour produire `synthese`, `resume`, `patientName` et `consultationDate`.
+  - **Interdiction de Régénérer la Transcription en Passe 2** : Ne JAMAIS demander à Gemini de recopier la transcription dans le schéma JSON de la synthèse. Le serveur injecte directement la transcription issue de la Passe 1.
+- **Budget de Tokens Maximal (`65536`) :** Toujours allouer `maxOutputTokens: 65536` sur Gemini 2.5 Flash pour garantir que chaque section est rédigée jusqu'à son terme sans aucune interruption.
+- **Exhaustivité Clinique Maximale :** L'IA doit consigner TOUS les éléments abordés lors de l'interrogatoire (symptômes, localisation, intensité, date de début, facteurs déclenchants, inefficacité ou effets délétères des traitements antérieurs comme les AINS ou la kinésithérapie agressive, traumatismes physiques, accidents de la voie publique, chutes, fractures, immobilisations en botte, deuils, stress professionnel ou familial).
+- **Interdiction de Tronquer :** Aucune section ne doit être interrompue ou tronquée en plein milieu. Si la transcription est longue, l'analyseur doit rédiger chaque section jusqu'à son terme.
 - **Préservation Intégrale :** Le praticien ne doit jamais perdre d'information clinique précieuse lors de l'analyse automatique.
 
 
