@@ -42,3 +42,4 @@ test_sdk.mjs
 *.mp3
 *.sql
 *.mjs
+scratch_*/

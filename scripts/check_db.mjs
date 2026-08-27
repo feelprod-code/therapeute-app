@@ -6,35 +6,33 @@ const supabase = createClient(
 );
 
 async function checkData() {
-  console.log("--- DERNIÈRES CONSULTATIONS ---");
-  const { data: consults, error: errC } = await supabase
+  const { data: c, error } = await supabase
     .from('consultations')
-    .select('id, patient_name, created_at, transcription, synthese')
-    .order('created_at', { ascending: false })
-    .limit(3);
+    .select('*')
+    .eq('id', '90050536-c2e5-4ba4-a39a-18f1df14772d')
+    .single();
   
-  if (errC) console.error("Erreur DB:", errC);
-  else {
-    consults.forEach(c => {
-      console.log(`[${c.created_at}] ID: ${c.id} | Nom: ${c.patient_name} | Synthèse vide? ${!c.synthese} | Transcription vide? ${!c.transcription}`);
-    });
+  if (error) {
+    console.error("Error:", error);
+    return;
   }
 
-  console.log("\n--- DERNIERS FICHIERS AUDIO CACHES ---");
-  const { data: files, error: errF } = await supabase
-    .storage
-    .from('tdt_uploads')
-    .list('', {
-      limit: 10,
-      sortBy: { column: 'created_at', order: 'desc' },
-    });
+  console.log("=== 1. INITIAL TRANSCRIPTION ===");
+  console.log(c.transcription);
 
-  if (errF) console.error("Erreur Storage:", errF);
-  else {
-    files.forEach(f => {
-      console.log(`[${f.created_at}] Fichier: ${f.name} | Taille: ${(f.metadata?.size / 1024 / 1024).toFixed(4)} MB`);
-    });
-  }
+  console.log("\n=== 2. CURRENT SYNTHESE (BILAN) ===");
+  console.log(c.synthese);
+
+  console.log("\n=== 3. FOLLOW_UPS ARRAY ===");
+  console.log("Count:", c.follow_ups?.length || 0);
+  (c.follow_ups || []).forEach((f, idx) => {
+    console.log(`\n--- Follow Up #${idx + 1} (Type: ${f.type}, Date: ${f.date}, Audio: ${f.audio_path}) ---`);
+    console.log("Note / Summary:", f.note);
+    console.log("Transcription:", f.transcription);
+  });
 }
 
 checkData();
+
+
+

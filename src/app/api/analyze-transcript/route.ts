@@ -112,7 +112,7 @@ Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme 
   "patientName": "Nom et Prénom trouvés (ou chaîne vide si aucun)",
   "consultationDate": "Date trouvée dans le texte (ex: 2024-10-14). Si aucune date précise n'est mentionnée, renvoie null ou une chaîne vide.",
   "transcription": "",
-  "resume": "Un résumé narratif GLOBAL en 3 à 5 phrases, synthétisant tout le document final complet généré dans 'synthese'. Sous forme d'un paragraphe continu unique (AUCUNE liste, AUCUN tiret, AUCUNE puce).",
+  "resume": "Le résumé global et évolutif intégrant le bilan initial et les suivis datés (avec imagerie clé en markdown pur si présente, lieux de fracture, notes psy et synthèse clinique).",
   "synthese": "La synthèse médicale formatée en Markdown"
 }
 
@@ -120,7 +120,7 @@ Règles impératives et absolues :
 1. "patientName" : Extrait le NOM (en MAJUSCULES) suivi du Prénom (ex: "DONNADIEU Nathalie"). S'il n'est pas mentionné, laisse cette chaîne vide "".
 2. "consultationDate" : Si le texte mentionne EXPLICITEMENT la date de la séance (ex: "bilan du 14 octobre", "vu le 12/03/2021"), extrait-la au format string ISO AAAA-MM-JJ. Si AUCUNE date n'est prononcée ou écrite dans les documents, tu DOIS IMPÉRATIVEMENT renvoyer une chaîne vide "".
 3. "transcription" : Laisse ce champ STRICTEMENT vide "" car la transcription est déjà entièrement gérée par le serveur.
-4. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil (paragraphe continu unique résumant l'ensemble du bilan).
+4. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil intégrant le bilan initial et toutes les séances de suivi avec leurs dates respectives, les constats radiologiques (fractures, cals osseux) et le volet psycho-émotionnel.
 5. "synthese" : RÈGLE D'EXHAUSTIVITÉ CLINIQUE MAXIMALE (ZÉRO PERTE D'INFORMATION). Ne jamais écourter ou résumer à l'excès.
    - **Histoire de la Maladie** : Décris exhaustivement les symptômes, leur localisation, leur date d'apparition précise, les circonstances déclenchantes (ex: traumatisme, soirée dansante, efforts, faux-pas), les traitements déjà tentés et leur inefficacité.
    - **Antécédents et Chronologie (ATCD)** : Liste TOUS les traumatismes physiques (accidents, chutes, entorses, fractures), les deuils ou événements de vie marquants, la situation professionnelle et les démarches thérapeutiques antérieures, classés du plus ancien au plus récent.

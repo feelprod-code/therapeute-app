@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon, Trash2, Square, ExternalLink, ArrowLeftRight, History } from "lucide-react";
+import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon, Trash2, Square, ExternalLink, ArrowLeftRight, History, Maximize2, ZoomIn, ZoomOut, RotateCcw, Download } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import ReactMarkdown from "react-markdown";
@@ -20,6 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import imageCompression from 'browser-image-compression';
 import { swapFirstLastName } from "@/lib/utils";
 import { SyntheseHistoryModal, SyntheseVersionItem } from "@/components/SyntheseHistoryModal";
+import { MedicalImageViewerModal, MedicalImageItem } from "@/components/MedicalImageViewerModal";
 
 export default function ConsultationDetail() {
   const params = useParams();
@@ -123,8 +124,62 @@ export default function ConsultationDetail() {
   const [editFollowUpContent, setEditFollowUpContent] = useState("");
   const [editFollowUpDate, setEditFollowUpDate] = useState("");
 
-  // Image Viewer State
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  // Image Viewer State & Controls (MedicalImageViewerModal)
+  const [selectedImage, setSelectedImage] = useState<MedicalImageItem | null>(null);
+
+  const getImageUrl = (src?: string | null) => {
+    if (!src) return '';
+    if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('blob:') || src.startsWith('data:')) {
+      return src;
+    }
+    return supabase.storage.from('tdt_uploads').getPublicUrl(src).data.publicUrl;
+  };
+
+  const renderMarkdownImage = ({ node, ...props }: any) => {
+    const src = props.src || '';
+    const alt = props.alt || 'Imagerie médicale';
+    const resolvedUrl = getImageUrl(src);
+    const caption = props.title || (alt && alt !== 'Imagerie médicale' ? alt : undefined);
+
+    return (
+      <figure className="my-5 text-center group not-prose">
+        <div 
+          className="relative inline-block overflow-hidden rounded-xl border border-[#ebd9c8]/70 bg-[#faf7f2] shadow-sm hover:shadow-xl hover:border-[#bd613c]/60 transition-all duration-200 cursor-zoom-in"
+          onClick={(e) => { 
+            e.stopPropagation();
+            setSelectedImage({
+              src: resolvedUrl,
+              caption: caption,
+              alt: alt
+            });
+          }}
+          title="Cliquer pour afficher en plein écran haute résolution"
+        >
+          <img
+            {...props}
+            src={resolvedUrl}
+            alt={alt}
+            className="max-h-[480px] w-auto mx-auto object-contain transition-transform duration-300 group-hover:scale-[1.01]"
+          />
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors flex items-center justify-center pointer-events-none">
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/80 text-white text-xs px-3.5 py-1.5 rounded-full backdrop-blur-sm flex items-center gap-1.5 shadow-lg border border-white/20">
+              <Maximize2 className="w-3.5 h-3.5 text-[#bd613c]" />
+              <span className="font-medium">Plein écran</span>
+            </div>
+          </div>
+        </div>
+        {caption && (
+          <figcaption className="text-xs text-[#8c7b6d] mt-2 font-medium italic">
+            {caption}
+          </figcaption>
+        )}
+      </figure>
+    );
+  };
+
+  const markdownComponents = {
+    img: renderMarkdownImage
+  };
 
   const handleDeleteFollowUp = async (followUpId: string) => {
     if (!confirm("Voulez-vous vraiment supprimer cette note de suivi ?")) return;
@@ -1117,26 +1172,12 @@ export default function ConsultationDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal d'affichage Image Plein Écran */}
-      <Dialog open={!!selectedImage} onOpenChange={() => setSelectedImage(null)}>
-        <DialogContent className="max-w-[95vw] lg:max-w-[80vw] max-h-[95vh] p-1 md:p-6 bg-black/95 sm:bg-white border-none sm:border-[#ebd9c8]/30 flex flex-col items-center justify-center">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute top-2 right-2 text-white sm:text-slate-500 hover:bg-white/20 sm:hover:bg-slate-100 z-50 rounded-full"
-            onClick={() => setSelectedImage(null)}
-          >
-            <XIcon className="w-6 h-6" />
-          </Button>
-          {selectedImage && (
-            <img
-              src={supabase.storage.from('tdt_uploads').getPublicUrl(selectedImage).data.publicUrl}
-              alt="Image plein écran"
-              className="w-auto h-auto max-w-full max-h-[85vh] object-contain rounded-md"
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Modal d'affichage Image Plein Écran (iPhone Fullscreen & Desktop Sober Window) */}
+      <MedicalImageViewerModal
+        isOpen={!!selectedImage}
+        image={selectedImage}
+        onClose={() => setSelectedImage(null)}
+      />
 
       <div className="w-full max-w-5xl space-y-8 xl:space-y-10">
 
@@ -1424,15 +1465,7 @@ export default function ConsultationDetail() {
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
                           rehypePlugins={[rehypeRaw]}
-                          components={{
-                            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                            img: ({ node, ...props }) => (
-                              <img
-                                {...props}
-                                className="max-h-[450px] w-auto mx-auto my-4 rounded-xl shadow-md border border-[#ebd9c8]/50 object-contain"
-                              />
-                            )
-                          }}
+                          components={markdownComponents}
                         >
                           {data.synthese}
                         </ReactMarkdown>
@@ -1485,7 +1518,11 @@ export default function ConsultationDetail() {
                       title="Double-clic pour modifier"
                     >
                       {data.resume ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeRaw]}
+                          components={markdownComponents}
+                        >
                           {data.resume}
                         </ReactMarkdown>
                       ) : "Aucun résumé disponible."}
@@ -1537,7 +1574,11 @@ export default function ConsultationDetail() {
                       title="Double-clic pour modifier"
                     >
                       {data.transcription ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                        <ReactMarkdown 
+                          remarkPlugins={[remarkGfm]} 
+                          rehypePlugins={[rehypeRaw]}
+                          components={markdownComponents}
+                        >
                           {data.transcription}
                         </ReactMarkdown>
                       ) : "Aucune transcription disponible."}
@@ -1750,12 +1791,30 @@ export default function ConsultationDetail() {
                                     </div>
                                   ) : note.type === 'image' ? (
                                     <div className="mt-2 flex flex-col items-center w-full">
-                                      <img
-                                        src={supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl}
-                                        alt={note.content || "Image attachée"}
-                                        className="cursor-pointer max-h-64 object-contain rounded-xl border border-[#ebd9c8]/50 shadow-sm hover:shadow transition-shadow"
-                                        onClick={() => setSelectedImage(note.url)}
-                                      />
+                                      <div 
+                                        className="relative inline-block overflow-hidden rounded-xl border border-[#ebd9c8]/70 bg-[#faf7f2] shadow-sm hover:shadow-xl hover:border-[#bd613c]/60 transition-all duration-200 cursor-zoom-in group"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSelectedImage({
+                                            src: getImageUrl(note.url),
+                                            caption: note.content || "Cliché radiologique / imagerie",
+                                            alt: "Image attachée"
+                                          });
+                                        }}
+                                        title="Cliquer pour afficher en plein écran haute résolution"
+                                      >
+                                        <img
+                                          src={getImageUrl(note.url)}
+                                          alt={note.content || "Image attachée"}
+                                          className="max-h-64 object-contain rounded-xl transition-transform duration-300 group-hover:scale-[1.01]"
+                                        />
+                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors flex items-center justify-center pointer-events-none">
+                                          <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/80 text-white text-xs px-3.5 py-1.5 rounded-full backdrop-blur-sm flex items-center gap-1.5 shadow-lg border border-white/20">
+                                            <Maximize2 className="w-3.5 h-3.5 text-[#bd613c]" />
+                                            <span className="font-medium">Plein écran</span>
+                                          </div>
+                                        </div>
+                                      </div>
                                       {note.content && (
                                         <div
                                           className="w-full mt-4 prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-3 rounded-xl border border-[#ebd9c8]/20 bg-white/30"
@@ -1766,7 +1825,7 @@ export default function ConsultationDetail() {
                                           }}
                                           title="Double-clic pour modifier la note"
                                         >
-                                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
                                             {note.content}
                                           </ReactMarkdown>
                                         </div>
@@ -1779,12 +1838,12 @@ export default function ConsultationDetail() {
                                           <span className="text-xs font-medium text-slate-600 flex items-center gap-2">
                                             <FileText className="w-4 h-4 text-[#bd613c]" /> Aperçu du PDF
                                           </span>
-                                          <Button variant="outline" size="sm" className="h-7 text-xs bg-white text-[#bd613c] border-[#ebd9c8] hover:bg-slate-50" onClick={() => window.open(supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl, "_blank")}>
+                                          <Button variant="outline" size="sm" className="h-7 text-xs bg-white text-[#bd613c] border-[#ebd9c8] hover:bg-slate-50" onClick={() => window.open(getImageUrl(note.url), "_blank")}>
                                             <ExternalLink className="w-3 h-3 mr-1" /> Agrandir
                                           </Button>
                                         </div>
                                         <iframe
-                                          src={`${supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl}#toolbar=0&navpanes=0&view=FitH`}
+                                          src={`${getImageUrl(note.url)}#toolbar=0&navpanes=0&view=FitH`}
                                           className="w-full h-[350px] border-none bg-zinc-100"
                                           title={note.content || "Document PDF"}
                                         />
@@ -1799,7 +1858,7 @@ export default function ConsultationDetail() {
                                           }}
                                           title="Double-clic pour modifier la note"
                                         >
-                                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
                                             {note.content}
                                           </ReactMarkdown>
                                         </div>
@@ -1821,13 +1880,13 @@ export default function ConsultationDetail() {
                                             variant="outline"
                                             size="sm"
                                             className="h-7 text-xs bg-white text-[#bd613c] border-[#ebd9c8] hover:bg-slate-50 shrink-0"
-                                            onClick={() => window.open(supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl, "_blank")}
+                                            onClick={() => window.open(getImageUrl(note.url), "_blank")}
                                           >
                                             <ExternalLink className="w-3 h-3 mr-1" /> Ouvrir
                                           </Button>
                                         </div>
                                         <audio
-                                          src={supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl}
+                                          src={getImageUrl(note.url)}
                                           controls
                                           className="w-full mt-1 accent-[#bd613c]"
                                         />
@@ -1842,7 +1901,7 @@ export default function ConsultationDetail() {
                                           }}
                                           title="Double-clic pour modifier la note"
                                         >
-                                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
                                             {note.content}
                                           </ReactMarkdown>
                                         </div>
@@ -1858,7 +1917,7 @@ export default function ConsultationDetail() {
                                       }}
                                       title="Double-clic pour modifier la note"
                                     >
-                                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
                                         {note.content}
                                       </ReactMarkdown>
                                     </div>
@@ -1869,7 +1928,7 @@ export default function ConsultationDetail() {
                                         <span className="group-open/details:hidden">▶</span><span className="hidden group-open/details:inline">▼</span> {note.type === 'audio' ? 'Voir la transcription source' : 'Voir le texte extrait'}
                                       </summary>
                                       <div className="mt-2 p-4 bg-white/40 rounded-xl text-xs font-mono text-[#4a3f35]/80 whitespace-pre-wrap prose prose-sm max-w-none prose-strong:text-[#bd613c] border border-[#ebd9c8]/30">
-                                        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
                                           {note.transcription}
                                         </ReactMarkdown>
                                       </div>

@@ -466,10 +466,13 @@ Ton objectif est de mettre à jour la synthèse PRÉCÉDENTE en FUSIONNANT de ma
 - DOCUMENTS JOINTS : Si un document (PDF, image, texte) t'est fourni, extrais minutieusement les informations médicales et intègre-les au bilan.
 - EXCEPTION (NOM DU PATIENT) : Respecte la casse sobre et naturelle (ex: Jean-Claude Frénot).
 - EXCEPTION (DATE DE LA CONSULTATION) : Si les nouvelles notes précisent les dates, affiche-les dans le titre (# Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- [Date 1] & [Date 2]</span>).
-- EXCEPTION (RÉSUMÉ) : IL EST ABSOLUMENT OBLIGATOIRE que la clé "resume" contienne un résumé GLOBAL de TOUT LE BILAN FINAL (c'est-à-dire l'ensemble des séances).
+- EXCEPTION (RÉSUMÉ) : IL EST ABSOLUMENT OBLIGATOIRE que la clé "resume" contienne un résumé GLOBAL et DYNAMIQUE de TOUT LE BILAN FINAL (c'est-à-dire le bilan initial ET l'ensemble des suivis / nouvelles séances / examens d'imagerie récents).
+  * Si des examens d'imagerie médicale (radios, IRM, scanners, échographies) sont présents, le résumé DOIT débuter par la photo/planche d'imagerie clé la plus évocatrice en Markdown pur (![Description](url)).
+  * Chaque suivi ou examen récent doit être mentionné avec sa date explicite (ex: "### 🗓️ Suivi du [Date] : ..."), en détaillant le lieu précis de fracture s'il y a lieu, les conclusions radiologiques, les notes psycho-émotionnelles ou les évolutions posturales.
+  * Le résumé doit être complet, fluide et lisible en un coup d'œil.
 `;
         } else {
-            contextInstruction = `\n- DOCUMENTS JOINTS: Si des documents (PDF, images, textes) te sont fournis, analyse-les pour rédiger le bilan (motif, histoire, examens, ATCD).`;
+            contextInstruction = `\n- DOCUMENTS JOINTS: Si des documents (PDF, images, textes) te sont fournis, analyse-les pour rédiger le bilan (motif, histoire, examens, ATCD). Si une imagerie est fournie, intègre la planche clé dans le résumé.`;
         }
 
         const systemPrompt = `Tu es un assistant médical clinique expert (ostéopathie, biokinergie, thérapie manuelle). Ton rôle est d'analyser l'intégralité de la transcription de l'interrogatoire patient (et/ou des documents) et de produire un bilan médical exhaustif, riche et rigoureusement structuré.${contextInstruction}
@@ -477,14 +480,14 @@ Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme 
 {
   "patientName": "Nom et Prénom trouvés (ou chaîne vide si aucun)",
   "consultationDate": "Date trouvée dans le texte (ex: 2024-10-14). Si aucune date précise n'est mentionnée, renvoie null ou une chaîne vide.",
-  "resume": "Un résumé narratif GLOBAL en 3 à 5 phrases, synthétisant TOUT le document final complet généré dans 'synthese' (anciennes ET nouvelles informations). Sous forme d'un paragraphe continu unique (AUCUNE liste, AUCUN tiret, AUCUNE puce).",
+  "resume": "Le résumé global et évolutif intégrant le bilan initial et les suivis datés (avec imagerie clé en markdown pur si présente, lieux de fracture, notes psy et synthèse clinique).",
   "synthese": "La synthèse médicale formatée en Markdown"
 }
 
 Règles impératives et absolues :
 1. "patientName" : Extrait le NOM (en MAJUSCULES) suivi du Prénom (ex: "DONNADIEU Nathalie"). S'il n'est pas mentionné, laisse cette chaîne vide "".
 2. "consultationDate" : Si le texte mentionne EXPLICITEMENT la date de la séance (ex: "bilan du 14 octobre", "vu le 12/03/2021"), extrait-la au format string ISO AAAA-MM-JJ. Si AUCUNE date n'est prononcée ou écrite dans les documents, tu DOIS IMPÉRATIVEMENT renvoyer une chaîne vide "". Ne déduis PAS la date et ne mets JAMAIS la date d'aujourd'hui par défaut dans ce champ JSON.
-3. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil (paragraphe continu unique résumant l'ensemble du bilan).
+3. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil intégrant le bilan initial et toutes les séances de suivi avec leurs dates respectives, les constats radiologiques (fractures, cals osseux) et le volet psycho-émotionnel.
 4. "synthese" : RÈGLE D'EXHAUSTIVITÉ CLINIQUE MAXIMALE (ZÉRO PERTE D'INFORMATION). Ne jamais écourter ou résumer à l'excès.
    - **Histoire de la Maladie** : Décris exhaustivement les symptômes, leur localisation, leur date d'apparition précise, les circonstances déclenchantes (ex: amaigrissement rapide, reprise de sport/poids inadaptée, faux-pas, manipulations inadaptées), les traitements déjà tentés (AINS, kinésithérapie, ostéopathie, etc.) et leur inefficacité.
    - **Antécédents et Chronologie (ATCD)** : Liste TOUS les traumatismes physiques (accidents de la route, chutes, entorses, fractures, immobilisations par botte, chirurgies), les deuils ou événements de vie marquants (décès de parents, contexte familial et stress lié aux enfants), la situation professionnelle (retraite, métier) et les démarches thérapeutiques antérieures, classés du plus ancien au plus récent.
