@@ -17,6 +17,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AudioRecorder } from "@/components/AudioRecorder";
 import { useToast } from "@/hooks/use-toast";
+import { useVoiceDictation } from "@/hooks/use-voice-dictation";
 import imageCompression from 'browser-image-compression';
 
 export default function ConsultationDetail() {
@@ -184,52 +185,15 @@ export default function ConsultationDetail() {
     }
   };
 
-  const [isDictating, setIsDictating] = useState(false);
-  const recognitionRef = useRef<any>(null);
-
-  const toggleDictation = () => {
-    if (isDictating) {
-      recognitionRef.current?.stop();
-      setIsDictating(false);
-      return;
+  const {
+    isRecording: isDictating,
+    isTranscribing: isTranscribingDictation,
+    toggleRecording: toggleDictation
+  } = useVoiceDictation({
+    onTranscriptionComplete: (transcribedText) => {
+      setTextContent(prev => prev + (prev && !prev.endsWith(' ') ? ' ' : '') + transcribedText);
     }
-
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      toast({ title: "Non supporté", description: "La dictée vocale n'est pas supportée sur ce navigateur.", variant: "destructive" });
-      return;
-    }
-
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'fr-FR';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-
-    recognition.onresult = (event: any) => {
-      let currentFinal = '';
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          currentFinal += event.results[i][0].transcript + ' ';
-        }
-      }
-      if (currentFinal) {
-        setTextContent(prev => prev + (prev && !prev.endsWith(' ') ? ' ' : '') + currentFinal);
-      }
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error("Speech recognition error", event.error);
-      setIsDictating(false);
-    };
-
-    recognition.onend = () => {
-      setIsDictating(false);
-    };
-
-    recognition.start();
-    recognitionRef.current = recognition;
-    setIsDictating(true);
-  };
+  });
 
   const handleSaveFollowUp = async (followUpId: string) => {
     try {
@@ -835,11 +799,29 @@ export default function ConsultationDetail() {
                 size="icon"
                 variant="ghost"
                 onClick={toggleDictation}
-                disabled={isAppending}
-                className={`absolute bottom-3 right-3 rounded-full transition-all ${isDictating ? 'bg-red-100 text-red-500 hover:bg-red-200 animate-pulse' : 'bg-[#ebd9c8]/30 text-[#bd613c] hover:bg-[#ebd9c8]/50'}`}
-                title={isDictating ? "Arrêter la dictée" : "Démarrer la dictée vocale"}
+                disabled={isAppending || isTranscribingDictation}
+                className={`absolute bottom-3 right-3 rounded-full transition-all ${
+                  isDictating
+                    ? 'bg-red-100 text-red-500 hover:bg-red-200 animate-pulse'
+                    : isTranscribingDictation
+                    ? 'bg-purple-100 text-purple-600 animate-pulse'
+                    : 'bg-[#ebd9c8]/30 text-[#bd613c] hover:bg-[#ebd9c8]/50'
+                }`}
+                title={
+                  isDictating
+                    ? "Arrêter la dictée (Gemini)"
+                    : isTranscribingDictation
+                    ? "Gemini transcrit en cours..."
+                    : "Démarrer la dictée vocale (Gemini)"
+                }
               >
-                {isDictating ? <Square className="w-5 h-5 fill-current" /> : <Mic className="w-5 h-5" />}
+                {isTranscribingDictation ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : isDictating ? (
+                  <Square className="w-5 h-5 fill-current" />
+                ) : (
+                  <Mic className="w-5 h-5" />
+                )}
               </Button>
             </div>
             <div className="flex justify-end gap-3 pt-2">

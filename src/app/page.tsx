@@ -12,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Copy, Plus, Trash2, ArrowRight, Loader2, RefreshCw, FileText, Check, MessageSquare, ListTodo, MoreHorizontal, Merge, Search, Mic, Type, FileUp, X as XIcon, CalendarDays, Folder as FolderIcon, ChevronDown, Combine, Paperclip, Image as ImageIcon, X, Download, Square } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useVoiceDictation } from "@/hooks/use-voice-dictation";
 import Link from "next/link";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -102,52 +103,15 @@ function Home() {
   const [consultations, setConsultations] = useState<SupabaseConsultation[] | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
-  const [isDictating, setIsDictating] = useState(false);
-  const recognitionRef = useRef<any>(null);
-
-  const toggleDictation = () => {
-    if (isDictating) {
-      recognitionRef.current?.stop();
-      setIsDictating(false);
-      return;
+  const {
+    isRecording: isDictating,
+    isTranscribing: isTranscribingDictation,
+    toggleRecording: toggleDictation
+  } = useVoiceDictation({
+    onTranscriptionComplete: (transcribedText) => {
+      setTextContent(prev => prev + (prev && !prev.endsWith(' ') ? ' ' : '') + transcribedText);
     }
-
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      toast({ title: "Non supporté", description: "La dictée vocale n'est pas supportée sur ce navigateur.", variant: "destructive" });
-      return;
-    }
-
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'fr-FR';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-
-    recognition.onresult = (event: CustomSpeechEvent) => {
-      let currentFinal = '';
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          currentFinal += event.results[i][0].transcript + ' ';
-        }
-      }
-      if (currentFinal) {
-        setTextContent(prev => prev + (prev && !prev.endsWith(' ') ? ' ' : '') + currentFinal);
-      }
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error("Speech recognition error", event.error);
-      setIsDictating(false);
-    };
-
-    recognition.onend = () => {
-      setIsDictating(false);
-    };
-
-    recognition.start();
-    recognitionRef.current = recognition;
-    setIsDictating(true);
-  };
+  });
 
   useEffect(() => {
     const fetchConsultations = async () => {
@@ -1074,10 +1038,29 @@ function Home() {
                         size="icon"
                         variant="ghost"
                         onClick={toggleDictation}
-                        className={`absolute bottom-3 right-3 rounded-full transition-all ${isDictating ? 'bg-red-100 text-red-500 hover:bg-red-200 animate-pulse' : 'bg-[#ebd9c8]/30 text-[#bd613c] hover:bg-[#ebd9c8]/50'}`}
-                        title={isDictating ? "Arrêter la dictée" : "Démarrer la dictée vocale"}
+                        disabled={isTranscribingDictation}
+                        className={`absolute bottom-3 right-3 rounded-full transition-all ${
+                          isDictating
+                            ? 'bg-red-100 text-red-500 hover:bg-red-200 animate-pulse'
+                            : isTranscribingDictation
+                            ? 'bg-purple-100 text-purple-600 animate-pulse'
+                            : 'bg-[#ebd9c8]/30 text-[#bd613c] hover:bg-[#ebd9c8]/50'
+                        }`}
+                        title={
+                          isDictating
+                            ? "Arrêter la dictée (Gemini)"
+                            : isTranscribingDictation
+                            ? "Gemini transcrit en cours..."
+                            : "Démarrer la dictée vocale (Gemini)"
+                        }
                       >
-                        {isDictating ? <Square className="w-5 h-5 fill-current" /> : <Mic className="w-5 h-5" />}
+                        {isTranscribingDictation ? (
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : isDictating ? (
+                          <Square className="w-5 h-5 fill-current" />
+                        ) : (
+                          <Mic className="w-5 h-5" />
+                        )}
                       </Button>
                     </div>
                     <Button
