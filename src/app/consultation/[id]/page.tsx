@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon, Trash2, Square, ExternalLink } from "lucide-react";
+import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon, Trash2, Square, ExternalLink, ArrowLeftRight, History, Maximize2, ZoomIn, ZoomOut, RotateCcw, Download } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import ReactMarkdown from "react-markdown";
@@ -19,6 +19,9 @@ import { AudioRecorder } from "@/components/AudioRecorder";
 import { useToast } from "@/hooks/use-toast";
 import { useVoiceDictation } from "@/hooks/use-voice-dictation";
 import imageCompression from 'browser-image-compression';
+import { swapFirstLastName } from "@/lib/utils";
+import { SyntheseHistoryModal, SyntheseVersionItem } from "@/components/SyntheseHistoryModal";
+import { MedicalImageViewerModal, MedicalImageItem } from "@/components/MedicalImageViewerModal";
 
 export default function ConsultationDetail() {
   const params = useParams();
@@ -36,6 +39,9 @@ export default function ConsultationDetail() {
   const [isRecordingModalOpen, setIsRecordingModalOpen] = useState(false);
   const [isTextModalOpen, setIsTextModalOpen] = useState(false);
   const [textContent, setTextContent] = useState("");
+
+  // État pour l'historique des versions
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
 
   // Nouveaux états pour l'override de séance
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
@@ -95,7 +101,7 @@ export default function ConsultationDetail() {
   };
 
   // Nouveaux états pour le suivi chronologique
-  const [appendMode, setAppendMode] = useState<'bilan' | 'suivi'>('bilan');
+  const [appendMode, setAppendMode] = useState<'bilan' | 'suivi'>('suivi');
   const fileInputRefBilanMobile = useRef<HTMLInputElement>(null);
   const fileInputRefSuiviMobile = useRef<HTMLInputElement>(null);
   const fileInputRefBilanDesktop = useRef<HTMLInputElement>(null);
@@ -103,7 +109,7 @@ export default function ConsultationDetail() {
   const fileInputRefImageMobile = useRef<HTMLInputElement>(null);
   const fileInputRefImageDesktop = useRef<HTMLInputElement>(null);
 
-  const [attachedDocs, setAttachedDocs] = useState<{ name: string, originalName: string, url: string, type: 'image' | 'pdf' | 'other' }[] | null>(null);
+  const [attachedDocs, setAttachedDocs] = useState<{ name: string, originalName: string, url: string, type: 'image' | 'pdf' | 'audio' | 'other' }[] | null>(null);
 
   // Nouveaux états pour la modification de texte
   const [isEditingBilan, setIsEditingBilan] = useState(false);
@@ -119,8 +125,62 @@ export default function ConsultationDetail() {
   const [editFollowUpContent, setEditFollowUpContent] = useState("");
   const [editFollowUpDate, setEditFollowUpDate] = useState("");
 
-  // Image Viewer State
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  // Image Viewer State & Controls (MedicalImageViewerModal)
+  const [selectedImage, setSelectedImage] = useState<MedicalImageItem | null>(null);
+
+  const getImageUrl = (src?: string | null) => {
+    if (!src) return '';
+    if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('blob:') || src.startsWith('data:')) {
+      return src;
+    }
+    return supabase.storage.from('tdt_uploads').getPublicUrl(src).data.publicUrl;
+  };
+
+  const renderMarkdownImage = ({ node, ...props }: any) => {
+    const src = props.src || '';
+    const alt = props.alt || 'Imagerie médicale';
+    const resolvedUrl = getImageUrl(src);
+    const caption = props.title || (alt && alt !== 'Imagerie médicale' ? alt : undefined);
+
+    return (
+      <figure className="my-5 text-center group not-prose">
+        <div 
+          className="relative inline-block overflow-hidden rounded-xl border border-[#ebd9c8]/70 bg-[#faf7f2] shadow-sm hover:shadow-xl hover:border-[#bd613c]/60 transition-all duration-200 cursor-zoom-in"
+          onClick={(e) => { 
+            e.stopPropagation();
+            setSelectedImage({
+              src: resolvedUrl,
+              caption: caption,
+              alt: alt
+            });
+          }}
+          title="Cliquer pour afficher en plein écran haute résolution"
+        >
+          <img
+            {...props}
+            src={resolvedUrl}
+            alt={alt}
+            className="max-h-[480px] w-auto mx-auto object-contain transition-transform duration-300 group-hover:scale-[1.01]"
+          />
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors flex items-center justify-center pointer-events-none">
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/80 text-white text-xs px-3.5 py-1.5 rounded-full backdrop-blur-sm flex items-center gap-1.5 shadow-lg border border-white/20">
+              <Maximize2 className="w-3.5 h-3.5 text-[#bd613c]" />
+              <span className="font-medium">Plein écran</span>
+            </div>
+          </div>
+        </div>
+        {caption && (
+          <figcaption className="text-xs text-[#8c7b6d] mt-2 font-medium italic">
+            {caption}
+          </figcaption>
+        )}
+      </figure>
+    );
+  };
+
+  const markdownComponents = {
+    img: renderMarkdownImage
+  };
 
   const handleDeleteFollowUp = async (followUpId: string) => {
     if (!confirm("Voulez-vous vraiment supprimer cette note de suivi ?")) return;
@@ -143,14 +203,94 @@ export default function ConsultationDetail() {
     }
   };
 
+  const historyVersions: SyntheseVersionItem[] = (data?.follow_ups || []).filter(
+    (item: any) => item && item.type === 'synthese_version' && item.synthese
+  );
+
+  const saveSyntheseWithHistory = async (
+    newSynthese: string, 
+    newPatientName?: string, 
+    actionLabel: string = "Modification",
+    userPrompt?: string,
+    aiResponseSummary?: string
+  ) => {
+    try {
+      const currentFollowUps = data?.follow_ups || [];
+      const currentSynthese = data?.synthese;
+
+      let updatedFollowUps = [...currentFollowUps];
+
+      if (currentSynthese && currentSynthese.trim() !== newSynthese.trim()) {
+        const versionEntry: SyntheseVersionItem = {
+          id: crypto.randomUUID(),
+          type: 'synthese_version',
+          date: new Date().toISOString(),
+          label: actionLabel,
+          userPrompt: userPrompt || actionLabel,
+          aiResponseSummary: aiResponseSummary,
+          synthese: currentSynthese,
+          patient_name: data?.patient_name
+        };
+        updatedFollowUps = [versionEntry, ...currentFollowUps];
+      }
+
+      const updatePayload: any = {
+        synthese: newSynthese,
+        follow_ups: updatedFollowUps
+      };
+      if (newPatientName) {
+        updatePayload.patient_name = newPatientName;
+      }
+
+      const { data: updated, error } = await supabase
+        .from('consultations')
+        .update(updatePayload)
+        .eq('id', params.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setData(updated || {
+        ...data,
+        synthese: newSynthese,
+        follow_ups: updatedFollowUps,
+        ...(newPatientName ? { patient_name: newPatientName } : {})
+      });
+    } catch (e: any) {
+      console.error("Erreur sauvegarde synthèse avec historique:", e);
+      throw e;
+    }
+  };
+
+  const handleRestoreVersion = async (version: SyntheseVersionItem) => {
+    await saveSyntheseWithHistory(
+      version.synthese,
+      version.patient_name,
+      `Restauration de la version du ${format(new Date(version.date), "dd/MM/yyyy HH:mm")}`
+    );
+  };
+
+  const handleDeleteVersion = async (versionId: string) => {
+    const currentFollowUps = data?.follow_ups || [];
+    const updatedFollowUps = currentFollowUps.filter((item: any) => !(item.type === 'synthese_version' && item.id === versionId));
+
+    const { data: updated, error } = await supabase
+      .from('consultations')
+      .update({ follow_ups: updatedFollowUps })
+      .eq('id', params.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    setData(updated || { ...data, follow_ups: updatedFollowUps });
+  };
+
   const handleSaveBilan = async () => {
     try {
-      const { error } = await supabase.from('consultations').update({ synthese: editBilanContent }).eq('id', params.id);
-      if (error) throw error;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setData((prev: any) => ({ ...prev, synthese: editBilanContent }));
+      await saveSyntheseWithHistory(editBilanContent, undefined, "Édition manuelle du bilan");
       setIsEditingBilan(false);
-      toast({ title: "Bilan mis à jour", description: "Vos modifications ont été enregistrées." });
+      toast({ title: "Bilan mis à jour", description: "Vos modifications ont été enregistrées avec un point d'historique." });
     } catch (e) {
       console.error(e);
       toast({ title: "Erreur", description: "Impossible de sauvegarder le bilan.", variant: "destructive" });
@@ -237,6 +377,27 @@ export default function ConsultationDetail() {
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleSwapName = async () => {
+    const currentName = data?.patient_name || data?.patientName || editName || "";
+    if (!currentName.trim()) return;
+    const newName = swapFirstLastName(currentName);
+    setEditName(newName);
+
+    try {
+      const { error } = await supabase.from("consultations").update({ patient_name: newName }).eq("id", params.id);
+      if (!error) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setData((prev: any) => ({ ...prev, patient_name: newName }));
+        toast({ title: "Nom et Prénom inversés", description: `Nouveau nom : ${newName}` });
+      } else {
+        throw error;
+      }
+    } catch (e: any) {
+      console.error(e);
+      toast({ title: "Erreur", description: "Impossible d'inverser le nom.", variant: "destructive" });
     }
   };
 
@@ -357,6 +518,39 @@ export default function ConsultationDetail() {
         orientation: orientation
       };
 
+      try {
+        toast({ title: "Analyse en cours...", description: "Extraction et analyse par l'IA..." });
+
+        const analyzeResp = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            attachedFiles: [{ fileName, mimeType: isPDF ? 'application/pdf' : (finalFile as File).type }],
+          })
+        });
+
+        if (analyzeResp.ok) {
+          const { transcription } = await analyzeResp.json();
+
+          const response = await fetch('/api/generate-follow-up', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              transcription: transcription,
+              previousSynthese: data.synthese
+            })
+          });
+
+          if (response.ok) {
+            const { content } = await response.json();
+            newFollowUp.content = content;
+            (newFollowUp as any).transcription = transcription;
+          }
+        }
+      } catch (aiErr) {
+        console.error("AI Analysis failed in handleAppendImage:", aiErr);
+      }
+
       const currentFollowUps = data.follow_ups || [];
       const { data: updatedData, error: updateError } = await supabase.from('consultations').update({
         follow_ups: [newFollowUp, ...currentFollowUps]
@@ -365,7 +559,7 @@ export default function ConsultationDetail() {
       if (updateError) throw updateError;
 
       if (updatedData) setData(updatedData);
-      toast({ title: "Succès", description: "L'image a bien été ajoutée au dossier." });
+      toast({ title: "Succès", description: "Le document a bien été analysé et ajouté au dossier." });
 
     } catch (err) {
       console.error(err);
@@ -383,10 +577,24 @@ export default function ConsultationDetail() {
     try {
       const uploadedFiles = [];
       for (const file of Array.from(e.target.files)) {
+        const extension = file.name.split('.').pop()?.toLowerCase();
+        let mimeType = file.type;
+        if (!mimeType) {
+          if (extension === 'pdf') {
+            mimeType = 'application/pdf';
+          } else if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'].includes(extension || '')) {
+            mimeType = `image/${extension === 'jpg' ? 'jpeg' : extension}`;
+          } else {
+            mimeType = 'application/octet-stream';
+          }
+        }
+
         const fileName = `doc_${Date.now()}_${params.id}_${file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')}`;
-        const { error } = await supabase.storage.from('tdt_uploads').upload(fileName, file);
+        const { error } = await supabase.storage.from('tdt_uploads').upload(fileName, file, {
+          contentType: mimeType
+        });
         if (!error) {
-          uploadedFiles.push({ fileName, mimeType: file.type });
+          uploadedFiles.push({ fileName, mimeType });
         }
       }
 
@@ -408,17 +616,27 @@ export default function ConsultationDetail() {
         if (!response.ok) throw new Error("Erreur lors de la mise à jour par l'IA.");
         const result = await response.json();
 
+        await saveSyntheseWithHistory(
+          result.synthese,
+          result.patientName || data.patient_name,
+          "Ajout de document au bilan",
+          `Ajout de ${uploadedFiles.length} fichier(s)`,
+          result.resume
+        );
+
         const { data: updatedData } = await supabase.from('consultations').update({
-          synthese: result.synthese,
           transcription: result.transcription,
           resume: result.resume,
-          patient_name: result.patientName || data.patient_name
         }).eq('id', params.id).select().single();
 
         if (updatedData) setData(updatedData);
 
       } else {
         // SUIVI
+        if (uploadedFiles.length === 0) {
+          throw new Error("Aucun fichier n'a pu être téléversé.");
+        }
+
         const analyzeResp = await fetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -442,16 +660,24 @@ export default function ConsultationDetail() {
         if (!response.ok) throw new Error("Erreur de génération du suivi.");
         const { content } = await response.json();
 
-        const newFollowUp = {
-          id: crypto.randomUUID(),
-          date: new Date().toISOString(),
-          content: content,
-          transcription: transcription
-        };
+        const newFollowUps = uploadedFiles.map((file, idx) => {
+          const isImageMime = file.mimeType?.startsWith('image/');
+          const extension = file.fileName.split('.').pop()?.toLowerCase();
+          const isImageExt = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'].includes(extension || '');
+          const fileType = (isImageMime || isImageExt) ? 'image' : 'pdf';
+          return {
+            id: crypto.randomUUID(),
+            date: new Date(Date.now() - idx).toISOString(),
+            content: content,
+            transcription: transcription,
+            type: fileType,
+            url: file.fileName
+          };
+        });
 
         const currentFollowUps = data.follow_ups || [];
         const { data: updatedData, error: updateError } = await supabase.from('consultations').update({
-          follow_ups: [newFollowUp, ...currentFollowUps]
+          follow_ups: [...newFollowUps, ...currentFollowUps]
         }).eq('id', params.id).select().single();
         if (updateError) {
           console.error("Supabase update error:", updateError);
@@ -460,7 +686,8 @@ export default function ConsultationDetail() {
         if (updatedData) setData(updatedData);
       }
 
-      // Cleanup post-analyse:      // Cleanup post-analyse: suppression des gros fichiers non-images
+      // Conservation des fichiers dans le stockage Supabase (désactivation du cleanup pour permettre la lecture et la fusion)
+      /*
       try {
         const filesToDelete = uploadedFiles.filter(f => !f.mimeType.startsWith('image/')).map(f => f.fileName);
         if (filesToDelete.length > 0) {
@@ -470,6 +697,7 @@ export default function ConsultationDetail() {
       } catch (e) {
         console.error("Erreur suppression fichiers:", e);
       }
+      */
 
       toast({ title: "Bilan mis à jour", description: "Le document a bien été ajouté au dossier." });
 
@@ -510,11 +738,17 @@ export default function ConsultationDetail() {
         if (!response.ok) throw new Error("Erreur lors de la mise à jour par l'IA.");
         const result = await response.json();
 
+        await saveSyntheseWithHistory(
+          result.synthese,
+          result.patientName || data.patient_name,
+          "Ajout vocal au bilan",
+          "Mise à jour par enregistrement audio",
+          result.resume
+        );
+
         const { data: updatedData } = await supabase.from('consultations').update({
-          synthese: result.synthese,
           transcription: result.transcription,
           resume: result.resume,
-          patient_name: result.patientName || data.patient_name
         }).eq('id', params.id).select().single();
 
         if (updatedData) setData(updatedData);
@@ -549,7 +783,9 @@ export default function ConsultationDetail() {
           id: crypto.randomUUID(),
           date: new Date().toISOString(),
           content: content,
-          transcription: transcription
+          transcription: transcription,
+          type: 'audio',
+          url: fileName
         };
 
         const currentFollowUps = data.follow_ups || [];
@@ -563,13 +799,15 @@ export default function ConsultationDetail() {
         if (updatedData) setData(updatedData);
       }
 
-      // Cleanup post-analyse: suppression du fichier audio      // Cleanup post-analyse: suppression du fichier audio
+      // Conservation des fichiers dans le stockage Supabase (désactivation du cleanup pour permettre la lecture et la fusion)
+      /*
       try {
         await supabase.storage.from('tdt_uploads').remove([fileName]);
         console.log("Fichier audio temporaire supprimé:", fileName);
       } catch (e) {
         console.error("Erreur suppression fichier audio:", e);
       }
+      */
 
       toast({ title: "Bilan mis à jour", description: "L'enregistrement a bien été ajouté au dossier." });
       return true;
@@ -606,11 +844,17 @@ export default function ConsultationDetail() {
         if (!response.ok) throw new Error("Erreur lors de la mise à jour par l'IA.");
         const result = await response.json();
 
+        await saveSyntheseWithHistory(
+          result.synthese,
+          result.patientName || data.patient_name,
+          "Ajout textuel au bilan",
+          textContent,
+          result.resume
+        );
+
         const { data: updatedData } = await supabase.from('consultations').update({
-          synthese: result.synthese,
           transcription: result.transcription,
           resume: result.resume,
-          patient_name: result.patientName || data.patient_name
         }).eq('id', params.id).select().single();
 
         if (updatedData) setData(updatedData);
@@ -708,28 +952,61 @@ export default function ConsultationDetail() {
     if (!params.id) return;
     async function fetchDocs() {
       try {
-        const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { search: params.id as string });
+        const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { limit: 1000 });
         if (listError || !listData) return;
 
-        const docs = listData.filter(f => f.name.includes('doc_') && f.name.includes(params.id as string));
+        const patientFiles = listData.filter(f => f.name.includes(params.id as string));
 
-        const loadedDocs = await Promise.all(docs.map(async (f) => {
-          const { data: fileData } = await supabase.storage.from('tdt_uploads').download(f.name);
-          if (!fileData) return null;
+        const loadedDocs = patientFiles.map((f) => {
+          const { data } = supabase.storage.from('tdt_uploads').getPublicUrl(f.name);
+          const url = data.publicUrl;
+          
+          let type: 'image' | 'pdf' | 'audio' | 'other' = 'other';
+          let originalName = f.name;
 
-          const url = URL.createObjectURL(fileData);
-          const nameParts = f.name.split('_');
-          const originalName = nameParts.slice(3).join('_') || f.name;
-
-          let type: 'image' | 'pdf' | 'other' = 'other';
           const lower = f.name.toLowerCase();
-          if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp')) type = 'image';
-          else if (lower.endsWith('.pdf')) type = 'pdf';
+          if (lower.startsWith('audio_')) {
+            type = 'audio';
+            if (lower.startsWith('audio_addendum_')) {
+              originalName = "Audio de suivi (fusion)";
+            } else {
+              originalName = "Audio initial";
+            }
+          } else {
+            const nameParts = f.name.split('_');
+            originalName = nameParts.slice(3).join('_') || f.name;
+            if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp')) {
+              type = 'image';
+            } else if (lower.endsWith('.pdf')) {
+              type = 'pdf';
+            }
+          }
 
           return { name: f.name, originalName, url, type };
-        }));
+        });
 
-        setAttachedDocs(loadedDocs.filter(Boolean) as any);
+        // Force retrieve the initial audio path from the consultations database table
+        const { data: consultData } = await supabase
+          .from("consultations")
+          .select("audio_path")
+          .eq("id", params.id)
+          .single();
+
+        const finalDocs = [...loadedDocs];
+        if (consultData && consultData.audio_path) {
+          const alreadyExists = loadedDocs.some(d => d.name === consultData.audio_path);
+          if (!alreadyExists) {
+            const { data: urlData } = supabase.storage.from('tdt_uploads').getPublicUrl(consultData.audio_path);
+            finalDocs.unshift({
+              name: consultData.audio_path,
+              originalName: "Audio initial",
+              url: urlData.publicUrl,
+              type: 'audio'
+            });
+          }
+        }
+
+        setAttachedDocs(finalDocs);
       } catch (e) {
         console.error(e);
       }
@@ -877,26 +1154,12 @@ export default function ConsultationDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal d'affichage Image Plein Écran */}
-      <Dialog open={!!selectedImage} onOpenChange={() => setSelectedImage(null)}>
-        <DialogContent className="max-w-[95vw] lg:max-w-[80vw] max-h-[95vh] p-1 md:p-6 bg-black/95 sm:bg-white border-none sm:border-[#ebd9c8]/30 flex flex-col items-center justify-center">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute top-2 right-2 text-white sm:text-slate-500 hover:bg-white/20 sm:hover:bg-slate-100 z-50 rounded-full"
-            onClick={() => setSelectedImage(null)}
-          >
-            <XIcon className="w-6 h-6" />
-          </Button>
-          {selectedImage && (
-            <img
-              src={supabase.storage.from('tdt_uploads').getPublicUrl(selectedImage).data.publicUrl}
-              alt="Image plein écran"
-              className="w-auto h-auto max-w-full max-h-[85vh] object-contain rounded-md"
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Modal d'affichage Image Plein Écran (iPhone Fullscreen & Desktop Sober Window) */}
+      <MedicalImageViewerModal
+        isOpen={!!selectedImage}
+        image={selectedImage}
+        onClose={() => setSelectedImage(null)}
+      />
 
       <div className="w-full max-w-5xl space-y-8 xl:space-y-10">
 
@@ -927,6 +1190,15 @@ export default function ConsultationDetail() {
                         className="font-bebas text-3xl sm:text-4xl text-[#594c42] tracking-wide uppercase bg-transparent border-b-2 border-[#594c42] focus:outline-none w-full max-w-sm"
                         autoFocus
                       />
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-[#bd613c] hover:bg-[#ebd9c8]/30 shrink-0"
+                        onClick={() => setEditName(swapFirstLastName(editName))}
+                        title="Inverser Nom et Prénom"
+                      >
+                        <ArrowLeftRight className="w-5 h-5" />
+                      </Button>
                       <Button size="icon" variant="ghost" className="text-green-600 hover:bg-green-50" onClick={handleSaveName}>
                         <Check className="w-5 h-5" />
                       </Button>
@@ -943,6 +1215,15 @@ export default function ConsultationDetail() {
                       >
                         {data.patient_name || data.patientName || `Patient #${data.id}`}
                       </h1>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-[#bd613c] hover:bg-[#ebd9c8]/30 h-8 w-8 rounded-full print:hidden shrink-0"
+                        onClick={handleSwapName}
+                        title="Inverser Nom et Prénom"
+                      >
+                        <ArrowLeftRight className="w-4 h-4" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -1074,40 +1355,18 @@ export default function ConsultationDetail() {
                     <ImageIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1 sm:mr-2" /> <span className="font-medium">Visuel</span>
                   </Button>
 
-                  <input type="file" ref={fileInputRefBilanMobile} className="hidden" onChange={(e) => handleAppendFile(e, 'bilan')} multiple />
-                  <input type="file" ref={fileInputRefSuiviMobile} className="hidden" onChange={(e) => handleAppendFile(e, 'suivi')} multiple />
+                  <input type="file" ref={fileInputRefBilanMobile} className="hidden" accept="image/*,application/pdf" onChange={(e) => handleAppendFile(e, 'bilan')} multiple />
+                  <input type="file" ref={fileInputRefSuiviMobile} className="hidden" accept="image/*,application/pdf" onChange={(e) => handleAppendFile(e, 'suivi')} multiple />
                   <input type="file" ref={fileInputRefImageMobile} className="hidden" accept="image/*,application/pdf" onChange={(e) => handleAppendImage(e)} />
                 </div>
 
-                {/* Documents Associés Mobile */}
-                {attachedDocs && attachedDocs.length > 0 && (
-                  <Card className="p-5 border-[#bd613c]/20 shadow-sm bg-white/50 border">
-                    <h2 className="text-lg font-bebas tracking-wide text-[#bd613c] uppercase mb-4 flex items-center border-b border-[#ebd9c8] pb-2">
-                      <ImageIcon className="w-5 h-5 mr-2" /> Documents Associés
-                    </h2>
-                    <div className="flex flex-wrap gap-3">
-                      {attachedDocs.map((doc, idx) => (
-                        <a key={idx} href={doc.url} target="_blank" rel="noopener noreferrer" className="block relative w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-[#bd613c]/20 bg-[#ebd9c8]/10 hover:shadow-md transition-all">
-                          {doc.type === 'image' ? (
-                            <img src={doc.url} alt={doc.originalName} className="object-cover w-full h-full" />
-                          ) : (
-                            <div className="w-full h-full flex flex-col items-center justify-center text-[#bd613c] p-2 text-center">
-                              <FileText className="w-6 h-6 mb-1 opacity-80" />
-                              <span className="text-[9px] leading-tight font-medium truncate w-full px-1">{doc.originalName}</span>
-                            </div>
-                          )}
-                        </a>
-                      ))}
-                    </div>
-                  </Card>
-                )}
-
-                {/* TabsList Mobile (Horizontale à 3 colonnes) */}
-                <TabsList className="grid grid-cols-4 w-full bg-[#ebd9c8]/30 p-1.5 rounded-xl h-auto">
+                {/* TabsList Mobile (Horizontale à 5 colonnes) */}
+                <TabsList className="grid grid-cols-5 w-full bg-[#ebd9c8]/30 p-1.5 rounded-xl h-auto">
                   <TabsTrigger value="synthese" className="text-[11px] sm:text-sm data-[state=active]:bg-[#bd613c] data-[state=active]:text-white rounded-lg py-2 transition-all font-medium">Synthèse</TabsTrigger>
                   <TabsTrigger value="notes" className="text-[11px] sm:text-sm data-[state=active]:bg-[#bd613c] data-[state=active]:text-white rounded-lg py-2 transition-all font-medium">Résumé</TabsTrigger>
                   <TabsTrigger value="transcription" className="text-[11px] sm:text-sm data-[state=active]:bg-[#bd613c] data-[state=active]:text-white rounded-lg py-2 transition-all font-medium">Dialogue</TabsTrigger>
                   <TabsTrigger value="suivi" className="text-[11px] sm:text-sm data-[state=active]:bg-[#bd613c] data-[state=active]:text-white rounded-lg py-2 transition-all font-medium">Suivi</TabsTrigger>
+                  <TabsTrigger value="documents" className="text-[11px] sm:text-sm data-[state=active]:bg-[#bd613c] data-[state=active]:text-white rounded-lg py-2 transition-all font-medium">Fichiers</TabsTrigger>
                 </TabsList>
               </div>
               {/* --- END MOBILE ONLY --- */}
@@ -1126,9 +1385,24 @@ export default function ConsultationDetail() {
                       </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     {data.synthese && !isEditingBilan && (
                       <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setIsHistoryModalOpen(true)}
+                          className="border-[#ebd9c8] text-[#594c42] hover:bg-[#ebd9c8]/30 print:hidden h-8 px-2.5 rounded-lg text-xs font-medium gap-1 shadow-xs"
+                          title="Historique des versions du document médical"
+                        >
+                          <History className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Versions</span>
+                          {historyVersions.length > 0 && (
+                            <span className="bg-[#bd613c]/15 text-[#bd613c] px-1.5 py-0.5 rounded-full text-[10px] font-bold">
+                              {historyVersions.length}
+                            </span>
+                          )}
+                        </Button>
                         <Button variant="ghost" size="sm" onClick={() => handleExportPDF(`bilan_${data.patient_name || 'patient'}`)} className="text-[#bd613c] hover:bg-[#ebd9c8]/30 print:hidden h-8 px-3 rounded-lg" data-html2canvas-ignore="true">
                           <Share className="w-4 h-4 sm:mr-2" /> <span className="hidden sm:inline text-sm font-medium">Exporter PDF</span>
                         </Button>
@@ -1170,7 +1444,11 @@ export default function ConsultationDetail() {
                       title="Double-clic pour modifier"
                     >
                       {data.synthese ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeRaw]}
+                          components={markdownComponents}
+                        >
                           {data.synthese}
                         </ReactMarkdown>
                       ) : "Aucune synthèse disponible."}
@@ -1222,7 +1500,11 @@ export default function ConsultationDetail() {
                       title="Double-clic pour modifier"
                     >
                       {data.resume ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeRaw]}
+                          components={markdownComponents}
+                        >
                           {data.resume}
                         </ReactMarkdown>
                       ) : "Aucun résumé disponible."}
@@ -1274,7 +1556,11 @@ export default function ConsultationDetail() {
                       title="Double-clic pour modifier"
                     >
                       {data.transcription ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                        <ReactMarkdown 
+                          remarkPlugins={[remarkGfm]} 
+                          rehypePlugins={[rehypeRaw]}
+                          components={markdownComponents}
+                        >
                           {data.transcription}
                         </ReactMarkdown>
                       ) : "Aucune transcription disponible."}
@@ -1486,14 +1772,46 @@ export default function ConsultationDetail() {
                                       />
                                     </div>
                                   ) : note.type === 'image' ? (
-                                    <div className="mt-2 flex flex-col items-center">
-                                      <img
-                                        src={supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl}
-                                        alt={note.content || "Image attachée"}
-                                        className="cursor-pointer max-h-64 object-contain rounded-xl border border-[#ebd9c8]/50 shadow-sm hover:shadow transition-shadow"
-                                        onClick={() => setSelectedImage(note.url)}
-                                      />
-                                      {note.content && <p className="text-xs text-slate-500 mt-2">{note.content}</p>}
+                                    <div className="mt-2 flex flex-col items-center w-full">
+                                      <div 
+                                        className="relative inline-block overflow-hidden rounded-xl border border-[#ebd9c8]/70 bg-[#faf7f2] shadow-sm hover:shadow-xl hover:border-[#bd613c]/60 transition-all duration-200 cursor-zoom-in group"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSelectedImage({
+                                            src: getImageUrl(note.url),
+                                            caption: note.content || "Cliché radiologique / imagerie",
+                                            alt: "Image attachée"
+                                          });
+                                        }}
+                                        title="Cliquer pour afficher en plein écran haute résolution"
+                                      >
+                                        <img
+                                          src={getImageUrl(note.url)}
+                                          alt={note.content || "Image attachée"}
+                                          className="max-h-64 object-contain rounded-xl transition-transform duration-300 group-hover:scale-[1.01]"
+                                        />
+                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors flex items-center justify-center pointer-events-none">
+                                          <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/80 text-white text-xs px-3.5 py-1.5 rounded-full backdrop-blur-sm flex items-center gap-1.5 shadow-lg border border-white/20">
+                                            <Maximize2 className="w-3.5 h-3.5 text-[#bd613c]" />
+                                            <span className="font-medium">Plein écran</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                      {note.content && (
+                                        <div
+                                          className="w-full mt-4 prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-3 rounded-xl border border-[#ebd9c8]/20 bg-white/30"
+                                          onDoubleClick={() => {
+                                            setEditFollowUpContent(note.content);
+                                            setEditFollowUpDate(format(new Date(note.date), "HH:mm"));
+                                            setEditingFollowUpId(note.id);
+                                          }}
+                                          title="Double-clic pour modifier la note"
+                                        >
+                                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
+                                            {note.content}
+                                          </ReactMarkdown>
+                                        </div>
+                                      )}
                                     </div>
                                   ) : note.type === 'pdf' ? (
                                     <div className="mt-2 flex flex-col items-center w-full">
@@ -1502,17 +1820,74 @@ export default function ConsultationDetail() {
                                           <span className="text-xs font-medium text-slate-600 flex items-center gap-2">
                                             <FileText className="w-4 h-4 text-[#bd613c]" /> Aperçu du PDF
                                           </span>
-                                          <Button variant="outline" size="sm" className="h-7 text-xs bg-white text-[#bd613c] border-[#ebd9c8] hover:bg-slate-50" onClick={() => window.open(supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl, "_blank")}>
+                                          <Button variant="outline" size="sm" className="h-7 text-xs bg-white text-[#bd613c] border-[#ebd9c8] hover:bg-slate-50" onClick={() => window.open(getImageUrl(note.url), "_blank")}>
                                             <ExternalLink className="w-3 h-3 mr-1" /> Agrandir
                                           </Button>
                                         </div>
                                         <iframe
-                                          src={`${supabase.storage.from('tdt_uploads').getPublicUrl(note.url).data.publicUrl}#toolbar=0&navpanes=0&view=FitH`}
+                                          src={`${getImageUrl(note.url)}#toolbar=0&navpanes=0&view=FitH`}
                                           className="w-full h-[350px] border-none bg-zinc-100"
                                           title={note.content || "Document PDF"}
                                         />
                                       </div>
-                                      {note.content && <p className="text-xs text-slate-500 mt-2">{note.content}</p>}
+                                      {note.content && (
+                                        <div
+                                          className="w-full mt-4 prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-3 rounded-xl border border-[#ebd9c8]/20 bg-white/30"
+                                          onDoubleClick={() => {
+                                            setEditFollowUpContent(note.content);
+                                            setEditFollowUpDate(format(new Date(note.date), "HH:mm"));
+                                            setEditingFollowUpId(note.id);
+                                          }}
+                                          title="Double-clic pour modifier la note"
+                                        >
+                                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
+                                            {note.content}
+                                          </ReactMarkdown>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : note.type === 'audio' ? (
+                                    <div className="mt-2 flex flex-col items-start w-full gap-4">
+                                      <div className="w-full sm:w-3/4 rounded-xl p-4 border border-[#ebd9c8]/40 bg-[#ebd9c8]/5 shadow-sm flex flex-col gap-3">
+                                        <div className="flex items-center gap-3">
+                                          <div className="w-10 h-10 rounded-full bg-[#bd613c]/10 flex items-center justify-center text-[#bd613c] shrink-0">
+                                            <Mic className="w-5 h-5" />
+                                          </div>
+                                          <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-semibold text-[#4a3f35] truncate">
+                                              Enregistrement audio
+                                            </p>
+                                          </div>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 text-xs bg-white text-[#bd613c] border-[#ebd9c8] hover:bg-slate-50 shrink-0"
+                                            onClick={() => window.open(getImageUrl(note.url), "_blank")}
+                                          >
+                                            <ExternalLink className="w-3 h-3 mr-1" /> Ouvrir
+                                          </Button>
+                                        </div>
+                                        <audio
+                                          src={getImageUrl(note.url)}
+                                          controls
+                                          className="w-full mt-1 accent-[#bd613c]"
+                                        />
+                                      </div>
+                                      {note.content && (
+                                        <div
+                                          className="w-full prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-3 rounded-xl border border-[#ebd9c8]/20 bg-white/30"
+                                          onDoubleClick={() => {
+                                            setEditFollowUpContent(note.content);
+                                            setEditFollowUpDate(format(new Date(note.date), "HH:mm"));
+                                            setEditingFollowUpId(note.id);
+                                          }}
+                                          title="Double-clic pour modifier la note"
+                                        >
+                                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
+                                            {note.content}
+                                          </ReactMarkdown>
+                                        </div>
+                                      )}
                                     </div>
                                   ) : (
                                     <div
@@ -1524,7 +1899,7 @@ export default function ConsultationDetail() {
                                       }}
                                       title="Double-clic pour modifier la note"
                                     >
-                                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
                                         {note.content}
                                       </ReactMarkdown>
                                     </div>
@@ -1532,10 +1907,10 @@ export default function ConsultationDetail() {
                                   {note.transcription && (
                                     <details className="mt-3 pt-2 border-t border-[#ebd9c8]/30 group/details">
                                       <summary className="text-xs font-medium text-slate-400 hover:text-[#bd613c] cursor-pointer list-none flex items-center gap-1 select-none transition-colors">
-                                        <span className="group-open/details:hidden">▶</span><span className="hidden group-open/details:inline">▼</span> Voir la transcription source
+                                        <span className="group-open/details:hidden">▶</span><span className="hidden group-open/details:inline">▼</span> {note.type === 'audio' ? 'Voir la transcription source' : 'Voir le texte extrait'}
                                       </summary>
                                       <div className="mt-2 p-4 bg-white/40 rounded-xl text-xs font-mono text-[#4a3f35]/80 whitespace-pre-wrap prose prose-sm max-w-none prose-strong:text-[#bd613c] border border-[#ebd9c8]/30">
-                                        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
                                           {note.transcription}
                                         </ReactMarkdown>
                                       </div>
@@ -1555,6 +1930,90 @@ export default function ConsultationDetail() {
                     })()}
                   </div>
                 )}
+              </TabsContent>
+
+              {/* TABS CONTENT: DOCUMENTS JOINTS */}
+              <TabsContent value="documents" className="space-y-6">
+                <div className="bg-white/60 backdrop-blur-md rounded-3xl p-6 sm:p-8 border border-[#ebd9c8]/30 shadow-sm">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#ebd9c8] pb-4 mb-6">
+                    <div>
+                      <h2 className="text-2xl font-bebas tracking-wide text-[#bd613c] uppercase flex items-center">
+                        <Paperclip className="w-6 h-6 mr-2" /> Documents Associés
+                      </h2>
+                      <p className="text-xs text-[#8c7b6d] mt-1 font-sans">
+                        Retrouvez ici l&apos;intégralité des examens complémentaires, clichés d&apos;imagerie et enregistrements audio de ce dossier.
+                      </p>
+                    </div>
+                    <div className="self-start sm:self-center text-[#bd613c] font-sans font-bold text-sm bg-[#ebd9c8]/30 px-3 py-1.5 rounded-full border border-[#ebd9c8]/50">
+                      {attachedDocs?.length || 0} fichier{(attachedDocs?.length || 0) > 1 ? 's' : ''}
+                    </div>
+                  </div>
+
+                  {!attachedDocs || attachedDocs.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-slate-400 bg-white/30 border border-dashed border-[#bd613c]/20 rounded-2xl">
+                      <Paperclip className="w-12 h-12 mb-3 opacity-40 text-[#bd613c]" />
+                      <p className="text-sm font-medium text-[#8c7b6d]">Aucun fichier joint à cette consultation</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                      {attachedDocs.map((doc, idx) => (
+                        <a
+                          key={idx}
+                          href={doc.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={doc.originalName}
+                          className="flex flex-col justify-between aspect-square rounded-2xl overflow-hidden border border-[#bd613c]/15 hover:border-[#bd613c]/40 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 bg-white group/doc relative"
+                        >
+                          {/* Aperçu visuel en fonction du type */}
+                          <div className="w-full flex-grow relative overflow-hidden bg-[#ebd9c8]/10 flex items-center justify-center border-b border-[#bd613c]/5">
+                            {doc.type === 'image' ? (
+                              <img
+                                src={doc.url}
+                                alt={doc.originalName}
+                                className="object-cover w-full h-full group-hover/doc:scale-105 transition-transform duration-500"
+                              />
+                            ) : doc.type === 'audio' ? (
+                              <div className="flex flex-col items-center justify-center text-[#bd613c] p-4 text-center group-hover/doc:bg-[#ebd9c8]/20 transition-colors w-full h-full">
+                                <div className="w-10 h-10 rounded-full bg-[#ebd9c8]/40 flex items-center justify-center mb-1.5 shadow-sm border border-[#bd613c]/10">
+                                  <Mic className="w-5 h-5 opacity-90" />
+                                </div>
+                                <span className="text-[10px] leading-tight font-semibold tracking-wide font-sans text-[#5a4e44]">Enregistrement</span>
+                              </div>
+                            ) : doc.type === 'pdf' ? (
+                              <div className="flex flex-col items-center justify-center text-[#bd613c] p-4 text-center group-hover/doc:bg-[#ebd9c8]/20 transition-colors w-full h-full">
+                                <div className="w-10 h-10 rounded-full bg-[#ebd9c8]/40 flex items-center justify-center mb-1.5 shadow-sm border border-[#bd613c]/10">
+                                  <FileText className="w-5 h-5 opacity-90" />
+                                </div>
+                                <span className="text-[10px] leading-tight font-semibold tracking-wide font-sans text-[#5a4e44]">Rapport PDF</span>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col items-center justify-center text-[#bd613c] p-4 text-center group-hover/doc:bg-[#ebd9c8]/20 transition-colors w-full h-full">
+                                <div className="w-10 h-10 rounded-full bg-[#ebd9c8]/40 flex items-center justify-center mb-1.5 shadow-sm border border-[#bd613c]/10">
+                                  <FileText className="w-5 h-5 opacity-90" />
+                                </div>
+                                <span className="text-[10px] leading-tight font-semibold tracking-wide font-sans text-[#5a4e44]">Fichier</span>
+                              </div>
+                            )}
+
+                            {/* Overlay effet de verre au survol */}
+                            <div className="absolute inset-0 bg-gradient-to-t from-[#bd613c]/90 to-[#bd613c]/70 opacity-0 group-hover/doc:opacity-100 transition-all duration-300 flex flex-col items-center justify-center backdrop-blur-[2px]">
+                              <span className="text-white text-xs font-semibold border border-white/30 px-3 py-1.5 rounded-full shadow-sm bg-white/10 hover:bg-white/20 transition-all">Ouvrir</span>
+                            </div>
+                          </div>
+
+                          {/* Infos du fichier en bas de vignette */}
+                          <div className="p-2.5 bg-slate-50 border-t border-[#bd613c]/10 flex flex-col gap-0.5">
+                            <span className="text-[11px] font-semibold text-[#5a4e44] truncate block max-w-full font-sans group-hover/doc:text-[#bd613c] transition-colors">{doc.originalName}</span>
+                            <span className="text-[9px] text-[#8c7b6d] font-medium font-sans uppercase">
+                              {doc.type === 'audio' ? 'Audio' : doc.type === 'pdf' ? 'PDF' : doc.type === 'image' ? 'Image' : 'Autre'}
+                            </span>
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </TabsContent>
 
             </div>
@@ -1630,8 +2089,8 @@ export default function ConsultationDetail() {
                     <span className="font-medium text-base">{isAppending ? "Traitement..." : "Doc Visuel (Image / PDF)"}</span>
                   </Button>
 
-                  <input type="file" ref={fileInputRefBilanDesktop} className="hidden" onChange={(e) => handleAppendFile(e, 'bilan')} multiple />
-                  <input type="file" ref={fileInputRefSuiviDesktop} className="hidden" onChange={(e) => handleAppendFile(e, 'suivi')} multiple />
+                  <input type="file" ref={fileInputRefBilanDesktop} className="hidden" accept="image/*,application/pdf" onChange={(e) => handleAppendFile(e, 'bilan')} multiple />
+                  <input type="file" ref={fileInputRefSuiviDesktop} className="hidden" accept="image/*,application/pdf" onChange={(e) => handleAppendFile(e, 'suivi')} multiple />
                   <input type="file" ref={fileInputRefImageDesktop} className="hidden" accept="image/*,application/pdf" onChange={(e) => handleAppendImage(e)} />
                 </div>
               </div>
@@ -1652,40 +2111,27 @@ export default function ConsultationDetail() {
                   <TabsTrigger value="suivi" className="w-full justify-start text-left px-4 py-3 rounded-xl bg-[#ebd9c8]/20 data-[state=active]:bg-[#bd613c] data-[state=active]:text-white data-[state=active]:shadow-md transition-all font-medium border border-transparent data-[state=active]:border-[#bd613c] hover:bg-[#ebd9c8]/40">
                     <Activity className="w-4 h-4 mr-3 opacity-70" /> Séances de Suivi
                   </TabsTrigger>
+                  <TabsTrigger value="documents" className="w-full justify-start text-left px-4 py-3 rounded-xl bg-[#ebd9c8]/20 data-[state=active]:bg-[#bd613c] data-[state=active]:text-white data-[state=active]:shadow-md transition-all font-medium border border-transparent data-[state=active]:border-[#bd613c] hover:bg-[#ebd9c8]/40">
+                    <Paperclip className="w-4 h-4 mr-3 opacity-70" /> Documents Joints
+                  </TabsTrigger>
                 </TabsList>
               </div>
-
-              {/* DOCUMENTS ASSOCIES */}
-              {attachedDocs && attachedDocs.length > 0 && (
-                <div className="space-y-4">
-                  <h3 className="font-bebas text-xl tracking-wide text-[#bd613c] uppercase flex items-center">
-                    <ImageIcon className="w-5 h-5 mr-2" /> Fichiers Joints
-                  </h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    {attachedDocs.map((doc, idx) => (
-                      <a key={idx} href={doc.url} target="_blank" rel="noopener noreferrer" title={doc.originalName} className="block relative aspect-square rounded-xl overflow-hidden border border-[#bd613c]/20 hover:border-[#bd613c]/50 hover:shadow-md transition-all bg-[#ebd9c8]/10 group/doc">
-                        {doc.type === 'image' ? (
-                          <img src={doc.url} alt={doc.originalName} className="object-cover w-full h-full group-hover/doc:scale-105 transition-transform duration-300" />
-                        ) : (
-                          <div className="w-full h-full flex flex-col items-center justify-center text-[#bd613c] p-2 text-center group-hover/doc:bg-[#ebd9c8]/30 transition-colors">
-                            <FileText className="w-8 h-8 mb-2 opacity-80" />
-                            <span className="text-[9px] leading-tight font-medium truncate w-full px-1">{doc.originalName}</span>
-                          </div>
-                        )}
-                        <div className="absolute inset-0 bg-[#bd613c]/90 opacity-0 group-hover/doc:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
-                          <span className="text-white text-xs font-medium font-sans px-2 text-center text-balance overflow-hidden break-words">Ouvrir</span>
-                        </div>
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
 
             </div>
 
           </div>
         </Tabs>
       </div>
+
+      <SyntheseHistoryModal
+        isOpen={isHistoryModalOpen}
+        onClose={() => setIsHistoryModalOpen(false)}
+        versions={historyVersions}
+        currentSynthese={data?.synthese || ""}
+        currentPatientName={data?.patient_name}
+        onRestoreVersion={handleRestoreVersion}
+        onDeleteVersion={handleDeleteVersion}
+      />
     </main>
   );
 }

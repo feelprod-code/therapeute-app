@@ -1,0 +1,10 @@
+{
+  "rules": [
+    "Le titre principal du bilan doit toujours respecter strictement : # Bilan de consultation <span style=\"font-size: 0.6em; color: #8c7b6d;\">- [Date]</span>",
+    "MULTI-SÉANCES CUMULATIVES : Lorsque des bilans ou ajouts successifs concernent un patient à des dates différentes, conserve TOUJOURS les bilans précédents et ajoute la nouvelle séance en dessous sous forme de bloc daté (ex: '## 📅 Séance 1 : [Date 1]', '## 📅 Séance 2 : [Date 2]'). Les deux bilans doivent rester visibles l'un après l'autre dans l'onglet Bilan.",
+    "Pas de MAJUSCULES forcées : écrire les noms, prénoms et titres de manière naturelle et sobre (ex: Jean-Claude Frénot).",
+    "Intégrer les nouvelles informations dans les sections existantes (Motif, Histoire, Examen, ATCD) sans jamais créer de section 'Ajout' ou 'Complément' isolée.",
+    "Conserver toutes les données cliniques, bilans d'imagerie et examens complémentaires existants lors des retouches successives."
+  ],
+  "lastUpdated": "2026-08-17T18:04:00.000Z"
+}

@@ -68,6 +68,9 @@ IMPORTANT : Aucun commentaire d'introduction ou de conclusion, uniquement les de
                         },
                     }
                 ],
+                config: {
+                    maxOutputTokens: 8192
+                }
             });
         } catch (modelErr) {
             console.warn("Fallback to gemini-2.0-flash for translation:", modelErr);
@@ -82,6 +85,9 @@ IMPORTANT : Aucun commentaire d'introduction ou de conclusion, uniquement les de
                         },
                     }
                 ],
+                config: {
+                    maxOutputTokens: 8192
+                }
             });
         }
 
@@ -90,50 +96,68 @@ IMPORTANT : Aucun commentaire d'introduction ou de conclusion, uniquement les de
         const readable = new ReadableStream({
             async start(controller) {
                 let accumulated = '';
-                let transcriptionSent = false;
+                let hasSeenTranslationMarker = false;
 
                 try {
                     for await (const chunk of stream) {
                         const text = chunk.text || '';
                         accumulated += text;
 
-                        // Dès qu'on détecte le marqueur [TRANSLATION], on envoie la transcription
-                        if (!transcriptionSent && accumulated.includes('[TRANSLATION]')) {
-                            const parts = accumulated.split('[TRANSLATION]');
-                            const transcription = parts[0].replace('[TRANSCRIPTION]', '').trim();
+                        if (!hasSeenTranslationMarker && accumulated.includes('[TRANSLATION]')) {
+                            hasSeenTranslationMarker = true;
+                        }
+
+                        if (!hasSeenTranslationMarker) {
+                            let transcription = accumulated.replace('[TRANSCRIPTION]', '').trim();
+                            // Nettoyer les marqueurs de crochets partiels à la fin du flux
+                            const openBracketIdx = transcription.lastIndexOf('[');
+                            if (openBracketIdx !== -1 && openBracketIdx > transcription.length - 15) {
+                                transcription = transcription.substring(0, openBracketIdx).trim();
+                            }
                             controller.enqueue(encoder.encode(
                                 `data: ${JSON.stringify({ type: 'transcription', text: transcription })}\n\n`
                             ));
-                            transcriptionSent = true;
+                        } else {
+                            const parts = accumulated.split('[TRANSLATION]');
+                            const transcription = parts[0].replace('[TRANSCRIPTION]', '').trim();
+                            const translation = parts[1].trim();
+
+                            // Envoyer la transcription finale (ou stable)
+                            controller.enqueue(encoder.encode(
+                                `data: ${JSON.stringify({ type: 'transcription', text: transcription })}\n\n`
+                            ));
+                            // Envoyer la traduction progressive en temps réel (pour affichage dynamique)
+                            controller.enqueue(encoder.encode(
+                                `data: ${JSON.stringify({ type: 'translation_chunk', text: translation })}\n\n`
+                            ));
                         }
                     }
 
-                    // Stream terminé — envoyer la traduction
+                    // Une fois le stream fini, envoyer le message final de traduction pour activer le TTS
                     if (accumulated.includes('[TRANSLATION]')) {
                         const parts = accumulated.split('[TRANSLATION]');
                         const transcription = parts[0].replace('[TRANSCRIPTION]', '').trim();
                         const translation = parts[1].trim();
 
-                        if (!transcriptionSent) {
-                            controller.enqueue(encoder.encode(
-                                `data: ${JSON.stringify({ type: 'transcription', text: transcription })}\n\n`
-                            ));
-                        }
+                        controller.enqueue(encoder.encode(
+                            `data: ${JSON.stringify({ type: 'transcription', text: transcription })}\n\n`
+                        ));
                         controller.enqueue(encoder.encode(
                             `data: ${JSON.stringify({ type: 'translation', text: translation })}\n\n`
                         ));
                     } else {
-                        // Fallback: pas de marqueurs → tenter de parser comme JSON (rétrocompat)
+                        // Fallback si pas de marqueurs
                         try {
                             const jsonResult = JSON.parse(accumulated);
+                            const t = jsonResult.transcription || accumulated;
+                            const tr = jsonResult.translation || accumulated;
                             controller.enqueue(encoder.encode(
-                                `data: ${JSON.stringify({ type: 'transcription', text: jsonResult.transcription || accumulated })}\n\n`
+                                `data: ${JSON.stringify({ type: 'transcription', text: t })}\n\n`
                             ));
                             controller.enqueue(encoder.encode(
-                                `data: ${JSON.stringify({ type: 'translation', text: jsonResult.translation || accumulated })}\n\n`
+                                `data: ${JSON.stringify({ type: 'translation', text: tr })}\n\n`
                             ));
                         } catch {
-                            // Dernier recours : tout envoyer comme transcription
                             const cleaned = accumulated.replace('[TRANSCRIPTION]', '').trim();
                             controller.enqueue(encoder.encode(
                                 `data: ${JSON.stringify({ type: 'transcription', text: cleaned })}\n\n`

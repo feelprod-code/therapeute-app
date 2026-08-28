@@ -192,7 +192,13 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                 streamRef.current.getTracks().forEach(track => track.stop());
             }
 
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
             streamRef.current = stream;
 
             // Safari iOS fallback logic
@@ -455,7 +461,7 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                 {isInternalProcessing ? (
                     <div className="flex items-center justify-center gap-2">
                         <Loader2 className="w-5 h-5 animate-spin mx-auto text-[#bd613c]" />
-                        <span className="text-sm font-medium text-[#bd613c]">Envoi vers l'IA en arrière-plan...</span>
+                        <span className="text-sm font-medium text-[#bd613c]">Envoi vers l&apos;IA en arrière-plan...</span>
                     </div>
                 ) : isProcessing ? (
                     <div className="flex items-center justify-center gap-2">

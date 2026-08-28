@@ -10,10 +10,11 @@ import { compressAudio } from '@/lib/compress-audio';
 import { supabase, SupabaseConsultation } from "@/lib/supabaseClient";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Copy, Plus, Trash2, ArrowRight, Loader2, RefreshCw, FileText, Check, MessageSquare, ListTodo, MoreHorizontal, Merge, Search, Mic, Type, FileUp, X as XIcon, CalendarDays, Folder as FolderIcon, ChevronDown, Combine, Paperclip, Image as ImageIcon, X, Download, Square } from "lucide-react";
+import { Copy, Plus, Trash2, ArrowRight, Loader2, RefreshCw, FileText, Check, MessageSquare, ListTodo, MoreHorizontal, Merge, Search, Mic, Type, FileUp, X as XIcon, CalendarDays, Folder as FolderIcon, ChevronDown, Combine, Paperclip, Image as ImageIcon, X, Download, Square, ArrowLeftRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useVoiceDictation } from "@/hooks/use-voice-dictation";
 import Link from "next/link";
+import { swapFirstLastName, extractLastName, extractFirstName, getClassificationLetter, normalizeSearch } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
@@ -68,14 +69,6 @@ function EmptyState() {
   );
 }
 
-export default function HomeWrapper() {
-  return (
-    <ProtectedRoute>
-      <Home />
-    </ProtectedRoute>
-  );
-}
-
 function Folder({ title, defaultOpen = false, children }: { title: React.ReactNode, defaultOpen?: boolean, children: React.ReactNode }) {
   return (
     <details open={defaultOpen} className="group mb-4 bg-white/50 border border-[#bd613c]/20 rounded-xl overflow-hidden [&_summary::-webkit-details-marker]:hidden">
@@ -93,7 +86,7 @@ function Folder({ title, defaultOpen = false, children }: { title: React.ReactNo
   );
 }
 
-function Home() {
+export default function Home() {
   const { toast } = useToast();
   const [recorderMode, setRecorderMode] = useState('standard');
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
@@ -292,7 +285,8 @@ function Home() {
 
       setAttachedFiles([]); // On vide les fichiers après succès
 
-      // Cleanup: on supprime les fichiers lourds (audio, pdf, doc) pour économiser l'espace Supabase
+      // Conservation des fichiers dans le stockage Supabase (désactivation du cleanup pour permettre la lecture et la fusion)
+      /*
       const filesToDelete = [audioFileName];
       if (uploadedAttachedFiles.length > 0) {
         filesToDelete.push(...uploadedAttachedFiles.filter(f => !f.mimeType.startsWith('image/')).map(f => f.fileName));
@@ -303,6 +297,7 @@ function Home() {
       } catch (e) {
         console.error("Erreur suppression fichiers:", e);
       }
+      */
 
       toast({
         title: "Bilan terminé",
@@ -410,12 +405,12 @@ function Home() {
 
       if (!pathToDownload) {
         // Fallback: search the bucket
-        const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { search: consult.id, limit: 1000 });
+        const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { limit: 1000 });
         if (listError || !listData || listData.length === 0) {
           throw new Error("Fichier introuvable sur le cloud.");
         }
-        // Chercher spécifiquement le fichier audio initial (exclure les addendums)
-        const audioFile = listData.find(f => f.name.startsWith('audio_') && !f.name.startsWith('audio_addendum_'));
+        // Chercher spécifiquement le fichier audio initial lié à cette consultation (exclure les addendums)
+        const audioFile = listData.find(f => f.name.includes(consult.id) && f.name.startsWith('audio_') && !f.name.startsWith('audio_addendum_'));
         if (!audioFile) {
           throw new Error("Aucun fichier audio initial trouvé pour ce bilan.");
         }
@@ -441,6 +436,33 @@ function Home() {
     }
   };
 
+  const handleSwapPatientName = async (consult: SupabaseConsultation) => {
+    const currentName = consult.patientName || consult.patient_name || "";
+    if (!currentName || currentName.trim() === "") return;
+    const newName = swapFirstLastName(currentName);
+
+    try {
+      const { error } = await supabase
+        .from('consultations')
+        .update({ patient_name: newName })
+        .eq('id', consult.id);
+
+      if (error) throw error;
+
+      setConsultations(prev => (prev || []).map(c => c.id === consult.id ? { ...c, patientName: newName, patient_name: newName } : c));
+      toast({
+        title: "Nom et Prénom inversés",
+        description: `Nouveau nom : ${newName}`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "Erreur lors de l'inversion",
+        description: err?.message || "Impossible de mettre à jour le nom.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const retryAnalysis = async (consult: SupabaseConsultation) => {
     if (!consult.id) return;
 
@@ -454,21 +476,23 @@ function Home() {
       const { data } = await supabase.from('consultations').select('audio_path').eq('id', consult.id).maybeSingle();
       let pathToAnalyze = data?.audio_path;
 
-      const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { search: consult.id, limit: 1000 });
+      const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { limit: 1000 });
       const uploadedAttachedFiles: { fileName: string, mimeType: string }[] = [];
 
       if (!listError && listData) {
         // Fallback pour trouver l'audio initial si pas en base
         if (!pathToAnalyze) {
-          const initialAudio = listData.find(f => f.name.startsWith('audio_') && !f.name.startsWith('audio_addendum_'));
+          const initialAudio = listData.find(f => f.name.includes(consult.id) && f.name.startsWith('audio_') && !f.name.startsWith('audio_addendum_'));
           if (initialAudio) pathToAnalyze = initialAudio.name;
         }
 
-        // Trouver TOUS les autres documents: doc_, txt_addendum_, audio_addendum_
+        // Trouver TOUS les autres documents liés à cette consultation: doc_, txt_addendum_, audio_addendum_
         const additionalFiles = listData.filter(f =>
-          f.name.startsWith('doc_') ||
-          f.name.startsWith('txt_addendum_') ||
-          f.name.startsWith('audio_addendum_')
+          f.name.includes(consult.id) && (
+            f.name.startsWith('doc_') ||
+            f.name.startsWith('txt_addendum_') ||
+            f.name.startsWith('audio_addendum_')
+          )
         );
 
         for (const file of additionalFiles) {
@@ -553,16 +577,29 @@ function Home() {
   };
 
   const filteredConsultations = (consultations || []).filter(c => {
-    if (!searchTerm) return true;
-    const name = c.patientName || c.patient_name || "";
-    return name.toLowerCase().includes(searchTerm.toLowerCase().trim());
+    if (!searchTerm.trim()) return true;
+    const name = normalizeSearch(c.patientName || c.patient_name || "");
+    const query = normalizeSearch(searchTerm);
+    return name.includes(query);
   });
 
   const sortByDate = [...filteredConsultations].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   const sortByName = [...filteredConsultations].sort((a, b) => {
-    const nameA = a.patientName || a.patient_name || `Patient #${a.id}`;
-    const nameB = b.patientName || b.patient_name || `Patient #${b.id}`;
-    return nameA.localeCompare(nameB);
+    const rawNameA = a.patientName || a.patient_name || "";
+    const rawNameB = b.patientName || b.patient_name || "";
+    
+    if (!rawNameA && !rawNameB) return 0;
+    if (!rawNameA) return 1;
+    if (!rawNameB) return -1;
+
+    const lastNameA = extractLastName(rawNameA);
+    const lastNameB = extractLastName(rawNameB);
+    const comp = lastNameA.localeCompare(lastNameB, 'fr', { sensitivity: 'base' });
+    if (comp !== 0) return comp;
+
+    const firstNameA = extractFirstName(rawNameA, lastNameA);
+    const firstNameB = extractFirstName(rawNameB, lastNameB);
+    return firstNameA.localeCompare(firstNameB, 'fr', { sensitivity: 'base' });
   });
 
   const ConsultationCard = ({ consult }: { consult: SupabaseConsultation }) => {
@@ -580,6 +617,76 @@ function Home() {
       try {
         const targetConsult = consultations?.find(c => c.id === targetConsultationId);
         if (!targetConsult) throw new Error("Consultation cible introuvable");
+
+        // 1. Lister et copier les fichiers de stockage de la source
+        const { data: allFiles, error: listError } = await supabase.storage.from('tdt_uploads').list('', { limit: 1000 });
+        const sourceFiles = allFiles ? allFiles.filter(f => f.name.includes(consult.id)) : [];
+        
+        let primaryAudioCopiedUrl = null;
+        const copiedFileNames: { old: string; new: string }[] = [];
+
+        for (const file of sourceFiles) {
+          const oldName = file.name;
+          let newName = oldName.replace(consult.id, targetConsult.id);
+          
+          // Si c'est l'audio principal de la source, on le renomme en audio de suivi (addendum) pour la cible
+          if (oldName.startsWith('audio_') && !oldName.startsWith('audio_addendum_')) {
+            newName = oldName.replace('audio_', 'audio_addendum_').replace(consult.id, targetConsult.id);
+            primaryAudioCopiedUrl = newName;
+          }
+
+          console.log(`Copying ${oldName} to ${newName}`);
+          const { error: copyError } = await supabase.storage.from('tdt_uploads').copy(oldName, newName);
+          if (!copyError) {
+            copiedFileNames.push({ old: oldName, new: newName });
+          } else {
+            console.error(`Error copying ${oldName} to ${newName}:`, copyError);
+          }
+        }
+
+        // 2. Préparer les follow-ups fusionnés
+        // Mettre à jour les URLs des follow_ups de la source avec leurs nouveaux noms contenant le targetId
+        const sourceFollowUps = (consult.follow_ups || []).map((f: any) => {
+          let updatedUrl = f.url;
+          if (f.url) {
+            // Remplacer l'ancien ID par le nouveau
+            updatedUrl = f.url.replace(consult.id, targetConsult.id);
+          }
+          return {
+            ...f,
+            url: updatedUrl
+          };
+        });
+
+        // Si la source avait un audio principal (ou si on a copié un fichier audio principal)
+        // on crée un follow-up audio spécifique
+        if (primaryAudioCopiedUrl) {
+          const audioFollowUp = {
+            id: crypto.randomUUID(),
+            date: consult.date ? new Date(consult.date).toISOString() : new Date().toISOString(),
+            type: 'audio',
+            url: primaryAudioCopiedUrl,
+            content: consult.synthese || consult.resume || 'Audio de suivi (fusion)',
+            transcription: consult.transcription || ""
+          };
+          sourceFollowUps.push(audioFollowUp);
+        }
+
+        // Si on est en mode 'suivi' et qu'il n'y avait pas d'audio principal (donc pas d'audioFollowUp créé),
+        // ou si on veut quand même ajouter la note de fusion textuelle classique
+        if (mode === 'suivi' && !primaryAudioCopiedUrl) {
+          const textFollowUp = {
+            id: crypto.randomUUID(),
+            date: new Date().toISOString(),
+            content: consult.synthese || consult.transcription || "Note fusionnée",
+            transcription: consult.transcription || ""
+          };
+          sourceFollowUps.push(textFollowUp);
+        }
+
+        const currentFollowUps = targetConsult.follow_ups || [];
+        // Concaténer les follow-ups de la source (avec les nouveaux noms) et ceux de la cible
+        const updatedFollowUps = [...sourceFollowUps, ...currentFollowUps];
 
         if (mode === 'bilan') {
           toast({ title: "Fusion en cours...", description: "L'IA fusionne intelligemment les deux dossiers. Cela peut prendre quelques instants." });
@@ -607,28 +714,33 @@ function Home() {
 
           const result = await response.json();
 
+          let finalFollowUps = [...updatedFollowUps];
+          if (targetConsult.synthese && targetConsult.synthese.trim() !== result.synthese?.trim()) {
+            finalFollowUps = [{
+              id: crypto.randomUUID(),
+              type: 'synthese_version',
+              date: new Date().toISOString(),
+              label: "Fusion de dossiers (Bilan)",
+              userPrompt: `Fusion avec le dossier de ${consult.patient_name || 'Patient'} (${format(new Date(consult.date || consult.created_at || new Date()), "dd/MM/yyyy")})`,
+              aiResponseSummary: result.resume,
+              synthese: targetConsult.synthese,
+              patient_name: targetConsult.patientName || targetConsult.patient_name
+            }, ...finalFollowUps];
+          }
+
           // 1. Mettre à jour la cible
           const { error: updateError } = await supabase.from('consultations').update({
             synthese: result.synthese,
             transcription: result.transcription,
             resume: result.resume,
-            patient_name: result.patientName || targetConsult.patientName || targetConsult.patient_name
+            patient_name: result.patientName || targetConsult.patientName || targetConsult.patient_name,
+            follow_ups: finalFollowUps
           }).eq('id', targetConsult.id);
 
           if (updateError) throw updateError;
         } else {
           // Suivi Mode
           toast({ title: "Ajout au suivi...", description: "Transfert des informations dans le suivi du patient..." });
-
-          const newFollowUp = {
-            id: crypto.randomUUID(),
-            date: new Date().toISOString(),
-            content: consult.synthese || consult.transcription || "Note fusionnée",
-            transcription: consult.transcription || ""
-          };
-
-          const currentFollowUps = targetConsult.follow_ups || [];
-          const updatedFollowUps = [newFollowUp, ...currentFollowUps];
 
           // 1. Mettre à jour la cible (uniquement les follow_ups)
           const { error: updateError } = await supabase.from('consultations').update({
@@ -638,10 +750,19 @@ function Home() {
           if (updateError) throw updateError;
         }
 
-        // 2. Supprimer la source
+        // 3. Supprimer la source
         const { error: deleteError } = await supabase.from('consultations').delete().eq('id', consult.id);
 
         if (deleteError) throw deleteError;
+
+        // 4. Supprimer les fichiers physiques de la source dans le stockage après copie réussie
+        if (copiedFileNames.length > 0) {
+          const filesToDelete = copiedFileNames.map(f => f.old);
+          const { error: removeError } = await supabase.storage.from('tdt_uploads').remove(filesToDelete);
+          if (removeError) {
+            console.error("Error removing old files from storage:", removeError);
+          }
+        }
 
         toast({ title: "Fusion réussie", description: "Le dossier a été transféré avec succès." });
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -680,11 +801,30 @@ function Home() {
         if (!response.ok) throw new Error("Erreur lors de la mise à jour par l'IA.");
         const result = await response.json();
 
+        const currentFollowUps = consult.follow_ups || [];
+        const currentSynthese = consult.synthese;
+        let updatedFollowUps = [...currentFollowUps];
+
+        if (currentSynthese && currentSynthese.trim() !== result.synthese?.trim()) {
+          const versionEntry = {
+            id: crypto.randomUUID(),
+            type: 'synthese_version',
+            date: new Date().toISOString(),
+            label: "Ajout vocal au bilan",
+            userPrompt: "Mise à jour du bilan par enregistrement audio",
+            aiResponseSummary: result.resume,
+            synthese: currentSynthese,
+            patient_name: consult.patient_name || consult.patientName
+          };
+          updatedFollowUps = [versionEntry, ...currentFollowUps];
+        }
+
         await supabase.from('consultations').update({
           synthese: result.synthese,
           transcription: result.transcription,
           resume: result.resume,
-          patient_name: result.patientName || consult.patient_name
+          patient_name: result.patientName || consult.patient_name,
+          follow_ups: updatedFollowUps
         }).eq('id', consult.id);
 
         toast({ title: "Bilan mis à jour", description: "L'enregistrement a bien été ajouté au dossier." });
@@ -785,9 +925,20 @@ function Home() {
         )}
         <div className="flex flex-row items-center justify-between p-4 sm:p-5 gap-2 sm:gap-4">
           <div className="flex-1 min-w-0 pr-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h3 className="text-lg sm:text-xl font-bebas tracking-wide text-[#594c42] font-medium uppercase leading-tight">
-              {consult.patientName || `Patient #${consult.id}`}
-            </h3>
+            <div className="flex items-center gap-1.5">
+              <h3 className="text-lg sm:text-xl font-bebas tracking-wide text-[#594c42] font-medium uppercase leading-tight">
+                {consult.patientName || `Patient #${consult.id}`}
+              </h3>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => handleSwapPatientName(consult)}
+                className="h-6 w-6 text-slate-400 hover:text-[#bd613c] hover:bg-[#ebd9c8]/30 rounded-full transition-colors shrink-0"
+                title="Inverser Nom et Prénom"
+              >
+                <ArrowLeftRight className="w-3.5 h-3.5" />
+              </Button>
+            </div>
             <div className="flex flex-row items-center gap-2 text-[10px] sm:text-[11px] text-[#4a3f35]/80 shrink-0">
               <span className="font-medium whitespace-nowrap">
                 {format(new Date(consult.date), "dd/MM/yy '•' HH:mm", { locale: fr })}
@@ -930,6 +1081,10 @@ function Home() {
                         <span className="font-medium">Fusionner le dossier</span>
                       </DropdownMenuItem>
                     )}
+                    <DropdownMenuItem onClick={() => handleSwapPatientName(consult)} className="cursor-pointer gap-2 text-[#4a3f35] py-2.5 focus:bg-[#ebd9c8]/20 transition-colors">
+                      <ArrowLeftRight className="w-4 h-4 text-[#bd613c]" />
+                      <span className="font-medium">Inverser Nom / Prénom</span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setIsDeleteModalOpen(true)} className="cursor-pointer gap-2 text-red-600 focus:bg-red-50 focus:text-red-700 py-2.5 transition-colors mt-1 border-t border-slate-100">
                       <Trash2 className="w-4 h-4" />
                       <span className="font-medium">Supprimer</span>
@@ -950,14 +1105,7 @@ function Home() {
 
         {/* Bouton Agenda et En-tête */}
         <div className="relative mt-2 sm:mt-6 md:mt-4 mb-3 sm:mb-8 flex flex-col items-center justify-center pt-2 sm:pt-0">
-          <div className="absolute top-0 right-0 z-20">
-            <Button asChild variant="outline" className="text-[#bd613c] border-[#bd613c]/30 hover:bg-[#ebd9c8]/30 rounded-xl h-9 sm:h-10 px-3 sm:px-4 shadow-sm bg-white/50 backdrop-blur-sm">
-              <Link href="/calendrier">
-                <CalendarDays className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
-                <span className="hidden sm:inline font-medium">Mon Agenda</span>
-              </Link>
-            </Button>
-          </div>
+
 
           <div className="text-center shrink-0 w-full px-2 sm:px-[140px] md:px-[180px] pt-2 sm:pt-0">
             <h1 className="font-bebas text-3xl sm:text-5xl md:text-6xl text-[#bd613c] tracking-wide uppercase leading-tight md:leading-none mb-1 text-balance">
@@ -1011,7 +1159,7 @@ function Home() {
                     <label className="cursor-pointer flex flex-col items-center justify-center w-64 h-32 border-2 border-dashed border-[#bd613c]/40 rounded-xl bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors">
                       <Paperclip className="w-8 h-8 text-[#bd613c] mb-2" />
                       <span className="font-medium text-[#bd613c]">Sélectionner un fichier</span>
-                      <input type="file" className="hidden" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" onChange={(e) => {
+                      <input type="file" className="hidden" accept="image/*,application/pdf" onChange={(e) => {
                         if (e.target.files && e.target.files.length > 0) {
                           handleRecordingComplete(e.target.files[0]);
                           e.target.value = ''; // reset
@@ -1169,10 +1317,14 @@ function Home() {
                   <div className="mb-8 flex flex-wrap gap-2 sm:gap-3 justify-center max-w-3xl mx-auto">
                     {Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map(letter => {
                       const isActive = selectedLetter === letter;
-                      // Optionally check if we have any patients starting with this letter to style differently (optional but good UI)
-                      const hasPatients = sortByName?.some(c => {
+                      const hasPatients = (consultations || []).some(c => {
                         const n = c.patientName || c.patient_name || "";
-                        return n.charAt(0).toUpperCase() === letter;
+                        if (searchTerm.trim()) {
+                          const query = normalizeSearch(searchTerm);
+                          const nameNorm = normalizeSearch(n);
+                          if (!nameNorm.includes(query)) return false;
+                        }
+                        return getClassificationLetter(n) === letter;
                       });
 
                       return (
@@ -1194,13 +1346,49 @@ function Home() {
                   </div>
 
                   {(() => {
-                    if (!sortByName || !selectedLetter) return (
-                      <p className="text-center text-slate-500 italic mt-8">Sélectionnez une lettre pour afficher les patients.</p>
-                    );
+                    // 1. Si une recherche textuelle est saisie
+                    if (searchTerm.trim()) {
+                      const displayedList = selectedLetter
+                        ? sortByName.filter(c => getClassificationLetter(c.patientName || c.patient_name || "") === selectedLetter)
+                        : sortByName;
+
+                      if (displayedList.length === 0) {
+                        return (
+                          <div className="text-center py-10 text-slate-500 italic">
+                            <p>Aucun patient ne correspond à "{searchTerm}"{selectedLetter ? ` pour la lettre ${selectedLetter}` : ""}.</p>
+                            {selectedLetter && (
+                              <button
+                                onClick={() => setSelectedLetter(null)}
+                                className="mt-2 text-xs text-[#bd613c] underline font-medium not-italic"
+                              >
+                                Afficher tous les résultats pour "{searchTerm}" sans filtre de lettre
+                              </button>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="flex flex-col gap-3">
+                          {displayedList.map((consult) => (
+                            <ConsultationCard key={consult.id} consult={consult} />
+                          ))}
+                        </div>
+                      );
+                    }
+
+                    // 2. Si aucune recherche textuelle n'est saisie
+                    if (!selectedLetter) {
+                      return (
+                        <p className="text-center text-slate-500 italic mt-8">
+                          Sélectionnez une lettre ci-dessus ou recherchez un nom dans la barre.
+                        </p>
+                      );
+                    }
 
                     const filteredByName = sortByName.filter(consult => {
                       const name = consult.patientName || consult.patient_name || "";
-                      return name.charAt(0).toUpperCase() === selectedLetter;
+                      return getClassificationLetter(name) === selectedLetter;
                     });
 
                     if (filteredByName.length === 0) {
@@ -1221,8 +1409,8 @@ function Home() {
           </div>
         </div>
 
-      </div >
-    </main >
+      </div>
+    </main>
   );
 }
 

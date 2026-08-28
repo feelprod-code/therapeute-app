@@ -6,6 +6,12 @@ risk: safe
 source: local
 tags: "[therapeute, frontend, nextjs, react, ui, design]"
 date_added: "2026-03-31"
+okf_version: "0.2"
+status: stable
+trust_level: verified
+verified_by: Guillaume Philippe
+last_updated: "2026-08-25"
+provenance: human_curated
 ---
 
 # Therapeute-App
@@ -44,3 +50,44 @@ When a practitioner adds an oral note to an existing "Bilan de consultation":
 When a user explicitly edits the date of a "suivi" session:
 - You must linearly translate (shift) the timestamps of all children "notes" associated with that session.
 - **Never collapse** all child notes to a single timestamp. The relative time offset between each note of the session must be preserved.
+
+### 4. Technical Rules for Document Layout & Clinical Syntheses (Mise en Page des Bilans)
+Whenever embedding medical documents, OCT scans, operative reports, or visual comparisons in a consultation Bilan:
+
+- **Strict Database Field Separation:**
+  - `transcription`: Contains the complete, verbatim audio interrogatoire text (mot-à-mot). Never dump raw transcript text blocks directly inside the `synthese` or `resume` fields.
+  - `resume`: Contains a concise, professional executive summary paragraph.
+  - `synthese`: Contains the structured Markdown Bilan (Patient Info, HPI, Medical History, Visual Comparisons, Document Scans with syntheses, and Clinical Chronology).
+
+- **Authentic Scans Only (Pas de "Moules" / Faux Blocs de Texte) :**
+  - Never regenerate fake synthetic text mockups ("moules") for scanned documents. Always display the **authentic original document scans** (PDF & 200 DPI PNG images).
+
+- **Feuille par Feuille & Sans Scrollbar :**
+  - Multi-page documents must be split page by page (Feuille 1, Feuille 2) so that every page is displayed in its own dedicated block.
+  - Never place scrolling iframes with internal scrollbars. Use high-res scan images (`<img src="..." style="width: 100%; height: auto; display: block;" />`) so each document page renders completely, cleanly, and without any scrollbar.
+  - For landscape documents (e.g. OCT Thickness Map), ensure native landscape orientation (width > height).
+
+- **Cadrage Compact & Épuré ("Pas trop grand dans la page") :**
+  - Wrap each document page in an elegant, minimal white card (`#ffffff`, border `#e5e2dd`, border-radius `8px`, shadow `0 1px 4px rgba(0,0,0,0.04)`).
+  - Include a compact header with title, sheet subtitle, and discreet links for `"🔍 Grand format (Retour disponible)"` and `"PDF Original ↗"`.
+  - When opened in grand format, ensure the user can seamlessly return back to the consultation report ("Revenir en arrière").
+
+
+- **Synthèse Ciblée sous Chaque Document :**
+  - Direct under each document scan image, place a dedicated concise clinical synthesis callout (`background: #fdfbf7; border-left: 3px solid #bd613c; padding: 10px 14px; font-size: 0.88em;`).
+
+- **Module d'Évaluation Visuelle Comparative (Avant vs Après Opération) :**
+  - For pre-op vs post-op comparisons, include a side-by-side visual gallery (`grid-template-columns: repeat(auto-fit, minmax(280px, 1fr))`) showing the pre-op authentic scan image (red alert border) next to the post-op authentic scan image (green progress border), accompanied by a comparative data table (Central Thickness, Max Thickness, Volume) highlighting percentage reductions.
+
+### 5. Règle Absolue d'Exhaustivité Clinique & Architecture Anti-Troncature (Zero Information Loss)
+Whenever generating, reanalyzing, or updating a patient consultation Bilan:
+- **Architecture Découplée en 2 Passes Obligatoire :**
+  - **Passe 1 (Transcription pure)** : Si un fichier audio est fourni, Gemini extrait UNIQUEMENT la retranscription brute intégrale mot-à-mot du dialogue (`transcription`). Pas de JSON, pas de synthèse, 100% de la génération dédiée au verbatim.
+  - **Passe 2 (Synthèse clinique complète)** : On injecte ce texte intégral dans l'analyseur clinique pour produire `synthese`, `resume`, `patientName` et `consultationDate`.
+  - **Interdiction de Régénérer la Transcription en Passe 2** : Ne JAMAIS demander à Gemini de recopier la transcription dans le schéma JSON de la synthèse. Le serveur injecte directement la transcription issue de la Passe 1.
+- **Budget de Tokens Maximal (`65536`) :** Toujours allouer `maxOutputTokens: 65536` sur Gemini 2.5 Flash pour garantir que chaque section est rédigée jusqu'à son terme sans aucune interruption.
+- **Exhaustivité Clinique Maximale :** L'IA doit consigner TOUS les éléments abordés lors de l'interrogatoire (symptômes, localisation, intensité, date de début, facteurs déclenchants, inefficacité ou effets délétères des traitements antérieurs comme les AINS ou la kinésithérapie agressive, traumatismes physiques, accidents de la voie publique, chutes, fractures, immobilisations en botte, deuils, stress professionnel ou familial).
+- **Interdiction de Tronquer :** Aucune section ne doit être interrompue ou tronquée en plein milieu. Si la transcription est longue, l'analyseur doit rédiger chaque section jusqu'à son terme.
+- **Préservation Intégrale :** Le praticien ne doit jamais perdre d'information clinique précieuse lors de l'analyse automatique.
+
+
