@@ -12,6 +12,7 @@ import { useRealtime } from "@/hooks/use-realtime";
 type ChatMessage = {
     id: string;
     sender: 'therapeut' | 'patient';
+    speakerName: string;
     transcription: string;
     translation: string;
     patientLangCode: string;
@@ -19,19 +20,21 @@ type ChatMessage = {
     isStreaming?: boolean;
 };
 
+const PRACTITIONER_NAME = "Guillaume Philippe";
+
 const LANGUAGES = [
-    { code: 'Anglais', label: 'Anglais (EN)', tts: 'en-US' },
-    { code: 'Espagnol', label: 'Espagnol (ES)', tts: 'es-ES' },
-    { code: 'Arabe', label: 'Arabe (AR)', tts: 'ar-SA' },
-    { code: 'Allemand', label: 'Allemand (DE)', tts: 'de-DE' },
-    { code: 'Italien', label: 'Italien (IT)', tts: 'it-IT' },
-    { code: 'Portugais', label: 'Portugais (BR)', tts: 'pt-BR' },
-    { code: 'Russe', label: 'Russe (RU)', tts: 'ru-RU' },
-    { code: 'Turc', label: 'Turc (TR)', tts: 'tr-TR' },
-    { code: 'Chinois', label: 'Chinois (ZH)', tts: 'zh-CN' },
-    { code: 'Japonais', label: 'Japonais (JA)', tts: 'ja-JP' },
-    { code: 'Polonais', label: 'Polonais (PL)', tts: 'pl-PL' },
-    { code: 'Hindi', label: 'Hindi (HI)', tts: 'hi-IN' },
+    { code: 'Anglais', label: 'Anglais (EN)', tts: 'en-US', flag: '🇬🇧' },
+    { code: 'Espagnol', label: 'Espagnol (ES)', tts: 'es-ES', flag: '🇪🇸' },
+    { code: 'Allemand', label: 'Allemand (DE)', tts: 'de-DE', flag: '🇩🇪' },
+    { code: 'Italien', label: 'Italien (IT)', tts: 'it-IT', flag: '🇮🇹' },
+    { code: 'Portugais', label: 'Portugais (BR)', tts: 'pt-BR', flag: '🇵🇹' },
+    { code: 'Arabe', label: 'Arabe (AR)', tts: 'ar-SA', flag: '🇸🇦' },
+    { code: 'Russe', label: 'Russe (RU)', tts: 'ru-RU', flag: '🇷🇺' },
+    { code: 'Turc', label: 'Turc (TR)', tts: 'tr-TR', flag: '🇹🇷' },
+    { code: 'Chinois', label: 'Chinois (ZH)', tts: 'zh-CN', flag: '🇨🇳' },
+    { code: 'Japonais', label: 'Japonais (JA)', tts: 'ja-JP', flag: '🇯🇵' },
+    { code: 'Polonais', label: 'Polonais (PL)', tts: 'pl-PL', flag: '🇵🇱' },
+    { code: 'Hindi', label: 'Hindi (HI)', tts: 'hi-IN', flag: '🇮🇳' },
 ];
 
 export default function BilingualRecorder({
@@ -43,6 +46,7 @@ export default function BilingualRecorder({
 }) {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [patientLang, setPatientLang] = useState(LANGUAGES[0]);
+    const [patientName, setPatientName] = useState<string>("Patient Anglais");
     const [isRecording, setIsRecording] = useState(false);
     const [recordingRole, setRecordingRole] = useState<'therapeut' | 'patient' | null>(null);
     const [isTranslating, setIsTranslating] = useState(false);
@@ -148,9 +152,11 @@ export default function BilingualRecorder({
         setRealtimeRole(role);
 
         const senderRole = role === 'bidirectional' ? 'therapeut' : role;
+        const currentSpeaker = senderRole === 'therapeut' ? PRACTITIONER_NAME : (patientName || 'Patient');
         setMessages(prev => [...prev, {
             id: messageId,
             sender: senderRole,
+            speakerName: currentSpeaker,
             transcription: '',
             translation: '',
             patientLangCode: patientLang.code,
@@ -184,6 +190,7 @@ export default function BilingualRecorder({
                         setMessages(prev => [...prev, {
                             id: nextId,
                             sender: 'therapeut',
+                            speakerName: PRACTITIONER_NAME,
                             transcription: '',
                             translation: '',
                             patientLangCode: patientLang.code,
@@ -216,7 +223,7 @@ export default function BilingualRecorder({
             toast({ title: 'Mode Classique', description: 'WebRTC indisponible.' });
             if (role !== 'bidirectional') startRecording(role);
         }
-    }, [connect, patientLang, toast]);
+    }, [connect, patientLang, patientName, toast]);
 
     const stopRealtimeSession = useCallback(() => {
         disconnect();
@@ -326,13 +333,13 @@ export default function BilingualRecorder({
             mediaRecorderRef.current.stop();
             setIsRecording(false);
             setRecordingRole(null);
-            // Draft deletion happens in mediaRecorder.onstop to ensure translation starts correctly
         }
     };
 
     const handleTranslation = async (audioBlob: Blob, role: 'therapeut' | 'patient'): Promise<boolean> => {
         setIsTranslating(true);
         const messageId = Date.now().toString();
+        const currentSpeaker = role === 'therapeut' ? PRACTITIONER_NAME : (patientName || 'Patient');
 
         try {
             const base64Audio = await new Promise<string>((resolve) => {
@@ -356,6 +363,7 @@ export default function BilingualRecorder({
             const streamingMessage: ChatMessage = {
                 id: messageId,
                 sender: role,
+                speakerName: currentSpeaker,
                 transcription: '',
                 translation: '',
                 patientLangCode: patientLang.code,
@@ -417,7 +425,6 @@ export default function BilingualRecorder({
 
         } catch (e) {
             console.error(e);
-            // Retirer le message streaming en cas d'erreur
             setMessages(prev => prev.filter(m => m.id !== messageId || m.transcription));
             toast({
                 title: "Erreur",
@@ -434,7 +441,6 @@ export default function BilingualRecorder({
         const voices = window.speechSynthesis.getVoices();
         const targetLangVoices = voices.filter(v => v.lang.toLowerCase().startsWith(lang.substring(0, 2).toLowerCase()));
 
-        // Target specifically Siri, Premium, or Enhanced voices first
         let bestVoice = targetLangVoices.find(v =>
             v.name.includes('Siri') ||
             v.name.includes('Premium') ||
@@ -455,14 +461,13 @@ export default function BilingualRecorder({
 
     const speakText = (text: string, lang: string) => {
         if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel(); // Stop current speech if any
+            window.speechSynthesis.cancel();
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.lang = lang;
 
             const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
             if (isIOS) {
-                // iOS Specific optimizations: Siri voices & slightly faster rate
                 utterance.rate = 1.05;
                 utterance.pitch = 1.0;
                 utterance.volume = 1.0;
@@ -471,8 +476,6 @@ export default function BilingualRecorder({
                     utterance.voice = voice;
                 }
             } else {
-                // Desktop and Android: Use completely native browser defaults without forcing rate/pitch/voice 
-                // This prevents bugs on Mac Chrome where forcing premium voices causes stutters/overlays
                 utterance.rate = 0.95;
             }
 
@@ -490,19 +493,21 @@ export default function BilingualRecorder({
         });
 
         try {
-            // Format transcript — only include messages with actual content
             const validMessages = messages.filter(m => m.transcription || m.translation);
             if (validMessages.length === 0) {
                 toast({ title: "Aucun contenu", description: "Aucune transcription à analyser.", variant: "destructive" });
                 setIsAnalyzing(false);
                 return;
             }
+
+            const activePatientName = patientName.trim() || `Patient (${patientLang.code})`;
             const fullTranscript = validMessages.map(m =>
-                `${m.sender === 'therapeut' ? '**Thérapeute :**' : '**Patient :**'} ${m.transcription}\n(Traduit: ${m.translation})`
+                `${m.sender === 'therapeut' ? `**${PRACTITIONER_NAME} (Thérapeute) :**` : `**${activePatientName} :**`} ${m.transcription}\n*(Traduction : ${m.translation})*`
             ).join('\n\n');
 
             const formData = new FormData();
             formData.append("transcript", fullTranscript);
+            formData.append("patientName", activePatientName);
             attachedFiles.forEach(file => {
                 formData.append("files", file);
             });
@@ -515,9 +520,10 @@ export default function BilingualRecorder({
             if (!response.ok) throw new Error("Erreur d'analyse");
 
             const data = await response.json();
+            if (!data.patientName || data.patientName.includes("Anonyme")) {
+                data.patientName = activePatientName;
+            }
 
-            // Complete
-            // We pass an empty blob since this mode relies on text context
             await onRecordingComplete(new Blob(), data);
 
         } catch (e) {
@@ -533,31 +539,93 @@ export default function BilingualRecorder({
     };
 
     return (
-        <div className="flex flex-col space-y-6">
+        <div className="flex flex-col space-y-4">
+
+            {/* Header d'identification & Sélection de langue */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {/* Praticien */}
+                <div className="flex items-center gap-2.5 p-2.5 bg-[#ebd9c8]/20 border border-[#ebd9c8]/60 rounded-xl">
+                    <div className="w-8 h-8 rounded-full bg-[#4a3f35] text-white flex items-center justify-center text-xs font-bold shrink-0 shadow-sm">
+                        GP
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                        <span className="text-[10px] uppercase tracking-wider text-[#8c7b6c] font-semibold">Praticien</span>
+                        <span className="text-xs font-semibold text-[#4a3f35] flex items-center gap-1 truncate">
+                            <span>🇫🇷</span> {PRACTITIONER_NAME}
+                        </span>
+                    </div>
+                </div>
+
+                {/* Patient & Langue */}
+                <div className="flex items-center gap-2.5 p-2 bg-white border border-[#e8dfd5] rounded-xl shadow-sm">
+                    <div className="w-8 h-8 rounded-full bg-[#bd613c] text-white flex items-center justify-center text-sm font-bold shrink-0 shadow-sm">
+                        {patientLang.flag}
+                    </div>
+                    <div className="flex flex-col flex-1 min-w-0">
+                        <span className="text-[10px] uppercase tracking-wider text-[#8c7b6c] font-semibold">Patient & Langue</span>
+                        <div className="flex items-center gap-1.5">
+                            <input
+                                type="text"
+                                value={patientName}
+                                onChange={(e) => setPatientName(e.target.value)}
+                                placeholder="Nom du patient..."
+                                className="text-xs font-semibold text-[#4a3f35] bg-transparent border-none outline-none focus:ring-0 p-0 w-28 truncate"
+                            />
+                            <select
+                                className="bg-[#ebd9c8]/25 border border-[#ebd9c8] text-[#4a3f35] font-medium text-[11px] rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-[#bd613c]"
+                                value={patientLang.code}
+                                onChange={(e) => {
+                                    const found = LANGUAGES.find(l => l.code === e.target.value) || LANGUAGES[0];
+                                    setPatientLang(found);
+                                    if (patientName === "Patient Anglais" || patientName.startsWith("Patient ")) {
+                                        setPatientName(`Patient ${found.code}`);
+                                    }
+                                }}
+                                disabled={isRecording || isTranslating || isAnalyzing}
+                            >
+                                {LANGUAGES.map(l => (
+                                    <option key={l.code} value={l.code}>{l.flag} {l.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Bandeau Moteurs IA Actifs */}
+            <div className="flex items-center justify-between px-3 py-1.5 bg-gradient-to-r from-amber-500/10 via-[#ebd9c8]/30 to-purple-500/10 border border-[#ebd9c8]/50 rounded-lg text-[11px] text-[#4a3f35]">
+                <span className="flex items-center gap-1.5 font-medium">
+                    <span className="text-amber-600">⚡</span> <strong>Gemini Live</strong> <span className="text-[#8c7b6c] hidden sm:inline">(Audio-to-Audio)</span>
+                </span>
+                <span className="text-[#8c7b6c] font-mono">•</span>
+                <span className="flex items-center gap-1.5 font-medium">
+                    <span className="text-purple-600">✨</span> <strong>Gemini 3.5</strong> <span className="text-[#8c7b6c] hidden sm:inline">(Retranscription Clinique)</span>
+                </span>
+            </div>
 
             {draftExists && !isRecording && (
-                <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-center w-full mb-0 shadow-sm">
-                    <p className="text-sm font-medium mb-3">⚠️ Oups ! Un morceau d&apos;enregistrement de {draftRole === 'therapeut' ? 'votre discours' : 'discours du patient'} (suite à une fermeture) n&apos;a pas été traduit.</p>
-                    <div className="flex justify-center gap-3">
-                        <Button variant="outline" size="sm" onClick={discardDraft} className="text-amber-700 border-amber-300 hover:bg-amber-100">
-                            L&apos;ignorer
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3.5 rounded-xl text-center w-full mb-0 shadow-sm">
+                    <p className="text-xs font-medium mb-2.5">⚠️ Un segment d&apos;enregistrement de {draftRole === 'therapeut' ? PRACTITIONER_NAME : (patientName || 'discours patient')} n&apos;a pas été finalisé.</p>
+                    <div className="flex justify-center gap-2.5">
+                        <Button variant="outline" size="sm" onClick={discardDraft} className="text-amber-700 border-amber-300 hover:bg-amber-100 text-xs h-7">
+                            Ignorer
                         </Button>
-                        <Button size="sm" onClick={recoverDraft} className="bg-amber-600 hover:bg-amber-700 text-white">
-                            Le traduire & l&apos;ajouter
+                        <Button size="sm" onClick={recoverDraft} className="bg-amber-600 hover:bg-amber-700 text-white text-xs h-7">
+                            Traduire & ajouter
                         </Button>
                     </div>
                 </div>
             )}
 
-            {/* Chat Area */}
-            <Card className={`bg-white/80 backdrop-blur-sm border-[#e8dfd5] shadow-lg flex flex-col relative transition-all duration-300 ${chatExpanded ? 'fixed inset-0 z-50 rounded-none min-h-0 h-full bg-white' : 'flex-1 min-h-[400px]'}`}>
+            {/* Chat Area & Retranscription Parallèle */}
+            <Card className={`bg-white/85 backdrop-blur-sm border-[#e8dfd5] shadow-lg flex flex-col relative transition-all duration-300 ${chatExpanded ? 'fixed inset-0 z-50 rounded-none min-h-0 h-full bg-white' : 'flex-1 min-h-[380px]'}`}>
                 <div className={`absolute z-10 flex items-center gap-1 ${chatExpanded ? 'top-[env(safe-area-inset-top,12px)] right-4 pt-2' : 'top-2 right-2'}`}>
                     {messages.length > 0 && !chatExpanded && (
                         <Button
                             variant="ghost"
                             size="icon"
                             onClick={() => setMessages([])}
-                            className="text-[#bd613c] hover:bg-[#bd613c]/10 hover:text-[#bd613c] bg-white/50 rounded-full"
+                            className="text-[#bd613c] hover:bg-[#bd613c]/10 hover:text-[#bd613c] bg-white/50 rounded-full h-8 w-8"
                             title="Effacer la discussion"
                         >
                             <Trash2 className="w-4 h-4" />
@@ -567,84 +635,123 @@ export default function BilingualRecorder({
                         variant="ghost"
                         size="icon"
                         onClick={() => setChatExpanded(!chatExpanded)}
-                        className="text-[#bd613c] hover:bg-[#bd613c]/10 bg-white/50 rounded-full"
+                        className="text-[#bd613c] hover:bg-[#bd613c]/10 bg-white/50 rounded-full h-8 w-8"
                         title={chatExpanded ? 'Réduire' : 'Agrandir'}
                     >
                         {chatExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
                     </Button>
                 </div>
+
                 <CardContent className={`p-4 flex-1 h-full ${chatExpanded ? 'pt-14' : ''}`}>
-                    <ScrollArea className={`${chatExpanded ? 'h-[calc(100dvh-80px)]' : 'h-[400px]'} pr-4 w-full`} ref={scrollRef}>
+                    <ScrollArea className={`${chatExpanded ? 'h-[calc(100dvh-90px)]' : 'h-[360px]'} pr-3 w-full`} ref={scrollRef}>
                         {messages.length === 0 ? (
-                            <div className="h-full flex flex-col items-center justify-center text-[#8c7b6c] space-y-4">
-                                <Globe className="w-12 h-12 opacity-20" />
-                                <p className="text-center font-light">
-                                    Appuyez sur un bouton pour parler.<br />
-                                    La traduction sera lue à voix haute.
-                                </p>
+                            <div className="h-full flex flex-col items-center justify-center text-[#8c7b6c] space-y-3 py-10">
+                                <Globe className="w-12 h-12 opacity-25 text-[#bd613c]" />
+                                <div className="text-center">
+                                    <p className="font-bebas text-xl text-[#4a3f35] tracking-wide">
+                                        Consultation Bilingue Prête
+                                    </p>
+                                    <p className="text-xs text-[#8c7b6c] font-light max-w-sm mt-1">
+                                        {PRACTITIONER_NAME} (FR) ↔ {patientName || 'Patient'} ({patientLang.label})<br />
+                                        La retranscription et la traduction audio s&apos;afficheront en direct.
+                                    </p>
+                                </div>
                             </div>
                         ) : (
-                            <div className="space-y-6">
+                            <div className="space-y-4">
                                 {messages.map((msg) => (
                                     <div key={msg.id} className={`flex flex-col ${msg.sender === 'therapeut' ? 'items-end' : 'items-start'}`}>
-                                        <span className="text-xs uppercase tracking-widest text-[#8c7b6c] mb-1">
-                                            {msg.sender === 'therapeut' ? 'Vous (FR)' : `Patient (${msg.patientLangCode.substring(0, 3).toUpperCase()})`}
-                                        </span>
-                                        <div className={`max-w-[85%] p-4 rounded-2xl transition-all duration-300 ${msg.sender === 'therapeut' ? 'bg-[#4a3f35] text-[#fdfbf6] rounded-tr-sm' : 'bg-[#e8dfd5] text-[#4a3f35] rounded-tl-sm'}`}>
-                                            {msg.transcription ? (
-                                                <p className="text-sm opacity-80 italic mb-2">&quot;{msg.transcription}&quot;</p>
-                                            ) : msg.isStreaming ? (
-                                                <p className="text-sm opacity-50 italic mb-2 flex items-center gap-2">
-                                                    <Loader2 className="w-3 h-3 animate-spin" />
-                                                    Écoute en cours…
-                                                </p>
-                                            ) : null}
-                                            {(msg.transcription || msg.translation) && <div className="w-full h-px bg-current opacity-20 mb-2"></div>}
-                                            {msg.isStreaming && msg.transcription && !msg.translation ? (
-                                                <p className="text-sm opacity-50 flex items-center gap-2">
-                                                    <span className="inline-flex gap-0.5">
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                                                    </span>
-                                                    Traduction…
-                                                </p>
-                                            ) : msg.translation ? (
-                                                <p className="text-lg font-medium flex items-start gap-2">
-                                                    <Volume2 className="w-5 h-5 shrink-0 mt-0.5 opacity-70" onClick={() => speakText(msg.translation, msg.sender === 'therapeut' ? msg.patientLangTts : 'fr-FR')} style={{ cursor: 'pointer' }} />
-                                                    {msg.translation}
-                                                </p>
-                                            ) : null}
+                                        {/* Header du locuteur */}
+                                        <div className="flex items-center gap-1.5 mb-1 px-1">
+                                            <span className="text-[11px] font-bold text-[#4a3f35]">
+                                                {msg.sender === 'therapeut' ? `🇫🇷 ${PRACTITIONER_NAME}` : `${patientLang.flag} ${patientName || 'Patient'}`}
+                                            </span>
+                                            <span className="text-[10px] text-[#8c7b6c]">
+                                                {msg.sender === 'therapeut' ? '(Français)' : `(${msg.patientLangCode})`}
+                                            </span>
+                                        </div>
+
+                                        {/* Bloc Parallèle : Retranscription + Traduction */}
+                                        <div className={`w-full max-w-[92%] sm:max-w-[85%] p-3 rounded-2xl shadow-sm space-y-2.5 transition-all duration-300 ${
+                                            msg.sender === 'therapeut' 
+                                                ? 'bg-[#4a3f35]/5 border border-[#4a3f35]/15 rounded-tr-sm' 
+                                                : 'bg-[#ebd9c8]/25 border border-[#ebd9c8]/60 rounded-tl-sm'
+                                        }`}>
+                                            {/* 1. Retranscription Originale (Gemini 3.5) */}
+                                            <div className="bg-white/90 p-2.5 rounded-xl border border-[#ebd9c8]/50">
+                                                <div className="text-[9px] uppercase font-bold text-[#8c7b6c] mb-1 flex items-center justify-between">
+                                                    <span>📝 Retranscription originale</span>
+                                                    <span className="text-[9px] px-1.5 py-0.2 bg-purple-100 text-purple-700 font-mono rounded font-medium">Gemini 3.5</span>
+                                                </div>
+                                                {msg.transcription ? (
+                                                    <p className="text-xs sm:text-sm text-[#2b241e] italic leading-relaxed">
+                                                        &ldquo;{msg.transcription}&rdquo;
+                                                    </p>
+                                                ) : msg.isStreaming ? (
+                                                    <p className="text-xs text-[#8c7b6c] italic flex items-center gap-1.5">
+                                                        <Loader2 className="w-3 h-3 animate-spin text-[#bd613c]" />
+                                                        Écoute et retranscription en direct…
+                                                    </p>
+                                                ) : null}
+                                            </div>
+
+                                            {/* 2. Traduction en Parallèle (Gemini Live) */}
+                                            <div className={`p-2.5 rounded-xl flex items-start justify-between gap-2.5 ${
+                                                msg.sender === 'therapeut'
+                                                    ? 'bg-[#4a3f35] text-[#fdfbf6]'
+                                                    : 'bg-[#bd613c] text-white'
+                                            }`}>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-[9px] uppercase font-bold opacity-80 mb-1 flex items-center gap-1">
+                                                        <span>🔊 Traduction en direct</span>
+                                                        <span className="text-[8px] px-1 py-0.2 bg-white/20 rounded font-mono font-medium">Gemini Live</span>
+                                                    </div>
+                                                    {msg.isStreaming && msg.transcription && !msg.translation ? (
+                                                        <p className="text-xs opacity-90 flex items-center gap-1.5">
+                                                            <span className="inline-flex gap-0.5">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                                                            </span>
+                                                            Génération de la voix traduite…
+                                                        </p>
+                                                    ) : msg.translation ? (
+                                                        <p className="text-xs sm:text-sm font-semibold leading-relaxed">
+                                                            {msg.translation}
+                                                        </p>
+                                                    ) : null}
+                                                </div>
+
+                                                {msg.translation && (
+                                                    <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        onClick={() => speakText(msg.translation, msg.sender === 'therapeut' ? msg.patientLangTts : 'fr-FR')}
+                                                        className="shrink-0 h-7 w-7 rounded-full hover:bg-white/20 text-white"
+                                                        title="Réécouter à voix haute"
+                                                    >
+                                                        <Volume2 className="w-4 h-4" />
+                                                    </Button>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 ))}
                             </div>
                         )}
+
                         {isTranslating && (
-                            <div className="flex justify-center py-4 mt-4">
-                                <Loader2 className="w-6 h-6 animate-spin text-[#bd613c]" />
+                            <div className="flex justify-center py-3 mt-2">
+                                <Loader2 className="w-5 h-5 animate-spin text-[#bd613c]" />
                             </div>
                         )}
                     </ScrollArea>
                 </CardContent>
             </Card>
 
-            {/* Control Buttons */}
-            <div className="flex flex-col gap-3">
-                <div className="flex justify-end items-center">
-                    <label className="text-xs uppercase tracking-widest text-[#8c7b6c] mr-3">Traduire en :</label>
-                    <select
-                        className="bg-white/50 border border-[#e8dfd5] text-[#8c7b6c] font-medium text-sm rounded px-3 py-1 outline-none ring-offset-background focus-visible:ring-1 focus-visible:ring-[#bd613c]"
-                        value={patientLang.code}
-                        onChange={(e) => setPatientLang(LANGUAGES.find(l => l.code === e.target.value) || LANGUAGES[0])}
-                        disabled={isRecording || isTranslating || isAnalyzing}
-                    >
-                        {LANGUAGES.map(l => (
-                            <option key={l.code} value={l.code}>{l.label}</option>
-                        ))}
-                    </select>
-                </div>
-                <div className="flex flex-col items-center gap-2 mb-2">
+            {/* Sélecteur des 3 Modes & Commandes */}
+            <div className="flex flex-col gap-2.5">
+                <div className="flex flex-col items-center gap-1.5">
                     <div className="flex justify-center items-center gap-1.5 p-1 bg-[#ebd9c8]/25 rounded-full border border-[#e8dfd5]">
                         {(['conversation', 'realtime', 'classic'] as const).map(mode => (
                             <button
@@ -662,36 +769,53 @@ export default function BilingualRecorder({
                         ))}
                     </div>
                     <p className="text-[11px] text-[#8c7b6c] text-center italic">
-                        {translationMode === 'conversation' && "Mains libres : l'IA écoute en continu, détecte la langue et traduit à haute voix dès la fin de phrase."}
-                        {translationMode === 'realtime' && "Push-to-talk : cliquez sur votre bouton ou celui du patient pour traduire en direct."}
-                        {translationMode === 'classic' && "Mode robuste : enregistrez un bloc audio, Gemini transcrit et lit la traduction."}
+                        {translationMode === 'conversation' && "Mains libres : écoute continue, détection automatique du locuteur et traduction vocale instantanée."}
+                        {translationMode === 'realtime' && "Push-to-talk : cliquez pour parler, traduction en direct à chaque prise de parole."}
+                        {translationMode === 'classic' && "Mode sécurisé : enregistrement par blocs et synthèse vocale haute fidélité."}
                     </p>
                 </div>
 
-                {/* CONVERSATION MODE: single button */}
+                {/* CONVERSATION MODE: single major button */}
                 {translationMode === 'conversation' && (
                     <Button
                         size="lg"
                         variant={realtimeRole === 'bidirectional' ? 'destructive' : 'default'}
-                        className={`w-full h-24 text-xl font-bebas tracking-wide flex flex-col items-center justify-center gap-2 ${realtimeRole === 'bidirectional' ? 'animate-pulse bg-red-600 hover:bg-red-700' : 'bg-[#4a3f35] hover:bg-[#3a3129]'}`}
+                        className={`w-full h-20 text-lg sm:text-xl font-bebas tracking-wide flex flex-col items-center justify-center gap-1.5 ${
+                            realtimeRole === 'bidirectional' ? 'animate-pulse bg-red-600 hover:bg-red-700' : 'bg-[#4a3f35] hover:bg-[#3a3129]'
+                        }`}
                         onClick={() => {
                             if (isConnected && realtimeRole === 'bidirectional') return stopRealtimeSession();
                             return startRealtimeSession('bidirectional');
                         }}
                         disabled={isAnalyzing || isConnecting}
                     >
-                        {isConnecting ? <Loader2 className="w-8 h-8 animate-spin" /> : realtimeRole === 'bidirectional' ? <Square className="w-8 h-8" /> : <Globe className="w-8 h-8" />}
-                        <span>{isConnecting ? 'Connexion…' : realtimeRole === 'bidirectional' ? 'Arrêter la consultation' : 'Démarrer la consultation bilingue'}</span>
+                        {isConnecting ? (
+                            <Loader2 className="w-7 h-7 animate-spin" />
+                        ) : realtimeRole === 'bidirectional' ? (
+                            <Square className="w-7 h-7" />
+                        ) : (
+                            <Globe className="w-7 h-7" />
+                        )}
+                        <span>
+                            {isConnecting 
+                                ? 'Connexion en cours…' 
+                                : realtimeRole === 'bidirectional' 
+                                ? 'Arrêter la consultation' 
+                                : `Démarrer : Guillaume ↔ ${patientName || 'Patient'}`
+                            }
+                        </span>
                     </Button>
                 )}
 
-                {/* REALTIME + CLASSIC: two buttons */}
+                {/* REALTIME + CLASSIC: two speaker buttons */}
                 {translationMode !== 'conversation' && (
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 gap-3">
                         <Button
                             size="lg"
                             variant={(recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? 'destructive' : 'default'}
-                            className={`h-24 text-lg font-bebas tracking-wide flex flex-col items-center justify-center gap-2 ${(recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? 'animate-pulse' : 'bg-[#4a3f35] hover:bg-[#3a3129]'}`}
+                            className={`h-20 text-base font-bebas tracking-wide flex flex-col items-center justify-center gap-1.5 ${
+                                (recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? 'animate-pulse' : 'bg-[#4a3f35] hover:bg-[#3a3129]'
+                            }`}
                             onClick={() => {
                                 if (isRecording && recordingRole === 'therapeut') return stopRecording();
                                 if (isConnected && realtimeRole === 'therapeut') return stopRealtimeSession();
@@ -700,13 +824,18 @@ export default function BilingualRecorder({
                             }}
                             disabled={isAnalyzing || isConnecting || (isRecording && recordingRole !== 'therapeut') || (isConnected && realtimeRole !== 'therapeut')}
                         >
-                            {isConnecting && realtimeRole === 'therapeut' ? <Loader2 className="w-6 h-6 animate-spin" /> : (recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? <Square className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-                            <span className="text-center">{isConnecting ? 'Connexion...' : (recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? "Arrêter" : "Parler (Français)"}</span>
+                            {isConnecting && realtimeRole === 'therapeut' ? <Loader2 className="w-5 h-5 animate-spin" /> : (recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                            <span className="text-center truncate px-1">
+                                {isConnecting ? 'Connexion...' : (recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? "Arrêter" : "Guillaume (FR)"}
+                            </span>
                         </Button>
+
                         <Button
                             size="lg"
                             variant={(recordingRole === 'patient' || realtimeRole === 'patient') ? 'destructive' : 'outline'}
-                            className={`h-24 text-lg font-bebas tracking-wide flex flex-col items-center justify-center gap-2 border-2 ${(recordingRole === 'patient' || realtimeRole === 'patient') ? 'animate-pulse' : 'border-[#4a3f35] text-[#4a3f35] hover:bg-[#e8dfd5]'}`}
+                            className={`h-20 text-base font-bebas tracking-wide flex flex-col items-center justify-center gap-1.5 border-2 ${
+                                (recordingRole === 'patient' || realtimeRole === 'patient') ? 'animate-pulse' : 'border-[#4a3f35] text-[#4a3f35] hover:bg-[#e8dfd5]'
+                            }`}
                             onClick={() => {
                                 if (isRecording && recordingRole === 'patient') return stopRecording();
                                 if (isConnected && realtimeRole === 'patient') return stopRealtimeSession();
@@ -715,25 +844,28 @@ export default function BilingualRecorder({
                             }}
                             disabled={isAnalyzing || isConnecting || (isRecording && recordingRole !== 'patient') || (isConnected && realtimeRole !== 'patient')}
                         >
-                            {isConnecting && realtimeRole === 'patient' ? <Loader2 className="w-6 h-6 animate-spin" /> : (recordingRole === 'patient' || realtimeRole === 'patient') ? <Square className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-                            <span className="text-center">{isConnecting ? 'Connexion...' : (recordingRole === 'patient' || realtimeRole === 'patient') ? "Stop" : `Patient (${patientLang.code.substring(0, 2).toUpperCase()})`}</span>
+                            {isConnecting && realtimeRole === 'patient' ? <Loader2 className="w-5 h-5 animate-spin" /> : (recordingRole === 'patient' || realtimeRole === 'patient') ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                            <span className="text-center truncate px-1">
+                                {isConnecting ? 'Connexion...' : (recordingRole === 'patient' || realtimeRole === 'patient') ? "Stop" : `${patientName || 'Patient'} (${patientLang.code.substring(0, 2).toUpperCase()})`}
+                            </span>
                         </Button>
                     </div>
                 )}
             </div>
 
+            {/* Bouton de finalisation du Bilan TDT */}
             {messages.length > 0 && (
                 <Button
                     onClick={synthesizeConsultation}
                     disabled={isAnalyzing || isRecording || isTranslating || isConnected || isConnecting}
-                    className="w-full py-6 text-xl font-bebas tracking-widest bg-[#bd613c] hover:bg-[#a05232] text-white transition-all duration-300 shadow-xl"
+                    className="w-full py-5 text-lg font-bebas tracking-widest bg-[#bd613c] hover:bg-[#a05232] text-white transition-all duration-300 shadow-xl"
                 >
                     {isAnalyzing ? (
                         <>
-                            <Loader2 className="w-6 h-6 mr-3 animate-spin" />
-                            Création du bilan...
+                            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                            Génération du Bilan TDT pour {patientName || 'le Patient'}...
                         </>
-                    ) : "Terminer et créer le Bilan TDT"}
+                    ) : `Terminer et créer le Bilan pour ${patientName || 'le Patient'}`}
                 </Button>
             )}
 
