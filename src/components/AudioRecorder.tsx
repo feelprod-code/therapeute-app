@@ -288,6 +288,7 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
             setIsPaused(false);
             setRecordingTime(0);
             startTimer();
+            requestWakeLock();
         } catch (error: unknown) {
             console.error("Error accessing microphone:", error);
 
@@ -331,6 +332,7 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
             setIsPaused(false);
             stopTimer();
             cleanupAudioContext();
+            releaseWakeLock();
 
             // La suppression du draft est maintenant gérée intelligemment dans mediaRecorder.onstop
 
@@ -344,11 +346,32 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
         }
     };
 
-    const processing = isProcessing || isInternalProcessing;
+    const wakeLockRef = useRef<any>(null);
+
+    const requestWakeLock = async () => {
+        try {
+            if ('wakeLock' in navigator) {
+                wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+            }
+        } catch (err) {
+            console.log('WakeLock not supported or disabled', err);
+        }
+    };
+
+    const releaseWakeLock = () => {
+        if (wakeLockRef.current) {
+            wakeLockRef.current.release().catch(console.error);
+            wakeLockRef.current = null;
+        }
+    };
 
     const formatTime = (seconds: number) => {
-        const mins = Math.floor(seconds / 60);
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
         const secs = seconds % 60;
+        if (hrs > 0) {
+            return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+        }
         return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
     };
 

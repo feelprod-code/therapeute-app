@@ -57,7 +57,10 @@ export default function BilingualRecorder({
     const [realtimeRole, setRealtimeRole] = useState<'therapeut' | 'patient' | 'bidirectional' | null>(null);
     const realtimeMessageIdRef = useRef<string | null>(null);
     const [chatExpanded, setChatExpanded] = useState(false);
+    const [sessionSeconds, setSessionSeconds] = useState(0);
 
+    const sessionTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const wakeLockRef = useRef<any>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<BlobPart[]>([]);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -66,6 +69,48 @@ export default function BilingualRecorder({
     const streamRef = useRef<MediaStream | null>(null);
     const { toast } = useToast();
     const { connect, disconnect, isConnected, isConnecting } = useRealtime();
+
+    const requestWakeLock = async () => {
+        try {
+            if ('wakeLock' in navigator) {
+                wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+            }
+        } catch (err) {
+            console.log('WakeLock not supported or disabled', err);
+        }
+    };
+
+    const releaseWakeLock = () => {
+        if (wakeLockRef.current) {
+            wakeLockRef.current.release().catch(console.error);
+            wakeLockRef.current = null;
+        }
+    };
+
+    const startSessionTimer = () => {
+        if (!sessionTimerRef.current) {
+            sessionTimerRef.current = setInterval(() => {
+                setSessionSeconds(prev => prev + 1);
+            }, 1000);
+        }
+    };
+
+    const stopSessionTimer = () => {
+        if (sessionTimerRef.current) {
+            clearInterval(sessionTimerRef.current);
+            sessionTimerRef.current = null;
+        }
+    };
+
+    const formatSessionTime = (seconds: number) => {
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = seconds % 60;
+        if (hrs > 0) {
+            return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+        }
+        return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    };
 
     // Pre-load voices on mount to ensure premium voices are available
     useEffect(() => {
@@ -90,6 +135,8 @@ export default function BilingualRecorder({
 
         // CLEANUP DU MICROPHONE SI ON CHANGE D'ONGLET
         return () => {
+            stopSessionTimer();
+            releaseWakeLock();
             if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
                 mediaRecorderRef.current.stop();
             }
@@ -150,6 +197,8 @@ export default function BilingualRecorder({
         const messageId = Date.now().toString();
         realtimeMessageIdRef.current = messageId;
         setRealtimeRole(role);
+        startSessionTimer();
+        requestWakeLock();
 
         const senderRole = role === 'bidirectional' ? 'therapeut' : role;
         const currentSpeaker = senderRole === 'therapeut' ? PRACTITIONER_NAME : (patientName || 'Patient');
@@ -227,6 +276,8 @@ export default function BilingualRecorder({
 
     const stopRealtimeSession = useCallback(() => {
         disconnect();
+        stopSessionTimer();
+        releaseWakeLock();
         const msgId = realtimeMessageIdRef.current;
         if (msgId) {
             // Remove empty trailing message
@@ -318,6 +369,8 @@ export default function BilingualRecorder({
             mediaRecorder.start(1000);
             setRecordingRole(role);
             setIsRecording(true);
+            startSessionTimer();
+            requestWakeLock();
         } catch (error) {
             console.error("Erreur d'accès au microphone: ", error);
             toast({
@@ -333,6 +386,7 @@ export default function BilingualRecorder({
             mediaRecorderRef.current.stop();
             setIsRecording(false);
             setRecordingRole(null);
+            releaseWakeLock();
         }
     };
 
@@ -541,16 +595,21 @@ export default function BilingualRecorder({
     return (
         <div className="flex flex-col space-y-4">
 
-            {/* Header d'identification & Sélection de langue */}
+            {/* 1. Header d'identification & Sélection de langue */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {/* Praticien */}
-                <div className="flex items-center gap-2.5 p-2.5 bg-[#ebd9c8]/20 border border-[#ebd9c8]/60 rounded-xl">
-                    <div className="w-8 h-8 rounded-full bg-[#4a3f35] text-white flex items-center justify-center text-xs font-bold shrink-0 shadow-sm">
-                        GP
+                <div className="flex items-center gap-2.5 p-2 bg-[#ebd9c8]/20 border border-[#ebd9c8]/60 rounded-xl">
+                    <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-[#bd613c]/60 shadow-sm shrink-0 bg-[#4a3f35]">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img 
+                            src="/images/guillaume_philippe.jpg" 
+                            alt={PRACTITIONER_NAME}
+                            className="w-full h-full object-cover"
+                        />
                     </div>
                     <div className="flex flex-col min-w-0">
                         <span className="text-[10px] uppercase tracking-wider text-[#8c7b6c] font-semibold">Praticien</span>
-                        <span className="text-xs font-semibold text-[#4a3f35] flex items-center gap-1 truncate">
+                        <span className="text-xs font-bold text-[#4a3f35] flex items-center gap-1 truncate">
                             <span>🇫🇷</span> {PRACTITIONER_NAME}
                         </span>
                     </div>
@@ -592,7 +651,7 @@ export default function BilingualRecorder({
                 </div>
             </div>
 
-            {/* Bandeau Moteurs IA Actifs */}
+            {/* 2. Bandeau Moteurs IA Actifs */}
             <div className="flex items-center justify-between px-3 py-1.5 bg-gradient-to-r from-amber-500/10 via-[#ebd9c8]/30 to-purple-500/10 border border-[#ebd9c8]/50 rounded-lg text-[11px] text-[#4a3f35]">
                 <span className="flex items-center gap-1.5 font-medium">
                     <span className="text-amber-600">⚡</span> <strong>Gemini Live</strong> <span className="text-[#8c7b6c] hidden sm:inline">(Audio-to-Audio)</span>
@@ -603,6 +662,128 @@ export default function BilingualRecorder({
                 </span>
             </div>
 
+            {/* 3. CONTRÔLES & DÉMARRAGE DE LA CONSULTATION (AU-DESSUS DU CHAT) */}
+            <div className="flex flex-col gap-2.5 p-3 bg-white/70 border border-[#e8dfd5] rounded-2xl shadow-sm">
+                <div className="flex flex-col items-center gap-1.5">
+                    <div className="flex justify-center items-center gap-1.5 p-1 bg-[#ebd9c8]/25 rounded-full border border-[#e8dfd5]">
+                        {(['conversation', 'realtime', 'classic'] as const).map(mode => (
+                            <button
+                                key={mode}
+                                onClick={() => setTranslationMode(mode)}
+                                className={`text-xs px-3.5 py-1.5 rounded-full font-medium transition-all ${
+                                    translationMode === mode
+                                        ? 'bg-[#bd613c] text-white shadow-sm font-semibold'
+                                        : 'text-[#8c7b6c] hover:text-[#4a3f35] hover:bg-[#ebd9c8]/40'
+                                }`}
+                                disabled={isRecording || isConnected || isConnecting}
+                            >
+                                {mode === 'conversation' ? '🎙️ Conversation' : mode === 'realtime' ? '⚡ Temps réel' : '📱 Classique (Gemini)'}
+                            </button>
+                        ))}
+                    </div>
+                    <p className="text-[11px] text-[#8c7b6c] text-center italic">
+                        {translationMode === 'conversation' && "Mains libres : écoute continue, détection automatique du locuteur et traduction vocale instantanée."}
+                        {translationMode === 'realtime' && "Push-to-talk : cliquez pour parler, traduction en direct à chaque prise de parole."}
+                        {translationMode === 'classic' && "Mode sécurisé : enregistrement par blocs et synthèse vocale haute fidélité."}
+                    </p>
+                </div>
+
+                {/* Mode Conversation : Bouton Unique Majeur */}
+                {translationMode === 'conversation' && (
+                    <Button
+                        size="lg"
+                        variant={realtimeRole === 'bidirectional' ? 'destructive' : 'default'}
+                        className={`w-full h-20 text-lg sm:text-xl font-bebas tracking-wide flex flex-col items-center justify-center gap-1.5 ${
+                            realtimeRole === 'bidirectional' ? 'animate-pulse bg-red-600 hover:bg-red-700' : 'bg-[#4a3f35] hover:bg-[#3a3129]'
+                        }`}
+                        onClick={() => {
+                            if (isConnected && realtimeRole === 'bidirectional') return stopRealtimeSession();
+                            return startRealtimeSession('bidirectional');
+                        }}
+                        disabled={isAnalyzing || isConnecting}
+                    >
+                        {isConnecting ? (
+                            <Loader2 className="w-7 h-7 animate-spin" />
+                        ) : realtimeRole === 'bidirectional' ? (
+                            <Square className="w-7 h-7" />
+                        ) : (
+                            <Globe className="w-7 h-7" />
+                        )}
+                        <span>
+                            {isConnecting 
+                                ? 'Connexion en cours…' 
+                                : realtimeRole === 'bidirectional' 
+                                ? 'Arrêter la consultation' 
+                                : `Démarrer : Guillaume ↔ ${patientName || 'Patient'}`
+                            }
+                        </span>
+                    </Button>
+                )}
+
+                {/* Mode Temps Réel & Classique : Deux Boutons Alternés */}
+                {translationMode !== 'conversation' && (
+                    <div className="grid grid-cols-2 gap-3">
+                        <Button
+                            size="lg"
+                            variant={(recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? 'destructive' : 'default'}
+                            className={`h-20 text-base font-bebas tracking-wide flex flex-col items-center justify-center gap-1.5 ${
+                                (recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? 'animate-pulse' : 'bg-[#4a3f35] hover:bg-[#3a3129]'
+                            }`}
+                            onClick={() => {
+                                if (isRecording && recordingRole === 'therapeut') return stopRecording();
+                                if (isConnected && realtimeRole === 'therapeut') return stopRealtimeSession();
+                                if (translationMode === 'realtime') return startRealtimeSession('therapeut');
+                                return startRecording('therapeut');
+                            }}
+                            disabled={isAnalyzing || isConnecting || (isRecording && recordingRole !== 'therapeut') || (isConnected && realtimeRole !== 'therapeut')}
+                        >
+                            {isConnecting && realtimeRole === 'therapeut' ? <Loader2 className="w-5 h-5 animate-spin" /> : (recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                            <span className="text-center truncate px-1 flex items-center justify-center gap-1.5">
+                                <span className="w-4 h-4 rounded-full overflow-hidden inline-block shrink-0 border border-white/40">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src="/images/guillaume_philippe.jpg" alt="GP" className="w-full h-full object-cover" />
+                                </span>
+                                <span>{isConnecting ? 'Connexion...' : (recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? "Arrêter" : "Guillaume (FR)"}</span>
+                            </span>
+                        </Button>
+
+                        <Button
+                            size="lg"
+                            variant={(recordingRole === 'patient' || realtimeRole === 'patient') ? 'destructive' : 'outline'}
+                            className={`h-20 text-base font-bebas tracking-wide flex flex-col items-center justify-center gap-1.5 border-2 ${
+                                (recordingRole === 'patient' || realtimeRole === 'patient') ? 'animate-pulse' : 'border-[#4a3f35] text-[#4a3f35] hover:bg-[#e8dfd5]'
+                            }`}
+                            onClick={() => {
+                                if (isRecording && recordingRole === 'patient') return stopRecording();
+                                if (isConnected && realtimeRole === 'patient') return stopRealtimeSession();
+                                if (translationMode === 'realtime') return startRealtimeSession('patient');
+                                return startRecording('patient');
+                            }}
+                            disabled={isAnalyzing || isConnecting || (isRecording && recordingRole !== 'patient') || (isConnected && realtimeRole !== 'patient')}
+                        >
+                            {isConnecting && realtimeRole === 'patient' ? <Loader2 className="w-5 h-5 animate-spin" /> : (recordingRole === 'patient' || realtimeRole === 'patient') ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                            <span className="text-center truncate px-1">
+                                {isConnecting ? 'Connexion...' : (recordingRole === 'patient' || realtimeRole === 'patient') ? "Stop" : `${patientName || 'Patient'} (${patientLang.code.substring(0, 2).toUpperCase()})`}
+                            </span>
+                        </Button>
+                    </div>
+                )}
+
+                {/* Indicateur de durée de consultation en direct (1h+ supporté) */}
+                {(isConnected || isRecording || sessionSeconds > 0) && (
+                    <div className="flex items-center justify-between px-3 py-1 bg-[#ebd9c8]/30 rounded-lg text-[11px] text-[#4a3f35]">
+                        <span className="flex items-center gap-1.5 font-mono font-bold text-[#bd613c]">
+                            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                            ⏱️ {formatSessionTime(sessionSeconds)}
+                        </span>
+                        <span className="text-[10px] text-[#8c7b6c] italic">
+                            Session continue (1h+) • Écran maintenu allumé • Sauvegarde auto
+                        </span>
+                    </div>
+                )}
+            </div>
+
+            {/* 4. Alerte brouillon si présent */}
             {draftExists && !isRecording && (
                 <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3.5 rounded-xl text-center w-full mb-0 shadow-sm">
                     <p className="text-xs font-medium mb-2.5">⚠️ Un segment d&apos;enregistrement de {draftRole === 'therapeut' ? PRACTITIONER_NAME : (patientName || 'discours patient')} n&apos;a pas été finalisé.</p>
@@ -617,8 +798,8 @@ export default function BilingualRecorder({
                 </div>
             )}
 
-            {/* Chat Area & Retranscription Parallèle */}
-            <Card className={`bg-white/85 backdrop-blur-sm border-[#e8dfd5] shadow-lg flex flex-col relative transition-all duration-300 ${chatExpanded ? 'fixed inset-0 z-50 rounded-none min-h-0 h-full bg-white' : 'flex-1 min-h-[380px]'}`}>
+            {/* 5. Chat Area & Retranscription Parallèle */}
+            <Card className={`bg-white/85 backdrop-blur-sm border-[#e8dfd5] shadow-lg flex flex-col relative transition-all duration-300 ${chatExpanded ? 'fixed inset-0 z-50 rounded-none min-h-0 h-full bg-white' : 'flex-1 min-h-[360px]'}`}>
                 <div className={`absolute z-10 flex items-center gap-1 ${chatExpanded ? 'top-[env(safe-area-inset-top,12px)] right-4 pt-2' : 'top-2 right-2'}`}>
                     {messages.length > 0 && !chatExpanded && (
                         <Button
@@ -643,7 +824,7 @@ export default function BilingualRecorder({
                 </div>
 
                 <CardContent className={`p-4 flex-1 h-full ${chatExpanded ? 'pt-14' : ''}`}>
-                    <ScrollArea className={`${chatExpanded ? 'h-[calc(100dvh-90px)]' : 'h-[360px]'} pr-3 w-full`} ref={scrollRef}>
+                    <ScrollArea className={`${chatExpanded ? 'h-[calc(100dvh-90px)]' : 'h-[340px]'} pr-3 w-full`} ref={scrollRef}>
                         {messages.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-[#8c7b6c] space-y-3 py-10">
                                 <Globe className="w-12 h-12 opacity-25 text-[#bd613c]" />
@@ -653,7 +834,7 @@ export default function BilingualRecorder({
                                     </p>
                                     <p className="text-xs text-[#8c7b6c] font-light max-w-sm mt-1">
                                         {PRACTITIONER_NAME} (FR) ↔ {patientName || 'Patient'} ({patientLang.label})<br />
-                                        La retranscription et la traduction audio s&apos;afficheront en direct.
+                                        La retranscription et la traduction audio s&apos;afficheront en direct ici.
                                     </p>
                                 </div>
                             </div>
@@ -663,6 +844,14 @@ export default function BilingualRecorder({
                                     <div key={msg.id} className={`flex flex-col ${msg.sender === 'therapeut' ? 'items-end' : 'items-start'}`}>
                                         {/* Header du locuteur */}
                                         <div className="flex items-center gap-1.5 mb-1 px-1">
+                                            {msg.sender === 'therapeut' ? (
+                                                <div className="w-4 h-4 rounded-full overflow-hidden border border-[#bd613c]/50 shrink-0">
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img src="/images/guillaume_philippe.jpg" alt="GP" className="w-full h-full object-cover" />
+                                                </div>
+                                            ) : (
+                                                <span className="text-xs">{patientLang.flag}</span>
+                                            )}
                                             <span className="text-[11px] font-bold text-[#4a3f35]">
                                                 {msg.sender === 'therapeut' ? `🇫🇷 ${PRACTITIONER_NAME}` : `${patientLang.flag} ${patientName || 'Patient'}`}
                                             </span>
@@ -739,121 +928,11 @@ export default function BilingualRecorder({
                                 ))}
                             </div>
                         )}
-
-                        {isTranslating && (
-                            <div className="flex justify-center py-3 mt-2">
-                                <Loader2 className="w-5 h-5 animate-spin text-[#bd613c]" />
-                            </div>
-                        )}
                     </ScrollArea>
                 </CardContent>
             </Card>
 
-            {/* Sélecteur des 3 Modes & Commandes */}
-            <div className="flex flex-col gap-2.5">
-                <div className="flex flex-col items-center gap-1.5">
-                    <div className="flex justify-center items-center gap-1.5 p-1 bg-[#ebd9c8]/25 rounded-full border border-[#e8dfd5]">
-                        {(['conversation', 'realtime', 'classic'] as const).map(mode => (
-                            <button
-                                key={mode}
-                                onClick={() => setTranslationMode(mode)}
-                                className={`text-xs px-3.5 py-1.5 rounded-full font-medium transition-all ${
-                                    translationMode === mode
-                                        ? 'bg-[#bd613c] text-white shadow-sm font-semibold'
-                                        : 'text-[#8c7b6c] hover:text-[#4a3f35] hover:bg-[#ebd9c8]/40'
-                                }`}
-                                disabled={isRecording || isConnected || isConnecting}
-                            >
-                                {mode === 'conversation' ? '🎙️ Conversation' : mode === 'realtime' ? '⚡ Temps réel' : '📱 Classique (Gemini)'}
-                            </button>
-                        ))}
-                    </div>
-                    <p className="text-[11px] text-[#8c7b6c] text-center italic">
-                        {translationMode === 'conversation' && "Mains libres : écoute continue, détection automatique du locuteur et traduction vocale instantanée."}
-                        {translationMode === 'realtime' && "Push-to-talk : cliquez pour parler, traduction en direct à chaque prise de parole."}
-                        {translationMode === 'classic' && "Mode sécurisé : enregistrement par blocs et synthèse vocale haute fidélité."}
-                    </p>
-                </div>
-
-                {/* CONVERSATION MODE: single major button */}
-                {translationMode === 'conversation' && (
-                    <Button
-                        size="lg"
-                        variant={realtimeRole === 'bidirectional' ? 'destructive' : 'default'}
-                        className={`w-full h-20 text-lg sm:text-xl font-bebas tracking-wide flex flex-col items-center justify-center gap-1.5 ${
-                            realtimeRole === 'bidirectional' ? 'animate-pulse bg-red-600 hover:bg-red-700' : 'bg-[#4a3f35] hover:bg-[#3a3129]'
-                        }`}
-                        onClick={() => {
-                            if (isConnected && realtimeRole === 'bidirectional') return stopRealtimeSession();
-                            return startRealtimeSession('bidirectional');
-                        }}
-                        disabled={isAnalyzing || isConnecting}
-                    >
-                        {isConnecting ? (
-                            <Loader2 className="w-7 h-7 animate-spin" />
-                        ) : realtimeRole === 'bidirectional' ? (
-                            <Square className="w-7 h-7" />
-                        ) : (
-                            <Globe className="w-7 h-7" />
-                        )}
-                        <span>
-                            {isConnecting 
-                                ? 'Connexion en cours…' 
-                                : realtimeRole === 'bidirectional' 
-                                ? 'Arrêter la consultation' 
-                                : `Démarrer : Guillaume ↔ ${patientName || 'Patient'}`
-                            }
-                        </span>
-                    </Button>
-                )}
-
-                {/* REALTIME + CLASSIC: two speaker buttons */}
-                {translationMode !== 'conversation' && (
-                    <div className="grid grid-cols-2 gap-3">
-                        <Button
-                            size="lg"
-                            variant={(recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? 'destructive' : 'default'}
-                            className={`h-20 text-base font-bebas tracking-wide flex flex-col items-center justify-center gap-1.5 ${
-                                (recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? 'animate-pulse' : 'bg-[#4a3f35] hover:bg-[#3a3129]'
-                            }`}
-                            onClick={() => {
-                                if (isRecording && recordingRole === 'therapeut') return stopRecording();
-                                if (isConnected && realtimeRole === 'therapeut') return stopRealtimeSession();
-                                if (translationMode === 'realtime') return startRealtimeSession('therapeut');
-                                return startRecording('therapeut');
-                            }}
-                            disabled={isAnalyzing || isConnecting || (isRecording && recordingRole !== 'therapeut') || (isConnected && realtimeRole !== 'therapeut')}
-                        >
-                            {isConnecting && realtimeRole === 'therapeut' ? <Loader2 className="w-5 h-5 animate-spin" /> : (recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                            <span className="text-center truncate px-1">
-                                {isConnecting ? 'Connexion...' : (recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? "Arrêter" : "Guillaume (FR)"}
-                            </span>
-                        </Button>
-
-                        <Button
-                            size="lg"
-                            variant={(recordingRole === 'patient' || realtimeRole === 'patient') ? 'destructive' : 'outline'}
-                            className={`h-20 text-base font-bebas tracking-wide flex flex-col items-center justify-center gap-1.5 border-2 ${
-                                (recordingRole === 'patient' || realtimeRole === 'patient') ? 'animate-pulse' : 'border-[#4a3f35] text-[#4a3f35] hover:bg-[#e8dfd5]'
-                            }`}
-                            onClick={() => {
-                                if (isRecording && recordingRole === 'patient') return stopRecording();
-                                if (isConnected && realtimeRole === 'patient') return stopRealtimeSession();
-                                if (translationMode === 'realtime') return startRealtimeSession('patient');
-                                return startRecording('patient');
-                            }}
-                            disabled={isAnalyzing || isConnecting || (isRecording && recordingRole !== 'patient') || (isConnected && realtimeRole !== 'patient')}
-                        >
-                            {isConnecting && realtimeRole === 'patient' ? <Loader2 className="w-5 h-5 animate-spin" /> : (recordingRole === 'patient' || realtimeRole === 'patient') ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                            <span className="text-center truncate px-1">
-                                {isConnecting ? 'Connexion...' : (recordingRole === 'patient' || realtimeRole === 'patient') ? "Stop" : `${patientName || 'Patient'} (${patientLang.code.substring(0, 2).toUpperCase()})`}
-                            </span>
-                        </Button>
-                    </div>
-                )}
-            </div>
-
-            {/* Bouton de finalisation du Bilan TDT */}
+            {/* 6. Bouton de finalisation du Bilan TDT */}
             {messages.length > 0 && (
                 <Button
                     onClick={synthesizeConsultation}
