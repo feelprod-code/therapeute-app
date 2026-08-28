@@ -644,17 +644,28 @@ export default function BilingualRecorder({
                         ))}
                     </select>
                 </div>
-                <div className="flex justify-center items-center gap-1 mb-2">
-                    {(['conversation', 'realtime', 'classic'] as const).map(mode => (
-                        <button
-                            key={mode}
-                            onClick={() => setTranslationMode(mode)}
-                            className={`text-xs px-3 py-1.5 rounded-full transition-colors ${translationMode === mode ? 'bg-[#bd613c] text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-                            disabled={isRecording || isConnected || isConnecting}
-                        >
-                            {mode === 'conversation' ? '🎙️ Conversation' : mode === 'realtime' ? '⚡ Temps réel' : '📱 Classique'}
-                        </button>
-                    ))}
+                <div className="flex flex-col items-center gap-2 mb-2">
+                    <div className="flex justify-center items-center gap-1.5 p-1 bg-[#ebd9c8]/25 rounded-full border border-[#e8dfd5]">
+                        {(['conversation', 'realtime', 'classic'] as const).map(mode => (
+                            <button
+                                key={mode}
+                                onClick={() => setTranslationMode(mode)}
+                                className={`text-xs px-3.5 py-1.5 rounded-full font-medium transition-all ${
+                                    translationMode === mode
+                                        ? 'bg-[#bd613c] text-white shadow-sm font-semibold'
+                                        : 'text-[#8c7b6c] hover:text-[#4a3f35] hover:bg-[#ebd9c8]/40'
+                                }`}
+                                disabled={isRecording || isConnected || isConnecting}
+                            >
+                                {mode === 'conversation' ? '🎙️ Conversation' : mode === 'realtime' ? '⚡ Temps réel' : '📱 Classique (Gemini)'}
+                            </button>
+                        ))}
+                    </div>
+                    <p className="text-[11px] text-[#8c7b6c] text-center italic">
+                        {translationMode === 'conversation' && "Mains libres : l'IA écoute en continu, détecte la langue et traduit à haute voix dès la fin de phrase."}
+                        {translationMode === 'realtime' && "Push-to-talk : cliquez sur votre bouton ou celui du patient pour traduire en direct."}
+                        {translationMode === 'classic' && "Mode robuste : enregistrez un bloc audio, Gemini transcrit et lit la traduction."}
+                    </p>
                 </div>
 
                 {/* CONVERSATION MODE: single button */}

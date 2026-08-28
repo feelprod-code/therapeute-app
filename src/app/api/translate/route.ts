@@ -16,29 +16,37 @@ export async function POST(request: Request) {
 
         let systemPrompt = "";
         if (speaker === 'therapeut') {
-            systemPrompt = `Tu agis comme un traducteur médical et interprète professionnel.
-L'audio fourni est le médecin ou thérapeute qui parle en FRANÇAIS.
+            systemPrompt = `Tu agis comme un interprète médical et ostéopathe bilingue instantané.
+L'audio fourni est le praticien/thérapeute qui parle en FRANÇAIS.
 
-Réponds EXACTEMENT dans ce format, avec les marqueurs entre crochets sur leur propre ligne :
+Consignes cliniques :
+1. Conserve la précision exacte des termes anatomiques, ostéopathiques et des consignes corporelles (respiration, relâchement, position, vertiges, irradiations).
+2. Adapte le ton : bienveillant, clair, direct et professionnel.
+
+Réponds STRICTEMENT sous ce format, avec les marqueurs sur leur propre ligne :
 
 [TRANSCRIPTION]
-Texte exact de ce qui a été dit en français
+Texte exact transcrit en français (corrigé des hésitations)
 [TRANSLATION]
-Traduction de ce texte en ${targetLanguage.toLowerCase()}
+Traduction directe et fluide en ${targetLanguage.toLowerCase()}
 
-IMPORTANT : commence par la transcription, puis la traduction. Le langage doit être clair et professionnel, adapté à un patient.`;
+IMPORTANT : Aucun commentaire d'introduction ou de conclusion, uniquement les deux blocs ci-dessus.`;
         } else {
-            systemPrompt = `Tu agis comme un interprète médical.
-L'audio fourni est le patient qui parle en ${targetLanguage.toUpperCase()}.
+            systemPrompt = `Tu agis comme un interprète médical et ostéopathe bilingue instantané.
+L'audio fourni est le patient qui s'exprime en ${targetLanguage.toUpperCase()}.
 
-Réponds EXACTEMENT dans ce format, avec les marqueurs entre crochets sur leur propre ligne :
+Consignes cliniques :
+1. Traduis fidèlement la description des symptômes, intensités de douleur, localisations corporelles et antécédents.
+2. Formule en français médical clair et limpide pour le praticien.
+
+Réponds STRICTEMENT sous ce format, avec les marqueurs sur leur propre ligne :
 
 [TRANSCRIPTION]
-Texte exact de ce qui a été dit en ${targetLanguage.toLowerCase()}
+Texte exact transcrit en ${targetLanguage.toLowerCase()}
 [TRANSLATION]
-Traduction de ce texte en français
+Traduction directe et fidèle en français
 
-IMPORTANT : commence par la transcription, puis la traduction.`;
+IMPORTANT : Aucun commentaire d'introduction ou de conclusion, uniquement les deux blocs ci-dessus.`;
         }
 
         let sanitizedMimeType = mimeType || 'audio/webm';
@@ -46,18 +54,36 @@ IMPORTANT : commence par la transcription, puis la traduction.`;
             sanitizedMimeType = sanitizedMimeType.split(';')[0].trim();
         }
 
-        const stream = await ai.models.generateContentStream({
-            model: 'gemini-2.5-flash',
-            contents: [
-                systemPrompt,
-                {
-                    inlineData: {
-                        mimeType: sanitizedMimeType,
-                        data: audio,
-                    },
-                }
-            ],
-        });
+        // Essai avec gemini-2.5-flash puis fallback gemini-2.0-flash
+        let stream;
+        try {
+            stream = await ai.models.generateContentStream({
+                model: 'gemini-2.5-flash',
+                contents: [
+                    systemPrompt,
+                    {
+                        inlineData: {
+                            mimeType: sanitizedMimeType,
+                            data: audio,
+                        },
+                    }
+                ],
+            });
+        } catch (modelErr) {
+            console.warn("Fallback to gemini-2.0-flash for translation:", modelErr);
+            stream = await ai.models.generateContentStream({
+                model: 'gemini-2.0-flash',
+                contents: [
+                    systemPrompt,
+                    {
+                        inlineData: {
+                            mimeType: sanitizedMimeType,
+                            data: audio,
+                        },
+                    }
+                ],
+            });
+        }
 
         const encoder = new TextEncoder();
 
