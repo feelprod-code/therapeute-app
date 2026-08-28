@@ -53,7 +53,7 @@ export default function BilingualRecorder({
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [draftExists, setDraftExists] = useState(false);
     const [draftRole, setDraftRole] = useState<'therapeut' | 'patient' | null>(null);
-    const [translationMode, setTranslationMode] = useState<'conversation' | 'realtime' | 'classic'>('conversation');
+    const [translationMode, setTranslationMode] = useState<'conversation' | 'realtime'>('conversation');
     const [realtimeRole, setRealtimeRole] = useState<'therapeut' | 'patient' | 'bidirectional' | null>(null);
     const realtimeMessageIdRef = useRef<string | null>(null);
     const [chatExpanded, setChatExpanded] = useState(false);
@@ -268,8 +268,8 @@ export default function BilingualRecorder({
             setMessages(prev => prev.filter(m => m.id !== messageId));
             setRealtimeRole(null);
             realtimeMessageIdRef.current = null;
-            setTranslationMode('classic');
-            toast({ title: 'Mode Classique', description: 'WebRTC indisponible.' });
+            setTranslationMode('realtime');
+            toast({ title: 'Erreur Connexion', description: 'WebRTC indisponible.' });
             if (role !== 'bidirectional') startRecording(role);
         }
     }, [connect, patientLang, patientName, toast]);
@@ -666,25 +666,24 @@ export default function BilingualRecorder({
             <div className="flex flex-col gap-3 p-3.5 bg-white/80 border border-[#e8dfd5] rounded-2xl shadow-sm">
                 <div className="flex flex-col items-center gap-1.5">
                     <div className="flex justify-center items-center gap-1 p-1 bg-[#ebd9c8]/25 rounded-full border border-[#e8dfd5]">
-                        {(['conversation', 'realtime', 'classic'] as const).map(mode => (
+                        {(['conversation', 'realtime'] as const).map(mode => (
                             <button
                                 key={mode}
                                 onClick={() => setTranslationMode(mode)}
-                                className={`text-xs px-3.5 py-1.5 rounded-full font-medium transition-all ${
+                                className={`text-xs px-4 py-1.5 rounded-full font-medium transition-all ${
                                     translationMode === mode
                                         ? 'bg-[#bd613c] text-white shadow-sm font-semibold'
                                         : 'text-[#8c7b6c] hover:text-[#4a3f35] hover:bg-[#ebd9c8]/40'
                                 }`}
                                 disabled={isRecording || isConnected || isConnecting}
                             >
-                                {mode === 'conversation' ? '🎙️ Mains Libres' : mode === 'realtime' ? '⚡ Manuel (Push-to-Talk)' : '📱 Dictée par bloc'}
+                                {mode === 'conversation' ? '🎙️ Mains Libres (Automatique)' : '⚡ Manuel (Push-to-Talk)'}
                             </button>
                         ))}
                     </div>
                     <p className="text-[11px] text-[#8c7b6c] text-center italic max-w-md">
                         {translationMode === 'conversation' && "Mains Libres : posez le téléphone, écoute et traduction automatiques en continu pendant toute la séance (1h+)."}
                         {translationMode === 'realtime' && "Manuel Push-to-Talk : cliquez pour parler, traduction vocale instantanée à chaque prise de parole."}
-                        {translationMode === 'classic' && "Dictée par bloc : enregistrement par segments audio avec retranscription Gemini 3.5 ultra-précise."}
                     </p>
                 </div>
 
@@ -732,8 +731,8 @@ export default function BilingualRecorder({
                     </Button>
                 )}
 
-                {/* Mode Manuel (Push-to-Talk) ou Dictée par bloc */}
-                {translationMode !== 'conversation' && (
+                {/* Mode Manuel (Push-to-Talk) : Deux Boutons Alternés */}
+                {translationMode === 'realtime' && (
                     <div className="grid grid-cols-2 gap-3">
                         <Button
                             size="lg"
@@ -744,8 +743,7 @@ export default function BilingualRecorder({
                             onClick={() => {
                                 if (isRecording && recordingRole === 'therapeut') return stopRecording();
                                 if (isConnected && realtimeRole === 'therapeut') return stopRealtimeSession();
-                                if (translationMode === 'realtime') return startRealtimeSession('therapeut');
-                                return startRecording('therapeut');
+                                return startRealtimeSession('therapeut');
                             }}
                             disabled={isAnalyzing || isConnecting || (isRecording && recordingRole !== 'therapeut') || (isConnected && realtimeRole !== 'therapeut')}
                         >
@@ -760,8 +758,6 @@ export default function BilingualRecorder({
                                         ? 'Connexion...' 
                                         : (recordingRole === 'therapeut' || realtimeRole === 'therapeut') 
                                         ? "Arrêter" 
-                                        : translationMode === 'classic'
-                                        ? "Dicter (Guillaume)"
                                         : "Guillaume (FR)"
                                     }
                                 </span>
@@ -777,8 +773,7 @@ export default function BilingualRecorder({
                             onClick={() => {
                                 if (isRecording && recordingRole === 'patient') return stopRecording();
                                 if (isConnected && realtimeRole === 'patient') return stopRealtimeSession();
-                                if (translationMode === 'realtime') return startRealtimeSession('patient');
-                                return startRecording('patient');
+                                return startRealtimeSession('patient');
                             }}
                             disabled={isAnalyzing || isConnecting || (isRecording && recordingRole !== 'patient') || (isConnected && realtimeRole !== 'patient')}
                         >
@@ -788,8 +783,6 @@ export default function BilingualRecorder({
                                     ? 'Connexion...' 
                                     : (recordingRole === 'patient' || realtimeRole === 'patient') 
                                     ? "Stop" 
-                                    : translationMode === 'classic'
-                                    ? `Dicter (${patientName || 'Patient'})`
                                     : `${patientName || 'Patient'} (${patientLang.code.substring(0, 2).toUpperCase()})`
                                 }
                             </span>
