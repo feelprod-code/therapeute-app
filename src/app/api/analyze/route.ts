@@ -7,7 +7,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { ensureLastNameFirst } from '@/lib/utils';
+import { ensureLastNameFirst, extractPatientNameFromText } from '@/lib/utils';
 
 const execAsync = promisify(exec);
 
@@ -478,27 +478,29 @@ Ton objectif est de mettre à jour la synthèse PRÉCÉDENTE en FUSIONNANT de ma
         const systemPrompt = `Tu es un assistant médical clinique expert (ostéopathie, biokinergie, thérapie manuelle). Ton rôle est d'analyser l'intégralité de la transcription de l'interrogatoire patient (et/ou des documents) et de produire un bilan médical exhaustif, riche et rigoureusement structuré.${contextInstruction}
 Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme ceci :
 {
-  "patientName": "Nom et Prénom trouvés (ou chaîne vide si aucun)",
+  "patientName": "Nom et Prénom trouvés (ex: 'PETIT TOYOZATO Eri' ou 'DONNADIEU Nathalie')",
   "consultationDate": "Date trouvée dans le texte (ex: 2024-10-14). Si aucune date précise n'est mentionnée, renvoie null ou une chaîne vide.",
   "resume": "Le résumé global et évolutif intégrant le bilan initial et les suivis datés (avec imagerie clé en markdown pur si présente, lieux de fracture, notes psy et synthèse clinique).",
   "synthese": "La synthèse médicale formatée en Markdown"
 }
 
 Règles impératives et absolues :
-1. "patientName" : Extrait le NOM (en MAJUSCULES) suivi du Prénom (ex: "DONNADIEU Nathalie"). S'il n'est pas mentionné, laisse cette chaîne vide "".
+1. "patientName" : Extrait scrupuleusement le NOM (en MAJUSCULES) suivi du Prénom (ex: "PETIT TOYOZATO Eri", "SOULE Laura"). Si le texte commence par une civilité (Madame, Monsieur), des lignes avec Nom, Prénom, Nom de naissance, analyse scrupuleusement ces lignes. Ne renvoie JAMAIS "Anonyme", "Patient Anonyme" ou chaîne vide si un nom ou prénom est mentionné ou discernable dans le texte ou les documents !
 2. "consultationDate" : Si le texte mentionne EXPLICITEMENT la date de la séance (ex: "bilan du 14 octobre", "vu le 12/03/2021"), extrait-la au format string ISO AAAA-MM-JJ. Si AUCUNE date n'est prononcée ou écrite dans les documents, tu DOIS IMPÉRATIVEMENT renvoyer une chaîne vide "". Ne déduis PAS la date et ne mets JAMAIS la date d'aujourd'hui par défaut dans ce champ JSON.
-3. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil intégrant le bilan initial et toutes les séances de suivi avec leurs dates respectives, les constats radiologiques (fractures, cals osseux) et le volet psycho-émotionnel.
-4. "synthese" : RÈGLE D'EXHAUSTIVITÉ CLINIQUE MAXIMALE (ZÉRO PERTE D'INFORMATION). Ne jamais écourter ou résumer à l'excès.
-   - **Histoire de la Maladie** : Décris exhaustivement les symptômes, leur localisation, leur date d'apparition précise, les circonstances déclenchantes (ex: amaigrissement rapide, reprise de sport/poids inadaptée, faux-pas, manipulations inadaptées), les traitements déjà tentés (AINS, kinésithérapie, ostéopathie, etc.) et leur inefficacité.
-   - **Antécédents et Chronologie (ATCD)** : Liste TOUS les traumatismes physiques (accidents de la route, chutes, entorses, fractures, immobilisations par botte, chirurgies), les deuils ou événements de vie marquants (décès de parents, contexte familial et stress lié aux enfants), la situation professionnelle (retraite, métier) et les démarches thérapeutiques antérieures, classés du plus ancien au plus récent.
+3. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil intégrant le bilan initial et toutes les séances de suivi avec leurs dates respectives, les constats radiologiques (fractures, cals osseux, discarthrose) et le volet psycho-émotionnel.
+4. "synthese" : RÈGLE D'EXHAUSTIVITÉ CLINIQUE SANS REMPLISSAGE SPÉCULATIF :
+   - RÈGLE CRITIQUE (ZÉRO SPÉCULATION / ZÉRO BLABLA QUAND AUCUN INTERROGATOIRE N'EST FOURNI) : Si l'utilisateur n'a transmis QUE l'identité du patient ou des résultats d'examens (radio, scanner) SANS audio d'interrogatoire clinique : N'INVENTE JAMAIS de texte d'explication ou de remplissage théorique (ex: NE PAS écrire 'Le patient se présente pour une évaluation...', NE PAS écrire 'En l'absence d'informations spécifiques...', NE PAS écrire 'Non précisés : Cette section exhaustive recenserait...'). Laisse simplement un tiret '-' ou 'Non renseigné' pour les sections sans informations (Motif, Histoire, ATCD), car l'audio de consultation arrivera ultérieurement !
+   - **Histoire de la Maladie** : Si un interrogatoire a eu lieu, décris exhaustivement les symptômes, leur localisation, leur date d'apparition précise, les circonstances déclenchantes et les traitements déjà tentés. Sinon, écris simplement '-'.
+   - **Antécédents et Chronologie (ATCD)** : Si mentionnés, liste TOUS les traumatismes physiques, deuils, chirurgies, classés par ordre chronologique. Sinon, écris simplement '-'.
+   - **Examens Complémentaires** : Transcris exhaustivement les constatations et conclusions des examens radiologiques/médicaux fournis.
    - **Règle Anti-Troncature Absolue** : Chaque section doit être rédigée intégralement jusqu'à son terme sans jamais s'interrompre.
 
 # Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- [Date exacte de la consultation, ou ${currentDate} par défaut]</span>
 
 ### Informations Patient
-- **Nom/Prénom :** [Extraire si mentionné, sinon écrire "Non précisé"]
-- **Âge / Date de naissance :** [Extraire si mentionné]
-- **Profession :** [Extraire si mentionné]
+- **Nom/Prénom :** [Nom et Prénom extraits]
+- **Âge / Date de naissance :** [Extraire si mentionné, ex: 51 ans / 28/03/1975]
+- **Profession :** [Extraire si mentionné, sinon "Non renseigné"]
 - **Date de consultation :** [Date exacte de la consultation extraite du texte, ou ${currentDate} par défaut]
 ### Motif de Consultation
 [...]
@@ -509,33 +511,10 @@ Règles impératives et absolues :
 - **Circonstances d'apparition :** [...]
 ### Examens Complémentaires
 - **Photos / PDF / Textes :**
-[CONSIGNE ABSOLUE ET CRITIQUE CONCERNANT LES DOCUMENTS JOINTS (IMAGERIES ET RAPPORTS) :
-- Tu ne dois JAMAIS afficher visuellement dans la synthèse (ni tag <img> ni tag <iframe>) les documents qui sont des photographies de comptes-rendus médicaux imprimés, des scannings de feuilles de papier écrites, ou des fichiers PDF de comptes-rendus textuels (comme des feuilles imprimées de résultats de laboratoires, de comptes-rendus de scanner/IRM). Le contenu clinique de ces documents textuels doit uniquement être rédigé sous forme de texte normal dans les puces ci-dessus (Indication, Résultats, Conclusion). Ne mets pas de lien d'image ni d'iframe pour eux.
-- En revanche, si le document fourni est une VÉRITABLE illustration visuelle d'imagerie anatomique (radiographie, cliché de scanner, échographie, IRM montrant des os, articulations ou tissus corporels, etc.), tu DOIS l'intégrer sous forme d'illustration en grand en utilisant EXCLUSIVEMENT le format HTML ci-dessous.
-- Si le document est un rapport textuel / une feuille de papier prise en photo, ne l'affiche pas dans la synthèse. L'utilisateur y aura accès par le panneau latéral "Fichiers Joints" du dossier.
-
-Pour chaque document d'imagerie anatomique réelle, insère-le comme suit :
-Si c'est une image (JPEG, JPG, PNG, WEBP) :
-<div style="margin: 16px 0;">
-  <div style="font-weight: bold; color: #5a4e44; margin-bottom: 8px;">📷 [Nom d'origine nettoyé]</div>
-  <img src="[URL publique]" alt="Imagerie" style="max-width: 100%; max-height: 500px; border-radius: 8px; border: 1px solid #e8e4e1; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);" />
-</div>
-
-Si c'est un PDF d'imagerie anatomique réelle (pas un texte) :
-<div style="background: #fcfbfa; border: 1px solid #e8e4e1; padding: 16px; border-radius: 8px; margin: 16px 0;">
-  <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-    <span style="font-size: 28px;">📄</span>
-    <div>
-      <div style="font-weight: bold; color: #5a4e44;">[Nom d'origine nettoyé]</div>
-      <div style="font-size: 0.85em; color: #8c7b6d;">Document PDF</div>
-    </div>
-    <a href="[URL publique]" target="_blank" style="margin-left: auto; background: #bd613c; color: white; padding: 6px 12px; border-radius: 20px; font-size: 0.85em; font-weight: 500; text-decoration: none; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">Ouvrir en plein écran</a>
-  </div>
-  <iframe src="[URL publique]" style="width: 100%; height: 500px; border-radius: 6px; border: 1px solid #ebd9c8;" />
-</div>
-
-Classe-les par ordre chronologique de la date de l'examen.
-Si aucun document n'est fourni ou s'ils sont tous filtrés comme étant des comptes-rendus textuels sur papier, écris simplement : - **Photos / PDF / Textes :** Aucun document joint (les documents textuels sont accessibles dans les Fichiers Joints).]
+[CONSIGNE CONCERNANT LES DOCUMENTS JOINTS :
+- Les comptes-rendus médicaux textuels (radios, scanners, IRM, labos) doivent uniquement être transcrits et rédigés sous forme de texte structuré et clair (Indication, Constatations, Conclusion).
+- Ne crée pas de tag <img> ou <iframe> pour des photos de feuilles de papier ou comptes-rendus textuels.
+- Seules les véritables images anatomiques (radiographies, coupes IRM) peuvent être intégrées avec le format HTML propre si pertinent.]
 ### Antécédents (ATCD) et Chronologie
 - [Année] - [Description]
 
@@ -554,6 +533,14 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
         }
 
         const synthesisParts: Array<{ text?: string; fileData?: { fileUri: string, mimeType: string } }> = [];
+
+        // Si un fichier texte brut a été soumis comme note principale (ex: saisie manuelle / collage de texte)
+        if (audioFile && audioFile.fileName && finalMimeType.startsWith('text/')) {
+            const mainTextContent = processedAudioBuffer.toString('utf-8');
+            synthesisParts.push({
+                text: `\n\n--- TEXTE PRINCIPAL DE LA CONSULTATION / NOTES PATIENT (${audioFile.fileName}) ---\n${mainTextContent}\n--- FIN DU TEXTE ---\n`
+            });
+        }
 
         if (directAudioTranscription) {
             synthesisParts.push({
@@ -683,6 +670,14 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
             jsonResult.transcription = previousContext.transcription + separator + (jsonResult.transcription || "");
         }
 
+        // Fallback extraction de nom si l'IA n'a rien trouvé ou a mis Anonyme
+        if (!jsonResult.patientName || jsonResult.patientName.toLowerCase().startsWith("patient anonyme") || jsonResult.patientName.toLowerCase() === "anonyme" || jsonResult.patientName.toLowerCase().includes("non précisé")) {
+            const fallbackName = extractPatientNameFromText(finalTranscription) || extractPatientNameFromText(newText || "");
+            if (fallbackName) {
+                jsonResult.patientName = fallbackName;
+            }
+        }
+
         if (jsonResult.patientName) {
             jsonResult.patientName = ensureLastNameFirst(jsonResult.patientName);
         }
@@ -691,10 +686,8 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
             const defaultDateFormatted = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
             // Fix any empty span or unformatted spans in title
             jsonResult.synthese = jsonResult.synthese
-                .replace(/# Bilan de consultation <span[^>]*>-?\s*<\/span>/gi, `# Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- ${defaultDateFormatted}</span>`)
-                .replace(/# Bilan de consultation <span[^>]*>-?\s*\[Date[^\]]*\]<\/span>/gi, `# Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- ${defaultDateFormatted}</span>`)
-                .replace(/- \*\*Date de consultation :\*\*(\s*)$/gm, `- **Date de consultation :** ${defaultDateFormatted}$1`)
-                .replace(/- \*\*Date de consultation :\*\*(\s*)\[Date[^\]]*\]/gi, `- **Date de consultation :** ${defaultDateFormatted}`);
+                .replace(/# Bilan de consultation\s*<span[^>]*>-?\s*(?:\[Date[^\]]*\]|Non précisé(?:e)?|null|undefined)?\s*<\/span>/gi, `# Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- ${defaultDateFormatted}</span>`)
+                .replace(/- \*\*Date de consultation :\*\*(\s*)(?:\[Date[^\]]*\]|Non précisé(?:e)?|null|undefined)?$/gmi, `- **Date de consultation :** ${defaultDateFormatted}`);
         }
 
         return NextResponse.json(jsonResult);

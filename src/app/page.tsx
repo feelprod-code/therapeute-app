@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Copy, Plus, Trash2, ArrowRight, Loader2, RefreshCw, FileText, Check, MessageSquare, ListTodo, MoreHorizontal, Merge, Search, Mic, Type, FileUp, X as XIcon, CalendarDays, Folder as FolderIcon, ChevronDown, Combine, Paperclip, Image as ImageIcon, X, Download, Square, ArrowLeftRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
-import { swapFirstLastName, extractLastName, extractFirstName, getClassificationLetter, normalizeSearch } from "@/lib/utils";
+import { swapFirstLastName, extractLastName, extractFirstName, getClassificationLetter, normalizeSearch, extractPatientNameFromText } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
@@ -216,11 +216,22 @@ export default function Home() {
       const { data: { user } } = await supabase.auth.getUser();
 
       // 1. CREATION DE LA consultation dans la DB (elle apparaîtra en temps réel grâce au websocket)
+      let initialPatientName = `Patient Anonyme (${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })})`;
+      if (inputBlob instanceof File && (inputBlob.name.endsWith('.txt') || inputBlob.type.startsWith('text/'))) {
+        try {
+          const textPreview = new TextDecoder().decode(buffer.slice(0, 4000));
+          const extracted = extractPatientNameFromText(textPreview);
+          if (extracted) initialPatientName = extracted;
+        } catch (e) {
+          console.error("Erreur extraction nom préliminaire:", e);
+        }
+      }
+
       toast({ title: "⏳ Étape 1/3", description: "Création du dossier patient..." });
       const { data: newConsultation, error: insertError } = await supabase.from('consultations').insert({
         user_id: user?.id || "00000000-0000-0000-0000-000000000000",
         date: new Date().toISOString(),
-        patient_name: `Patient Anonyme (${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })})`, // Temporaire avec heure pour éviter les erreurs de suppression
+        patient_name: initialPatientName,
         synthese: "",
         transcription: "",
         resume: "",
@@ -298,10 +309,19 @@ export default function Home() {
       console.log("Réponse de l'API reçue");
       const analyzeData = await analyzeRes.json();
 
+      let resolvedPatientName = analyzeData.patientName && analyzeData.patientName.trim() !== "" ? analyzeData.patientName : "";
+      if (!resolvedPatientName || resolvedPatientName.toLowerCase().startsWith("patient anonyme") || resolvedPatientName.toLowerCase() === "anonyme") {
+        const fallback = extractPatientNameFromText(analyzeData.transcription || "");
+        if (fallback) resolvedPatientName = fallback;
+      }
+      if (!resolvedPatientName) {
+        resolvedPatientName = !initialPatientName.startsWith("Patient Anonyme") ? initialPatientName : "Patient Anonyme";
+      }
+
       // Mettre à jour avec le compte-rendu brut et la synthèse (Gemini renvoie un texte structuré)
       // Construire le payload de mise à jour
       const updatePayload: any = {
-        patient_name: analyzeData.patientName && analyzeData.patientName.trim() !== "" ? analyzeData.patientName : "Patient Anonyme",
+        patient_name: resolvedPatientName,
         resume: analyzeData.resume || "",
         synthese: analyzeData.synthese,
         transcription: analyzeData.transcription || "",
@@ -587,8 +607,17 @@ export default function Home() {
 
       const analyzeData = await analyzeRes.json();
 
+      let resolvedPatientName = analyzeData.patientName && analyzeData.patientName.trim() !== "" ? analyzeData.patientName : "";
+      if (!resolvedPatientName || resolvedPatientName.toLowerCase().startsWith("patient anonyme") || resolvedPatientName.toLowerCase() === "anonyme") {
+        const fallback = extractPatientNameFromText(analyzeData.transcription || "") || extractPatientNameFromText(consult.patient_name || "");
+        if (fallback) resolvedPatientName = fallback;
+      }
+      if (!resolvedPatientName) {
+        resolvedPatientName = consult.patient_name && !consult.patient_name.startsWith("Patient Anonyme") ? consult.patient_name : "Patient Anonyme";
+      }
+
       await supabase.from('consultations').update({
-        patient_name: analyzeData.patientName && analyzeData.patientName.trim() !== "" ? analyzeData.patientName : "Patient Anonyme",
+        patient_name: resolvedPatientName,
         resume: analyzeData.resume || "",
         synthese: analyzeData.synthese,
         transcription: analyzeData.transcription || "Transcription introuvable.",

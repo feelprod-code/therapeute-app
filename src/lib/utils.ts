@@ -152,3 +152,76 @@ export function ensureLastNameFirst(fullName: string): string {
 
   return trimmed;
 }
+
+export function extractPatientNameFromText(rawText: string): string {
+  if (!rawText || !rawText.trim()) return "";
+  const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  if (lines.length === 0) return "";
+
+  // Pattern 1: Civility header on separate line (Madame / Monsieur / M. / Mme)
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const isCivility = /^(madame|monsieur|m\.|mme|mlle|patient\s*:?|patiente\s*:?)$/i.test(line);
+    if (isCivility && i + 2 < lines.length) {
+      const next1 = lines[i + 1].replace(/^[^\w\sÀ-ÖØ-öø-ÿ]+|[^\w\sÀ-ÖØ-öø-ÿ]+$/g, '').trim();
+      const next2 = lines[i + 2].replace(/^[^\w\sÀ-ÖØ-öø-ÿ]+|[^\w\sÀ-ÖØ-öø-ÿ]+$/g, '').trim();
+      if (next1 && next2 && !next1.includes(':') && !next2.includes(':')) {
+        return ensureLastNameFirst(`${next1} ${next2}`);
+      }
+    }
+  }
+
+  // Pattern 2: First 2 lines are LASTNAME and Firstname followed by gender/date/birth line
+  if (lines.length >= 2) {
+    const line0 = lines[0].replace(/^(madame|monsieur|m\.|mme|mlle)\s+/i, '').trim();
+    const line1 = lines[1].trim();
+    if (
+      lines.length >= 3 &&
+      (lines[2].toLowerCase().includes('né') || /^[fm],?\s*\d{2}[\/-]\d{2}[\/-]\d{4}/i.test(lines[2]) || /^[fm],?\s*\d+/i.test(lines[2]) || /^\d{2}[\/-]\d{2}[\/-]\d{4}/.test(lines[2])) &&
+      !line0.includes(':') && !line1.includes(':')
+    ) {
+      return ensureLastNameFirst(`${line0} ${line1}`);
+    }
+  }
+
+  // Pattern 3: Key-value lines (Nom : ..., Prénom : ...)
+  let foundLastName = "";
+  let foundFirstName = "";
+  for (const line of lines) {
+    const lastNameMatch = line.match(/^(?:nom|nom\s+(?:de\s+)?naissance|nom\s+d'usage|nom\s+marital)\s*:\s*([^,\n]+)/i);
+    if (lastNameMatch && !foundLastName) {
+      foundLastName = lastNameMatch[1].trim();
+    }
+    const firstNameMatch = line.match(/^(?:prénom|prenom)\s*:\s*([^,\n]+)/i);
+    if (firstNameMatch && !foundFirstName) {
+      foundFirstName = firstNameMatch[1].trim();
+    }
+    const fullMatch = line.match(/^(?:nom\s*[\/&]\s*pr[ée]nom|nom\s+et\s+pr[ée]nom|patient(?:e)?)\s*:\s*([^,\n]+)/i);
+    if (fullMatch) {
+      const candidate = fullMatch[1].trim();
+      if (candidate && !/^(non\s+pr[ée]cis[ée]|anonyme)/i.test(candidate)) {
+        return ensureLastNameFirst(candidate);
+      }
+    }
+  }
+
+  if (foundLastName && foundFirstName) {
+    return ensureLastNameFirst(`${foundLastName} ${foundFirstName}`);
+  }
+  if (foundLastName) {
+    return foundLastName.toUpperCase();
+  }
+
+  // Pattern 4: Inline civility or "Patient(e) [Nom Prénom]" at start of text
+  const firstLine = lines[0];
+  const inlineMatch = firstLine.match(/^(?:patient(?:e)?|madame|monsieur|m\.|mme)\s+([A-ZÀ-ÖØ-öø-ÿ\s-]+?)(?:,|\.|\s+\d|\s+né|\s+a\s+\d|\s+consulte|$)/i);
+  if (inlineMatch && inlineMatch[1].trim().length > 2) {
+    const candidate = inlineMatch[1].trim();
+    if (!/^(anonyme|non\s+pr[ée]cis[ée])$/i.test(candidate)) {
+      return ensureLastNameFirst(candidate);
+    }
+  }
+
+  return "";
+}
+
