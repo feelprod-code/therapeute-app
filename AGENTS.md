@@ -34,3 +34,11 @@ Pour toutes les illustrations médicales :
 - **Tensions / Foyers algogènes :** Terracotta `#8C4E33` / `#AF2D14`
 - **Fascias / Dure-mère :** Bleu ardoise `#7EAEC8` / `#1A535C`
 - **Fluides / Souffle :** Cyan / Or `#38B2AC` / `#E2B357`
+
+## 4. Fusion (Merge) de notes 
+Lorsqu'un thérapeute ajoute un enregistrement vocal qui vient compléter un "Bilan de consultation" pré-existant :
+- Les éléments existants du rapport clinique (Motif, Mode de vie, ATCD, etc.) doivent être bonifiés avec le nouveau texte de façon invisible/fluide si possible. 
+- S'il faut modifier la date globale de la consultation via cette nouvelle note (par ex. si le praticien mentionne "Note pour le 19 janvier"), on doit simplement mettre à jour le `[Date]` dans la balise HTML tout en haut du document sans rajouter de fausse section en bas du texte du style "Ajout au 19 janvier".
+
+## 5. Modification structurelle des dates de "Suivi"
+Dans l'interface, lorsqu'une session de "suivi" voit sa date être modifiée par l'utilisateur, on **décale linéairement** le *timestamp* de l'ensemble de ses "notes" filles associées. On ne les écrase jamais avec la même valeur temporelle, pour préserver la chronologie d'édition relative de la session.
