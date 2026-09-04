@@ -238,8 +238,12 @@ export default function ConsultationDetail() {
         synthese: newSynthese,
         follow_ups: updatedFollowUps
       };
-      if (newPatientName) {
-        updatePayload.patient_name = newPatientName;
+      let resolvedName = data?.patient_name;
+      if (newPatientName && !newPatientName.toLowerCase().startsWith("patient anonyme") && newPatientName.trim() !== "") {
+        resolvedName = newPatientName;
+      }
+      if (resolvedName) {
+        updatePayload.patient_name = resolvedName;
       }
 
       const { data: updated, error } = await supabase
@@ -255,7 +259,7 @@ export default function ConsultationDetail() {
         ...data,
         synthese: newSynthese,
         follow_ups: updatedFollowUps,
-        ...(newPatientName ? { patient_name: newPatientName } : {})
+        ...(resolvedName ? { patient_name: resolvedName } : {})
       });
     } catch (e: any) {
       console.error("Erreur sauvegarde synthèse avec historique:", e);

@@ -43,3 +43,5 @@ test_sdk.mjs
 *.sql
 *.mjs
 scratch_*/
+consultation_*.json
+*.py

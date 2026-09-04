@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenAI, Type } from '@google/genai';
-import { ensureLastNameFirst } from '@/lib/utils';
+import { ensureLastNameFirst, extractPatientNameFromText } from '@/lib/utils';
 import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
@@ -109,7 +109,7 @@ export async function POST(req: Request) {
         const systemPrompt = `Tu es un assistant médical clinique expert (ostéopathie, biokinergie, thérapie manuelle). Ton rôle est d'analyser l'intégralité de la transcription de l'interrogatoire patient et de produire un bilan médical exhaustif, riche et rigoureusement structuré.
 Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme ceci :
 {
-  "patientName": "Nom et Prénom trouvés (ou chaîne vide si aucun)",
+  "patientName": "Nom et Prénom trouvés (ex: 'PETIT TOYOZATO Eri' ou 'DONNADIEU Nathalie')",
   "consultationDate": "Date trouvée dans le texte (ex: 2024-10-14). Si aucune date précise n'est mentionnée, renvoie null ou une chaîne vide.",
   "transcription": "",
   "resume": "Le résumé global et évolutif intégrant le bilan initial et les suivis datés (avec imagerie clé en markdown pur si présente, lieux de fracture, notes psy et synthèse clinique).",
@@ -117,21 +117,23 @@ Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme 
 }
 
 Règles impératives et absolues :
-1. "patientName" : Extrait le NOM (en MAJUSCULES) suivi du Prénom (ex: "DONNADIEU Nathalie"). S'il n'est pas mentionné, laisse cette chaîne vide "".
+1. "patientName" : Extrait scrupuleusement le NOM (en MAJUSCULES) suivi du Prénom (ex: "PETIT TOYOZATO Eri", "SOULE Laura"). Si le texte commence par une civilité (Madame, Monsieur), des lignes avec Nom, Prénom, Nom de naissance, analyse scrupuleusement ces lignes. Ne renvoie JAMAIS "Anonyme", "Patient Anonyme" ou chaîne vide si un nom ou prénom est mentionné ou discernable dans le texte ou les documents !
 2. "consultationDate" : Si le texte mentionne EXPLICITEMENT la date de la séance (ex: "bilan du 14 octobre", "vu le 12/03/2021"), extrait-la au format string ISO AAAA-MM-JJ. Si AUCUNE date n'est prononcée ou écrite dans les documents, tu DOIS IMPÉRATIVEMENT renvoyer une chaîne vide "".
 3. "transcription" : Laisse ce champ STRICTEMENT vide "" car la transcription est déjà entièrement gérée par le serveur.
 4. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil intégrant le bilan initial et toutes les séances de suivi avec leurs dates respectives, les constats radiologiques (fractures, cals osseux) et le volet psycho-émotionnel.
-5. "synthese" : RÈGLE D'EXHAUSTIVITÉ CLINIQUE MAXIMALE (ZÉRO PERTE D'INFORMATION). Ne jamais écourter ou résumer à l'excès.
-   - **Histoire de la Maladie** : Décris exhaustivement les symptômes, leur localisation, leur date d'apparition précise, les circonstances déclenchantes (ex: traumatisme, soirée dansante, efforts, faux-pas), les traitements déjà tentés et leur inefficacité.
-   - **Antécédents et Chronologie (ATCD)** : Liste TOUS les traumatismes physiques (accidents, chutes, entorses, fractures), les deuils ou événements de vie marquants, la situation professionnelle et les démarches thérapeutiques antérieures, classés du plus ancien au plus récent.
+5. "synthese" : RÈGLE D'EXHAUSTIVITÉ CLINIQUE SANS REMPLISSAGE SPÉCULATIF :
+   - RÈGLE CRITIQUE (ZÉRO SPÉCULATION / ZÉRO BLABLA QUAND AUCUN INTERROGATOIRE N'EST FOURNI) : Si l'utilisateur n'a transmis QUE l'identité du patient ou des résultats d'examens (radio, scanner) SANS audio d'interrogatoire clinique : N'INVENTE JAMAIS de texte d'explication ou de remplissage théorique (ex: NE PAS écrire 'Le patient se présente pour une évaluation...', NE PAS écrire 'En l'absence d'informations spécifiques...', NE PAS écrire 'Non précisés : Cette section exhaustive recenserait...'). Laisse simplement un tiret '-' ou 'Non renseigné' pour les sections sans informations (Motif, Histoire, ATCD), car l'audio de consultation arrivera ultérieurement !
+   - **Histoire de la Maladie** : Si un interrogatoire a eu lieu, décris exhaustivement les symptômes, leur localisation, leur date d'apparition précise, les circonstances déclenchantes et les traitements déjà tentés. Sinon, écris simplement '-'.
+   - **Antécédents et Chronologie (ATCD)** : Si mentionnés, liste TOUS les traumatismes physiques, deuils, chirurgies, classés par ordre chronologique. Sinon, écris simplement '-'.
+   - **Examens Complémentaires** : Transcris exhaustivement les constatations et conclusions des examens radiologiques/médicaux fournis.
    - **Règle Anti-Troncature** : Chaque section doit être rédigée intégralement jusqu'à son terme sans jamais s'interrompre.
 
 # Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- [Date exacte de la consultation, ou ${currentDate} par défaut]</span>
 
 ### Informations Patient
-- **Nom/Prénom :** [Extraire si mentionné, sinon écrire "Non précisé"]
-- **Âge / Date de naissance :** [Extraire si mentionné]
-- **Profession :** [Extraire si mentionné]
+- **Nom/Prénom :** [Nom et Prénom extraits]
+- **Âge / Date de naissance :** [Extraire si mentionné, ex: 51 ans / 28/03/1975]
+- **Profession :** [Extraire si mentionné, sinon "Non renseigné"]
 - **Date de consultation :** [Date exacte de la consultation extraite du texte, ou ${currentDate} par défaut]
 ### Motif de Consultation
 [...]
@@ -196,6 +198,14 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
             return NextResponse.json({ error: "Erreur de formatage de l'IA." }, { status: 500 });
         }
 
+        // Fallback extraction de nom si l'IA n'a rien trouvé ou a mis Anonyme
+        if (!jsonResult.patientName || jsonResult.patientName.toLowerCase().startsWith("patient anonyme") || jsonResult.patientName.toLowerCase() === "anonyme" || jsonResult.patientName.toLowerCase().includes("non précisé")) {
+            const fallbackName = extractPatientNameFromText(transcript);
+            if (fallbackName) {
+                jsonResult.patientName = fallbackName;
+            }
+        }
+
         if (jsonResult.patientName) {
             jsonResult.patientName = ensureLastNameFirst(jsonResult.patientName);
         }
@@ -205,10 +215,8 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
         if (jsonResult.synthese) {
             const defaultDateFormatted = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
             jsonResult.synthese = jsonResult.synthese
-                .replace(/# Bilan de consultation <span[^>]*>-?\s*<\/span>/gi, `# Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- ${defaultDateFormatted}</span>`)
-                .replace(/# Bilan de consultation <span[^>]*>-?\s*\[Date[^\]]*\]<\/span>/gi, `# Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- ${defaultDateFormatted}</span>`)
-                .replace(/- \*\*Date de consultation :\*\*(\s*)$/gm, `- **Date de consultation :** ${defaultDateFormatted}$1`)
-                .replace(/- \*\*Date de consultation :\*\*(\s*)\[Date[^\]]*\]/gi, `- **Date de consultation :** ${defaultDateFormatted}`);
+                .replace(/# Bilan de consultation\s*<span[^>]*>-?\s*(?:\[Date[^\]]*\]|Non précisé(?:e)?|null|undefined)?\s*<\/span>/gi, `# Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- ${defaultDateFormatted}</span>`)
+                .replace(/- \*\*Date de consultation :\*\*(\s*)(?:\[Date[^\]]*\]|Non précisé(?:e)?|null|undefined)?$/gmi, `- **Date de consultation :** ${defaultDateFormatted}`);
         }
 
         return NextResponse.json(jsonResult);
