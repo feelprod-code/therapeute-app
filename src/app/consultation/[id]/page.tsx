@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon, Trash2, Square, ExternalLink, ArrowLeftRight, History, Maximize2, ZoomIn, ZoomOut, RotateCcw, Download } from "lucide-react";
+import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon, Trash2, Square, ExternalLink, ArrowLeftRight, History, Maximize2, ZoomIn, ZoomOut, RotateCcw, Download, ChevronDown, ChevronUp } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import ReactMarkdown from "react-markdown";
@@ -22,6 +22,160 @@ import imageCompression from 'browser-image-compression';
 import { swapFirstLastName } from "@/lib/utils";
 import { SyntheseHistoryModal, SyntheseVersionItem } from "@/components/SyntheseHistoryModal";
 import { MedicalImageViewerModal, MedicalImageItem } from "@/components/MedicalImageViewerModal";
+
+function FollowUpCardContent({
+  content,
+  noteId,
+  isExpanded,
+  onToggleExpand,
+  onDoubleClick,
+  markdownComponents
+}: {
+  content: string;
+  noteId: string;
+  isExpanded: boolean;
+  onToggleExpand: (explicit?: boolean) => void;
+  onDoubleClick: () => void;
+  markdownComponents: any;
+}) {
+  if (!content) return null;
+
+  // Check for explicit delimiters
+  const moreMatch = content.match(/<!--\s*(?:more|developpement|resume-end)\s*-->/i);
+  const detailsIndex = content.indexOf('<details');
+  const hrMatch = content.match(/\n---\n/);
+  const sectionMatch = content.match(/\n(?=###?\s*(?:⚠️|📖|📊|📂|Dossiers|Analyse|Résultats))/i);
+
+  let resumeText = content;
+  let developpementText = content;
+  let hasSplit = false;
+
+  if (moreMatch && moreMatch.index !== undefined) {
+    resumeText = content.slice(0, moreMatch.index).trim();
+    developpementText = content.slice(moreMatch.index + moreMatch[0].length).trim();
+    hasSplit = true;
+  } else if (detailsIndex !== -1 && detailsIndex > 80) {
+    resumeText = content.slice(0, detailsIndex).trim();
+    developpementText = content.trim();
+    hasSplit = true;
+  } else if (sectionMatch && sectionMatch.index !== undefined && sectionMatch.index > 100) {
+    resumeText = content.slice(0, sectionMatch.index).trim();
+    developpementText = content.trim();
+    hasSplit = true;
+  } else if (hrMatch && hrMatch.index !== undefined && hrMatch.index > 100 && hrMatch.index < 1500) {
+    resumeText = content.slice(0, hrMatch.index).trim();
+    developpementText = content.trim();
+    hasSplit = true;
+  } else if (content.length > 450) {
+    const paras = content.split(/\n\n+/);
+    if (paras.length > 2) {
+      resumeText = paras.slice(0, 2).join('\n\n') + '\n\n*(...)*';
+    } else {
+      resumeText = content.slice(0, 380) + '...';
+    }
+    hasSplit = true;
+  }
+
+  // If content is very short, render standard view without toggle
+  if (!hasSplit) {
+    return (
+      <div
+        className="w-full mt-3 prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-3.5 rounded-xl border border-[#ebd9c8]/20 bg-white/40"
+        onDoubleClick={onDoubleClick}
+        title="Double-clic pour modifier la note"
+      >
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
+          {content}
+        </ReactMarkdown>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full mt-3 rounded-2xl border border-[#ebd9c8]/70 bg-white/70 p-3 sm:p-4 shadow-2xs hover:shadow-xs transition-shadow">
+      {/* Barre de contrôle Résumé / Développement */}
+      <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-[#ebd9c8]/40">
+        <div className="flex items-center gap-1.5">
+          <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-md ${
+            !isExpanded
+              ? 'bg-[#bd613c]/10 text-[#bd613c] border border-[#bd613c]/20'
+              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+          }`}>
+            {!isExpanded ? '⚡ Vue Résumé' : '📖 Vue Développement'}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1 bg-[#ebd9c8]/20 p-0.5 rounded-lg border border-[#ebd9c8]/50">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onToggleExpand(false); }}
+            className={`text-[11px] font-medium px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+              !isExpanded
+                ? 'bg-white text-[#bd613c] shadow-2xs font-semibold'
+                : 'text-[#5a4e44]/70 hover:text-[#bd613c]'
+            }`}
+          >
+            ⚡ Résumé
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onToggleExpand(true); }}
+            className={`text-[11px] font-medium px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+              isExpanded
+                ? 'bg-white text-[#bd613c] shadow-2xs font-semibold'
+                : 'text-[#5a4e44]/70 hover:text-[#bd613c]'
+            }`}
+          >
+            📖 Développement
+          </button>
+        </div>
+      </div>
+
+      {/* Contenu Markdown */}
+      <div
+        className="prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer"
+        onDoubleClick={onDoubleClick}
+        title="Double-clic pour modifier la note"
+      >
+        {!isExpanded ? (
+          <div className="relative">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
+              {resumeText}
+            </ReactMarkdown>
+            <div className="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-white/80 to-transparent pointer-events-none" />
+          </div>
+        ) : (
+          <div className="animate-in fade-in-50 duration-200">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
+              {developpementText}
+            </ReactMarkdown>
+          </div>
+        )}
+      </div>
+
+      {/* Bouton bas : En savoir plus / Réduire */}
+      {!isExpanded ? (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggleExpand(true); }}
+          className="w-full mt-3 py-2 px-3 bg-[#faf7f2] hover:bg-[#ebd9c8]/30 border border-[#ebd9c8] hover:border-[#bd613c]/50 rounded-xl text-xs font-semibold text-[#bd613c] flex items-center justify-center gap-1.5 transition-all group shadow-2xs cursor-pointer"
+        >
+          <span>En savoir plus — Dérouler le développement complet</span>
+          <ChevronDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggleExpand(false); }}
+          className="w-full mt-4 py-2 px-3 bg-[#faf7f2] hover:bg-[#ebd9c8]/30 border border-[#ebd9c8]/80 hover:border-[#bd613c]/30 rounded-xl text-xs font-semibold text-[#5a4e44] hover:text-[#bd613c] flex items-center justify-center gap-1.5 transition-all group shadow-2xs cursor-pointer"
+        >
+          <span>Réduire — Afficher uniquement le résumé</span>
+          <ChevronUp className="w-3.5 h-3.5 group-hover:-translate-y-0.5 transition-transform" />
+        </button>
+      )}
+    </div>
+  );
+}
 
 export default function ConsultationDetail() {
   const params = useParams();
@@ -42,6 +196,17 @@ export default function ConsultationDetail() {
 
   // État pour l'historique des versions
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+
+  // États pour la vue Résumé / Développement des fiches de suivi
+  const [globalFollowUpView, setGlobalFollowUpView] = useState<'resume' | 'developpement'>('resume');
+  const [expandedFollowUpIds, setExpandedFollowUpIds] = useState<Record<string, boolean>>({});
+
+  const toggleFollowUpExpanded = (id: string, explicitState?: boolean) => {
+    setExpandedFollowUpIds(prev => ({
+      ...prev,
+      [id]: explicitState !== undefined ? explicitState : !(prev[id] ?? (globalFollowUpView === 'developpement'))
+    }));
+  };
 
   // Nouveaux états pour l'override de séance
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
@@ -1574,12 +1739,74 @@ export default function ConsultationDetail() {
               </TabsContent>
 
               <TabsContent value="suivi" className="mt-8 lg:border-t border-[#ebd9c8]/50 lg:pt-8 print:block">
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-2">
-                    <Activity className="w-6 h-6 text-[#bd613c]" />
-                    <h2 className="font-bebas text-3xl tracking-wide text-[#bd613c] uppercase mb-0">
-                      Notes de Suivi Chronologique
-                    </h2>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 bg-[#faf7f2] border border-[#ebd9c8] p-3 sm:p-4 rounded-2xl shadow-2xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-[#bd613c]/10 flex items-center justify-center text-[#bd613c] shrink-0">
+                      <Activity className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h2 className="font-bebas text-2xl sm:text-3xl tracking-wide text-[#bd613c] uppercase leading-none">
+                        Notes de Suivi Chronologique
+                      </h2>
+                      <p className="text-[11px] sm:text-xs text-[#4a3f35]/60 mt-0.5">
+                        {data?.follow_ups?.length || 0} fiches et documents enregistrés
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Menu déroulant de vue globale & boutons En savoir plus / Réduire tout */}
+                  <div className="flex items-center gap-2 flex-wrap self-end sm:self-auto">
+                    <div className="flex items-center gap-1.5 bg-white border border-[#ebd9c8] rounded-xl px-2.5 py-1 shadow-2xs">
+                      <span className="text-[11px] font-semibold text-[#5a4e44] hidden md:inline">Mode fiches :</span>
+                      <select
+                        value={globalFollowUpView}
+                        onChange={(e) => {
+                          const newMode = e.target.value as 'resume' | 'developpement';
+                          setGlobalFollowUpView(newMode);
+                          setExpandedFollowUpIds({});
+                        }}
+                        className="bg-transparent text-xs font-semibold text-[#bd613c] outline-none cursor-pointer py-0.5"
+                      >
+                        <option value="resume">⚡ Menu déroulant : Toutes en Résumé</option>
+                        <option value="developpement">📖 Menu déroulant : Tout en Développement</option>
+                      </select>
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setGlobalFollowUpView('resume');
+                        setExpandedFollowUpIds({});
+                      }}
+                      className={`h-8 px-2.5 text-xs rounded-xl border-[#ebd9c8] ${
+                        globalFollowUpView === 'resume' && Object.keys(expandedFollowUpIds).length === 0
+                          ? 'bg-[#bd613c] text-white border-[#bd613c] hover:bg-[#bd613c]/90'
+                          : 'bg-white text-[#5a4e44] hover:bg-[#ebd9c8]/20'
+                      }`}
+                      title="Réduire toutes les fiches au résumé"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5 mr-1" /> Réduire tout
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setGlobalFollowUpView('developpement');
+                        const allTrue: Record<string, boolean> = {};
+                        (data?.follow_ups || []).forEach((n: any) => { if (n.id) allTrue[n.id] = true; });
+                        setExpandedFollowUpIds(allTrue);
+                      }}
+                      className={`h-8 px-2.5 text-xs rounded-xl border-[#ebd9c8] ${
+                        globalFollowUpView === 'developpement'
+                          ? 'bg-[#bd613c] text-white border-[#bd613c] hover:bg-[#bd613c]/90'
+                          : 'bg-white text-[#5a4e44] hover:bg-[#ebd9c8]/20'
+                      }`}
+                      title="Déplier toutes les fiches en développement"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5 mr-1" /> En savoir plus (Tout)
+                    </Button>
                   </div>
                 </div>
 
@@ -1802,19 +2029,18 @@ export default function ConsultationDetail() {
                                         </div>
                                       </div>
                                       {note.content && (
-                                        <div
-                                          className="w-full mt-4 prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-3 rounded-xl border border-[#ebd9c8]/20 bg-white/30"
+                                        <FollowUpCardContent
+                                          content={note.content}
+                                          noteId={note.id || `note-${noteIdx}`}
+                                          isExpanded={expandedFollowUpIds[note.id] ?? (globalFollowUpView === 'developpement')}
+                                          onToggleExpand={(explicit) => toggleFollowUpExpanded(note.id, explicit)}
                                           onDoubleClick={() => {
                                             setEditFollowUpContent(note.content);
                                             setEditFollowUpDate(format(new Date(note.date), "HH:mm"));
                                             setEditingFollowUpId(note.id);
                                           }}
-                                          title="Double-clic pour modifier la note"
-                                        >
-                                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
-                                            {note.content}
-                                          </ReactMarkdown>
-                                        </div>
+                                          markdownComponents={markdownComponents}
+                                        />
                                       )}
                                     </div>
                                   ) : note.type === 'pdf' ? (
@@ -1835,19 +2061,18 @@ export default function ConsultationDetail() {
                                         />
                                       </div>
                                       {note.content && (
-                                        <div
-                                          className="w-full mt-4 prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-3 rounded-xl border border-[#ebd9c8]/20 bg-white/30"
+                                        <FollowUpCardContent
+                                          content={note.content}
+                                          noteId={note.id || `note-${noteIdx}`}
+                                          isExpanded={expandedFollowUpIds[note.id] ?? (globalFollowUpView === 'developpement')}
+                                          onToggleExpand={(explicit) => toggleFollowUpExpanded(note.id, explicit)}
                                           onDoubleClick={() => {
                                             setEditFollowUpContent(note.content);
                                             setEditFollowUpDate(format(new Date(note.date), "HH:mm"));
                                             setEditingFollowUpId(note.id);
                                           }}
-                                          title="Double-clic pour modifier la note"
-                                        >
-                                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
-                                            {note.content}
-                                          </ReactMarkdown>
-                                        </div>
+                                          markdownComponents={markdownComponents}
+                                        />
                                       )}
                                     </div>
                                   ) : note.type === 'audio' ? (
@@ -1878,35 +2103,33 @@ export default function ConsultationDetail() {
                                         />
                                       </div>
                                       {note.content && (
-                                        <div
-                                          className="w-full prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-3 rounded-xl border border-[#ebd9c8]/20 bg-white/30"
+                                        <FollowUpCardContent
+                                          content={note.content}
+                                          noteId={note.id || `note-${noteIdx}`}
+                                          isExpanded={expandedFollowUpIds[note.id] ?? (globalFollowUpView === 'developpement')}
+                                          onToggleExpand={(explicit) => toggleFollowUpExpanded(note.id, explicit)}
                                           onDoubleClick={() => {
                                             setEditFollowUpContent(note.content);
                                             setEditFollowUpDate(format(new Date(note.date), "HH:mm"));
                                             setEditingFollowUpId(note.id);
                                           }}
-                                          title="Double-clic pour modifier la note"
-                                        >
-                                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
-                                            {note.content}
-                                          </ReactMarkdown>
-                                        </div>
+                                          markdownComponents={markdownComponents}
+                                        />
                                       )}
                                     </div>
                                   ) : (
-                                    <div
-                                      className="prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-3 -m-3 rounded-xl"
+                                    <FollowUpCardContent
+                                      content={note.content}
+                                      noteId={note.id || `note-${noteIdx}`}
+                                      isExpanded={expandedFollowUpIds[note.id] ?? (globalFollowUpView === 'developpement')}
+                                      onToggleExpand={(explicit) => toggleFollowUpExpanded(note.id, explicit)}
                                       onDoubleClick={() => {
                                         setEditFollowUpContent(note.content);
                                         setEditFollowUpDate(format(new Date(note.date), "HH:mm"));
                                         setEditingFollowUpId(note.id);
                                       }}
-                                      title="Double-clic pour modifier la note"
-                                    >
-                                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
-                                        {note.content}
-                                      </ReactMarkdown>
-                                    </div>
+                                      markdownComponents={markdownComponents}
+                                    />
                                   )}
                                   {note.transcription && (
                                     <details className="mt-3 pt-2 border-t border-[#ebd9c8]/30 group/details">
