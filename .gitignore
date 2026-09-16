@@ -45,3 +45,4 @@ test_sdk.mjs
 scratch_*/
 consultation_*.json
 *.py
+!src/lib/medical-imaging/*.py

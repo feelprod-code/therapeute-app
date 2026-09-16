@@ -8,6 +8,7 @@ import fs from 'fs/promises';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { ensureLastNameFirst, extractPatientNameFromText } from '@/lib/utils';
+import { processMedicalPdf, MedicalImagingResult } from '@/lib/medical-imaging';
 
 const execAsync = promisify(exec);
 
@@ -165,6 +166,9 @@ export async function POST(req: Request) {
 
         const body = await req.json();
         const { audioFile, attachedFiles, previousContext, newText } = body;
+        const consultationId = body.consultationId || previousContext?.id || '';
+        const patientName = body.patientName || previousContext?.patientName || '';
+        const generatedMedicalPlates: MedicalImagingResult[] = [];
 
         // Note: For appending documents only, audioFile might be optional. 
         // We'll relax the strict audioFile requirement if there are attachedFiles or newText.
@@ -302,6 +306,25 @@ export async function POST(req: Request) {
                 let processedFBuffer = fBuffer;
                 if (!fMimeType.startsWith('text/')) {
                     processedFBuffer = await fixAudioBufferWithFfmpeg(fBuffer, fMimeType);
+                }
+
+                // Déclenchement automatique du pipeline d'imagerie médicale pour les PDF
+                if (fMimeType === 'application/pdf') {
+                    try {
+                        console.log(`[API] Déclenchement automatique du pipeline d'imagerie médicale pour : ${f.fileName}...`);
+                        const medResult = await processMedicalPdf({
+                            pdfBuffer: fBuffer,
+                            originalName: cleanFileName(f.fileName),
+                            consultationId: consultationId || 'auto',
+                            patientName: patientName || ''
+                        });
+                        if (medResult && medResult.success) {
+                            console.log(`[API] Planche didactique maîtresse générée avec succès : ${medResult.masterPlateUrl}`);
+                            generatedMedicalPlates.push(medResult);
+                        }
+                    } catch (medErr) {
+                        console.error(`[API] Échec du pipeline d'imagerie médicale pour ${f.fileName}:`, medErr);
+                    }
                 }
 
                 if (fMimeType.startsWith('text/')) {
@@ -512,9 +535,9 @@ Règles impératives et absolues :
 ### Examens Complémentaires
 - **Photos / PDF / Textes :**
 [CONSIGNE CONCERNANT LES DOCUMENTS JOINTS :
-- Les comptes-rendus médicaux textuels (radios, scanners, IRM, labos) doivent uniquement être transcrits et rédigés sous forme de texte structuré et clair (Indication, Constatations, Conclusion).
-- Ne crée pas de tag <img> ou <iframe> pour des photos de feuilles de papier ou comptes-rendus textuels.
-- Seules les véritables images anatomiques (radiographies, coupes IRM) peuvent être intégrées avec le format HTML propre si pertinent.]
+- Les comptes-rendus médicaux textuels (radios, scanners, IRM, labos) doivent être fidèlement transcrits et rédigés sous forme de texte structuré et clair (Indication, Constatations, Conclusion).
+- Intègre impérativement les planches didactiques PNG générées (planches maîtresses et contact sheets) via la syntaxe Markdown pure ![Titre](url).
+- RÈGLE ABSOLUE : NE JAMAIS insérer d'URL de fichier .pdf dans une balise image Markdown ![...](...pdf) !]
 ### Antécédents (ATCD) et Chronologie
 - [Année] - [Description]
 
@@ -530,6 +553,25 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
                 });
                 attachedDocsContext += "-----------------------------------------------------\n";
             }
+        }
+
+        if (generatedMedicalPlates.length > 0) {
+            attachedDocsContext += "\n\n--- PLANCHES DIDACTIQUES D'IMAGERIE MÉDICALE ANNOTÉES (OBLIGATION FORMELLE D'INTÉGRATION VISUELLE) ---\n";
+            generatedMedicalPlates.forEach(plate => {
+                attachedDocsContext += `\n### EXAMEN D'IMAGERIE RÉALISÉ : ${plate.examTitle}\n`;
+                attachedDocsContext += `- Planche Didactique Maîtresse (Annotée Ligne Claire TDT) : ${plate.masterPlateUrl}\n`;
+                attachedDocsContext += `- Planche de Contact Complète : ${plate.contactSheetUrl}\n`;
+                if (plate.conclusionSummary) {
+                    attachedDocsContext += `- Synthèse radiologique officielle : ${plate.conclusionSummary}\n`;
+                }
+                attachedDocsContext += `CONSIGNES STRICTES ET ABSOLUES D'INTÉGRATION DANS LES DEUX RUBRIQUES :\n`;
+                attachedDocsContext += `1. DANS LA CLÉ "resume" : Le résumé DOIT OBLIGATOIREMENT DÉBUTER par la planche didactique maîtresse en Markdown pur : ![Planche Didactique Maîtresse - ${plate.examTitle}](${plate.masterPlateUrl})\n`;
+                attachedDocsContext += `2. DANS LA CLÉ "synthese" : Tu DOIS OBLIGATOIREMENT afficher la planche didactique maîtresse sous le titre de cet examen : ![Planche Didactique Maîtresse - ${plate.examTitle}](${plate.masterPlateUrl})\n`;
+                attachedDocsContext += `3. DANS LA CLÉ "synthese" : Tu DOIS OBLIGATOIREMENT ajouter juste en-dessous l'accordéon déroulant pour la planche de contact complète :\n`;
+                attachedDocsContext += `<details><summary>🔎 Afficher la planche de contact complète de toutes les coupes...</summary>\n\n![Planche de Contact Complète - ${plate.examTitle}](${plate.contactSheetUrl})\n\n</details>\n`;
+                attachedDocsContext += `4. INTERDICTION FORMELLE : Ne JAMAIS insérer d'URL de fichier .pdf dans une balise image ![...](). Seules les URLs des planches .png sont autorisées pour l'affichage visuel !\n`;
+            });
+            attachedDocsContext += "----------------------------------------------------------------------------------------------------\n";
         }
 
         const synthesisParts: Array<{ text?: string; fileData?: { fileUri: string, mimeType: string } }> = [];
