@@ -2,25 +2,45 @@
 
 ## 1. Traitement Visuel Obligatoire de l'Imagerie Médicale (Documents Visuels, Résumé & Synthèse)
 Dès qu'un document visuel (PDF ou image contenant des examens radiologiques, IRM, scanners, échographies) est téléversé ou présent dans le dossier d'un patient :
+
+- **RÈGLE ABSOLUE ANTI-PDF DANS LES IMAGES :**
+  Il est STRICTEMENT INTERDIT d'insérer un fichier `.pdf` dans une balise image Markdown `![...](...pdf)`. Les navigateurs web et le composant React ne peuvent pas afficher un PDF dans une balise image `<img>`. Les fichiers PDF officiels doivent TOUJOURS être présentés sous forme de bouton ou lien de consultation :
+  ```markdown
+  [📄 Consulter le compte-rendu officiel original (PDF)](url_du_fichier.pdf)
+  ```
+
 - **Obligation stricte sur les DEUX RUBRIQUES (`résumé` ET `synthèse`) :**
-  L'agent ne doit JAMAIS se contenter d'un simple lien passif, d'un texte descriptif sans image ou d'un `<iframe>` opaque dans la synthèse. Il a l'obligation formelle de réaliser le travail didactique visuel complet sur les deux rubriques.
+  L'agent ou le système ne doit JAMAIS se contenter d'un simple lien passif, d'un texte descriptif sans image ou d'un `<iframe>` opaque dans la synthèse. Il a l'obligation formelle de réaliser le travail didactique visuel complet sur les deux rubriques.
 
 - **Standard Didactique des Planches Annotées :**
-  1. **Extraction Haute Résolution :** Extraire les coupes radiologiques clés (médio-sagittale, para-sagittale foraminale, T1, T2 Dixon, STIR, axiales) à résolution native nette (minimum 2.5x, min 2000×1400 px).
-  2. **Flèches Indicatrices & Cibles Focales :**
-     - 🔴 **Rouge / Terracotta (`#AF2D14`) :** Pour les sténoses foraminales, hernies discales, conflits disco-radiculaires, uncarthrose ou foyers algogènes aigus (avec anneau circulaire de ciblage rouge centré sur la lésion).
-     - 🟢 **Vert Forêt (`#236E41`) :** Pour l'intégrité du cordon médullaire, le libre écoulement du LCR, l'absence de sténose canalaire ou les disques sains.
-     - 🔵 **Bleu Ardoise (`#1A535C`) / Cyan (`#0E7490`) :** Pour les repères anatomiques cardinaux (charnière C1-C2, promontoire S1, massifs postérieurs) et les anomalies bénignes (angiomes vertébraux).
-  3. **Cartouches Explicatifs Succincts :** Relier chaque flèche par une fine ligne directrice à un badge/cartouche clair comprenant un titre en gras et une description clinique concise en une ligne.
+  1. **Extraction Haute Résolution :** Extraire les coupes radiologiques clés (médio-sagittale, para-sagittale foraminale, T1, T2, STIR, axiales, fluoroscopie) à résolution native nette (minimum 2.5x, min 2000×1400 px).
+  2. **Flèches Indicatrices & Cibles Focales (Charte Couleur TDT) :**
+     - 🔴 **Rouge / Terracotta (`#AF2D14`) :** Pour les sténoses, fissures osseuses, hernies discales, conflits disco-radiculaires, kystes algogènes ou foyers inflammatoires aigus (avec anneau circulaire de ciblage rouge centré exactement sur la lésion).
+     - 🟢 **Vert Forêt (`#236E41`) :** Pour l'intégrité du cordon médullaire, le libre écoulement du LCR, l'absence de sténose canalaire, l'intégrité des tendons de la coiffe des rotateurs et la trophicité musculaire normale.
+     - 🔵 **Bleu Ardoise (`#1A535C`) / Cyan (`#0E7490`) :** Pour les repères anatomiques cardinaux (charnière C1-C2, promontoire S1, interligne articulaire) et le guidage opératoire (aiguille de ponction intra-articulaire).
+     - 🟠 **Ocre / Ambre (`#BD613C` / `#BE6E14`) :** Pour les remaniements chroniques, l'arthrose, l'épaississement capsulaire rétractile (capsulite) ou les cals osseux.
+  3. **Cartouches Explicatifs Succincts :** Relier chaque flèche par une fine ligne directrice à un badge/cartouche clair comprenant un titre en gras et une description clinique concise en une ligne, positionné dans les marges sans masquer l'anatomie.
   4. **Bandeau Inférieur de Synthèse Radiologique :** Intégrer en bas de planche un cartouche récapitulant fidèlement la conclusion du radiologue signataire.
 
 - **Intégration Systématique dans les Deux Rubriques :**
-  - **Dans le Résumé (`resume`) :** Afficher la planche didactique maîtresse annotée dès l'en-tête (`![Bilan IRM Didactique Annoté](url)`), suivie du récapitulatif visuel des repères anatomiques et flèches de couleur.
-  - **Dans la Synthèse (`synthese`) :** Intégrer la planche didactique maîtresse sous chaque compte-rendu d'imagerie en visibilité immédiate, suivie d'un menu accordéon déroulant (`<details>`) regroupant les planches de contact complètes de toutes les coupes (T2 Dixon, phase, STIR, axiales) et les zooms macro, ainsi que le bouton de consultation du PDF officiel original.
+  - **Dans le Résumé (`resume`) :** 
+    1. Afficher la planche didactique maîtresse annotée dès l'en-tête : `![Bilan Didactique Global](url.png)`.
+    2. Insérer le récapitulatif visuel des repères anatomiques et flèches de couleur (🔴, 🟢, 🔵, 🟠).
+    3. Conclure par la synthèse clinique ostéopathique TDT.
+  - **Dans la Synthèse (`synthese`) :** 
+    1. Intégrer la planche didactique annotée sous chaque compte-rendu d'imagerie en visibilité immédiate.
+    2. Insérer le menu accordéon déroulant (`<details>`) regroupant les planches de contact complètes de toutes les coupes (axiales, sagittales, coronales) sans recadrage.
+    3. Ajouter le bouton d'accès direct au PDF officiel original.
 
 - **Visionneuse Médicale Interactive (`MedicalImageViewerModal`) :**
-  - Téléverser systématiquement toutes les planches sur Supabase Storage (`tdt_uploads`).
-  - Utiliser la syntaxe Markdown `![Titre](url)` qui active automatiquement l'ouverture en plein écran avec zoom interactif et loupe au clic du praticien.
+  - Téléverser systématiquement toutes les planches `.png` sur Supabase Storage (`tdt_uploads`).
+  - Utiliser la syntaxe Markdown `![Titre](url.png)` qui active automatiquement l'ouverture en plein écran avec zoom interactif et loupe au clic du praticien.
+
+- **Pipeline Automatisé CLI / Script :**
+  Pour tout traitement automatisé ou correction rapide par un agent, utiliser le script standard :
+  ```bash
+  python3 src/lib/medical-imaging/pipeline.py --input-path "<chemin_pdf_ou_image>" --consultation-id "<uuid>" --patient-name "<nom>"
+  ```
 
 ## 2. Formatage du Titre de Consultation
 Le titre principal d'un "Bilan de consultation" doit obligatoirement respecter la balise HTML pour la date :

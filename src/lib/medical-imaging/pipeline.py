@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Automated Medical Imaging Pipeline for Thérapeute-App (Micro TDT)
-Extracts DICOM/radiology slices from PDFs, analyzes findings via Gemini Vision,
+Extracts DICOM/radiology slices from PDFs and images, analyzes findings via Gemini Vision,
 generates French 'Ligne Claire' Didactic Master Plates and Contact Sheets,
 and uploads them directly to Supabase Storage ('tdt_uploads').
 """
@@ -14,9 +14,12 @@ import math
 import shutil
 import argparse
 import tempfile
+import base64
+import unicodedata
+import time
 import requests
 import fitz  # PyMuPDF
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 
 # Colors matching Ligne Claire & FeelProd TDT standard
 BG_COLOR = (250, 247, 242)        # #FAF7F2 warm cream
@@ -108,11 +111,10 @@ def draw_arrow_pointer(draw, start_pt, end_pt, color, width=3, arrow_len=14, arr
     draw.ellipse([sx - 4, sy - 4, sx + 4, sy + 4], fill=color)
 
 def call_gemini_vision(gemini_api_key, page_image_paths, patient_name):
-    import base64
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_api_key}"
+    models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
     
     parts = []
-    for idx, p in enumerate(page_image_paths[:12]):
+    for p in page_image_paths[:12]:
         with open(p, "rb") as f:
             b64_data = base64.b64encode(f.read()).decode("utf-8")
         parts.append({
@@ -122,28 +124,41 @@ def call_gemini_vision(gemini_api_key, page_image_paths, patient_name):
             }
         })
 
-    prompt_text = f"""Tu es un expert en imagerie médicale et en didactique ostéopathique TDT (charte Ligne Claire Francophone).
-Analyse ces pages de l'examen d'imagerie du patient: {patient_name or 'Patient'}.
+    prompt_text = f"""Tu es un médecin radiologue et enseignant en anatomie clinique et thérapie manuelle TDT (charte Ligne Claire Francophone).
+Analyse ces pages de document pour le patient: {patient_name or 'Patient'}.
 
-Identifie:
-1. Le titre officiel de l'examen (ex: 'IRM Rachis Lombaire', 'IRM Épaule Gauche', 'Scanner Thoracique')
-2. La date de l'examen (format YYYY-MM-DD ou texte)
-3. Le médecin radiologue et l'établissement
-4. Les 3 coupes les plus parlantes cliniquement (ex: Sagittale T2, Axiale T2 L5-S1, Foraminale droite, Coronale DP FAT SAT).
-   Pour chaque coupe sélectionnée:
-   - "page_index": index de la page (0-indexed, correspondant à l'ordre des images envoyées)
-   - "title": Titre clair de la vue en MAJUSCULES (ex: 'COUPE SAGITTALE T2 MÉDIANE')
-   - "subtitle": Sous-titre anatomique (ex: 'Hernie discale descendante L5-S1')
-   - "crop_box": [ymin, xmin, ymax, xmax] en coordonnées normalisées de 0 à 1000 sur la page choisie. Sois précis pour isoler la vue d'intérêt sans bordure noire inutile.
-   - "annotations": Liste de 1 à 3 repères ou lésions à pointer sur cette coupe:
-     * "title": Titre du repère (ex: 'Hernie discale L5-S1')
-     * "subtitle": Explication concise clinique (ex: 'Conflit radiculaire direct racine S1 droite')
-     * "target_point": [y, x] en coordonnées normalisées de 0 à 1000 sur le crop_box (où placer l'anneau cible)
-     * "category": Une valeur parmi 'acute_lesion' (🔴 rouge conflit aigu), 'integrity' (🟢 vert zone saine/libre), 'normal_landmark' (🔵 bleu débord stable), 'chronic_remodeling' (🟠 ocre arthrose/cal osseux).
-5. "conclusion_summary": Texte de conclusion officiel du radiologue pour le bandeau inférieur (2 à 3 phrases structurées avec tirets).
+ÉVALUATION INITIALE :
+Ce document contient-il des clichés radiologiques, scanners, IRM, radiographies, scintigraphies ou échographies ?
+- Si c'est un document purement administratif (ex: facture, devis, ordonnance textuelle seule sans cliché radiologique), réponds :
+{{"is_medical_imaging": false}}
 
-Réponds UNIQUEMENT avec un objet JSON strictement conforme à ce schéma:
+- Si ce document comporte des examens d'imagerie (radiographie, scanner, IRM, arthroscanner, infiltration sous scopie, échographie) :
+Identifie avec une extrême rigueur anatomique :
+1. "is_medical_imaging": true
+2. "exam_title": Le titre officiel complet en français (ex: 'IRM DE L'ÉPAULE GAUCHE', 'IRM DU RACHIS CERVICAL', 'ARTHRO-DISTENSION ÉPAULE DROITE')
+3. "exam_date": La date de l'examen (format YYYY-MM-DD ou texte lisible)
+4. "physician": Le ou les médecins radiologues signataires
+5. "facility": Le centre ou clinique d'imagerie
+6. "panels": Sélectionne les 2 ou 3 coupes les plus parlantes et démonstratives (ex: Sagittale T2 médiane, Axiale DP Fat-Sat, Coronale STIR).
+   Pour chaque coupe :
+   - "page_index": index 0-based de l'image contenant cette coupe
+   - "title": Titre en majuscules (ex: 'COUPE AXIALE DP FAT-SAT', 'COUPE SAGITTALE T2')
+   - "subtitle": Sous-titre anatomique (ex: 'Fissure céphalique postérieure', 'Kyste arc postérieur C5 12x8mm')
+   - "crop_box": [ymin, xmin, ymax, xmax] en coordonnées normalisées de 0 à 1000 pour recadrer la coupe sans texte parasite ni bord noir inutile
+   - "annotations": 1 à 3 repères ou lésions à pointer précisément :
+     * "title": Titre du repère (ex: 'Fissure osseuse corticale')
+     * "subtitle": Explication concise (ex: 'Hypersignal oedémateux sous-cortical')
+     * "target_point": [y, x] coordonnées normalisées de 0 à 1000 DANS le crop_box (l'endroit précis de l'anomalie)
+     * "category": 
+         - 'acute_lesion' (🔴 anneau rouge : fissure, hernie, sténose, kyste algogène)
+         - 'integrity' (🟢 vert : intégrité coiffe/tendons, moelle saine, absence de rupture)
+         - 'normal_landmark' (🔵 bleu ardoise : repère C1-C2, interligne articulaire, aiguille de ponction)
+         - 'chronic_remodeling' (🟠 ocre : remaniement dégénératif, capsulite rétractile, arthrose)
+7. "conclusion_summary": Synthèse textuelle fidèle et complète de la conclusion du radiologue (2 à 3 phrases claires).
+
+Réponds STRICTEMENT avec l'objet JSON :
 {{
+  "is_medical_imaging": true,
   "exam_title": "string",
   "exam_date": "string",
   "physician": "string",
@@ -169,21 +184,29 @@ Réponds UNIQUEMENT avec un objet JSON strictement conforme à ce schéma:
 """
     parts.append({"text": prompt_text})
 
-    payload = {
-        "contents": [{"role": "user", "parts": parts}],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "maxOutputTokens": 8192
+    last_error = None
+    for model_name in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_api_key}"
+        payload = {
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "maxOutputTokens": 8192
+            }
         }
-    }
+        try:
+            resp = requests.post(url, json=payload, timeout=90)
+            if resp.status_code == 200:
+                data = resp.json()
+                raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+                return json.loads(raw_text)
+            else:
+                last_error = f"{model_name} HTTP {resp.status_code}: {resp.text}"
+        except Exception as e:
+            last_error = f"{model_name} error: {str(e)}"
+            continue
 
-    resp = requests.post(url, json=payload, timeout=90)
-    if resp.status_code != 200:
-        raise Exception(f"Gemini Vision API error {resp.status_code}: {resp.text}")
-    
-    data = resp.json()
-    raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
-    return json.loads(raw_text)
+    raise Exception(f"Gemini Vision API error with all models: {last_error}")
 
 def generate_master_plate(analysis, rendered_pages, output_path, patient_name):
     fonts = load_fonts()
@@ -252,6 +275,11 @@ def generate_master_plate(analysis, rendered_pages, output_path, patient_name):
             ymax = max(ymin + 10, min(ymax, sh))
 
             crop = src_img.crop((xmin, ymin, xmax, ymax))
+            
+            # Subtle contrast enhancement to emphasize bone/tissue interfaces
+            enhancer = ImageEnhance.Contrast(crop)
+            crop = enhancer.enhance(1.12)
+            
             crop_resized = crop.resize((panel_w - 16, panel_h - 85), Image.Resampling.LANCZOS)
             canvas.paste(crop_resized, (p_x + 8, panel_y + 75))
 
@@ -279,7 +307,7 @@ def generate_master_plate(analysis, rendered_pages, output_path, patient_name):
                     color = SLATE_BLUE
                     bg_col = SLATE_BG
 
-                draw.ellipse([tx - 15, ty - 15, tx + 15, ty + 15], outline=color, width=3)
+                draw.ellipse([tx - 16, ty - 16, tx + 16, ty + 16], outline=color, width=3)
                 draw.ellipse([tx - 3, ty - 3, tx + 3, ty + 3], fill=color)
 
                 callout_entry = {
@@ -378,7 +406,8 @@ def upload_to_supabase(file_path, dest_name, supabase_url, supabase_key):
     headers = {
         "apikey": supabase_key,
         "Authorization": f"Bearer {supabase_key}",
-        "Content-Type": "image/png"
+        "Content-Type": "image/png",
+        "x-upsert": "true"
     }
     with open(file_path, "rb") as f:
         resp = requests.post(url, headers=headers, data=f.read())
@@ -395,40 +424,56 @@ def upload_to_supabase(file_path, dest_name, supabase_url, supabase_key):
     return f"{supabase_url}/storage/v1/object/public/tdt_uploads/{dest_name}"
 
 def main():
-    parser = argparse.ArgumentParser(description="Process medical PDF to Ligne Claire plates")
-    parser.add_argument("--pdf-path", required=True, help="Path to input PDF file")
+    parser = argparse.ArgumentParser(description="Process medical PDF or image to Ligne Claire plates")
+    parser.add_argument("--input-path", "--pdf-path", dest="input_path", required=True, help="Path to input PDF or image file")
     parser.add_argument("--consultation-id", required=True, help="Consultation UUID")
     parser.add_argument("--patient-name", default="Patient", help="Patient full name")
     parser.add_argument("--gemini-key", default=os.getenv("GEMINI_API_KEY", ""), help="Gemini API Key")
     parser.add_argument("--supabase-url", default=os.getenv("NEXT_PUBLIC_SUPABASE_URL", ""), help="Supabase URL")
     parser.add_argument("--supabase-key", default=os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY", ""), help="Supabase Key")
-    parser.add_argument("--dpi-zoom", type=float, default=2.0, help="PyMuPDF zoom factor")
+    parser.add_argument("--dpi-zoom", type=float, default=2.5, help="PyMuPDF zoom factor")
     args = parser.parse_args()
 
-    if not os.path.exists(args.pdf_path):
-        print(json.dumps({"error": f"PDF file not found: {args.pdf_path}"}))
+    if not os.path.exists(args.input_path):
+        print(json.dumps({"error": f"Input file not found: {args.input_path}"}))
         sys.exit(1)
 
     temp_dir = tempfile.mkdtemp(prefix="tdt_med_")
     try:
-        doc = fitz.open(args.pdf_path)
         rendered_pages = []
-        mat = fitz.Matrix(args.dpi_zoom, args.dpi_zoom)
-        for i in range(len(doc)):
-            page = doc.load_page(i)
-            pix = page.get_pixmap(matrix=mat)
-            page_png = os.path.join(temp_dir, f"page_{i+1}.png")
-            pix.save(page_png)
+        ext = os.path.splitext(args.input_path)[1].lower()
+
+        if ext == ".pdf":
+            doc = fitz.open(args.input_path)
+            mat = fitz.Matrix(args.dpi_zoom, args.dpi_zoom)
+            for i in range(len(doc)):
+                page = doc.load_page(i)
+                pix = page.get_pixmap(matrix=mat)
+                page_png = os.path.join(temp_dir, f"page_{i+1}.png")
+                pix.save(page_png)
+                rendered_pages.append(page_png)
+        else:
+            # Direct image file
+            im = Image.open(args.input_path).convert("RGB")
+            page_png = os.path.join(temp_dir, "page_1.png")
+            im.save(page_png, quality=95)
             rendered_pages.append(page_png)
 
         if len(rendered_pages) == 0:
-            print(json.dumps({"error": "Empty PDF document."}))
+            print(json.dumps({"error": "No renderable pages found in document."}))
             sys.exit(1)
 
         analysis = call_gemini_vision(args.gemini_key, rendered_pages, args.patient_name)
 
+        if not analysis.get("is_medical_imaging", True):
+            print(json.dumps({
+                "success": False,
+                "is_medical_imaging": False,
+                "message": "Document administratif ou texte sans clichés radiologiques."
+            }))
+            sys.exit(0)
+
         exam_title = analysis.get("exam_title", "Examen Radio")
-        import unicodedata
         clean_title = unicodedata.normalize('NFKD', exam_title).encode('ascii', 'ignore').decode('ascii')
         slug = "".join([c if (c.isalnum() and c.isascii()) else "_" for c in clean_title.lower()]).strip("_")[:25]
         while "__" in slug:
@@ -442,7 +487,6 @@ def main():
         contact_sheet_local = os.path.join(temp_dir, f"planche_contact_{slug}.png")
         generate_contact_sheet(rendered_pages, contact_sheet_local, exam_title, args.patient_name)
 
-        import time
         ts = int(time.time())
         master_dest = f"radio_planche_didactique_{slug}_{ts}_{args.consultation_id}.png"
         contact_dest = f"radio_planche_contact_{slug}_{ts}_{args.consultation_id}.png"
@@ -452,6 +496,7 @@ def main():
 
         output_res = {
             "success": True,
+            "is_medical_imaging": True,
             "exam_title": exam_title,
             "exam_date": analysis.get("exam_date", ""),
             "physician": analysis.get("physician", ""),

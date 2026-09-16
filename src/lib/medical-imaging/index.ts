@@ -8,6 +8,7 @@ const execAsync = promisify(exec);
 
 export interface MedicalImagingResult {
     success: boolean;
+    isMedicalImaging?: boolean;
     examTitle: string;
     examDate?: string;
     physician?: string;
@@ -37,17 +38,18 @@ export async function findPython(): Promise<string | null> {
     return null;
 }
 
-export async function processMedicalPdf(options: {
-    pdfBuffer: Buffer;
+export async function processMedicalDocument(options: {
+    fileBuffer: Buffer;
     originalName: string;
+    mimeType: string;
     consultationId: string;
     patientName: string;
 }): Promise<MedicalImagingResult | null> {
-    const { pdfBuffer, originalName, consultationId, patientName } = options;
+    const { fileBuffer, originalName, mimeType, consultationId, patientName } = options;
 
     const pythonPath = await findPython();
     if (!pythonPath) {
-        console.warn('[MedicalImaging] Python 3 introuvable sur le système, passage du traitement d\'imagerie.');
+        console.warn('[MedicalImaging] Python 3 introuvable sur le système hôte, passage du traitement d\'imagerie.');
         return null;
     }
 
@@ -61,14 +63,23 @@ export async function processMedicalPdf(options: {
     }
 
     const scriptPath = path.join(process.cwd(), 'src', 'lib', 'medical-imaging', 'pipeline.py');
-    const tempInput = path.join(os.tmpdir(), `med-in-${Date.now()}-${Math.random().toString(36).substring(7)}.pdf`);
+    let ext = path.extname(originalName).toLowerCase();
+    if (!ext) {
+        if (mimeType.includes('pdf')) ext = '.pdf';
+        else if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = '.jpg';
+        else if (mimeType.includes('png')) ext = '.png';
+        else if (mimeType.includes('webp')) ext = '.webp';
+        else ext = '.pdf';
+    }
+
+    const tempInput = path.join(os.tmpdir(), `med-in-${Date.now()}-${Math.random().toString(36).substring(7)}${ext}`);
 
     try {
-        await fs.writeFile(tempInput, pdfBuffer);
-        console.log(`[MedicalImaging] Démarrage du pipeline sur ${originalName} (${(pdfBuffer.length / 1024 / 1024).toFixed(2)} MB)...`);
+        await fs.writeFile(tempInput, fileBuffer);
+        console.log(`[MedicalImaging] Démarrage du pipeline sur ${originalName} (${(fileBuffer.length / 1024 / 1024).toFixed(2)} MB)...`);
 
         const cmd = `"${pythonPath}" "${scriptPath}" ` +
-            `--pdf-path "${tempInput}" ` +
+            `--input-path "${tempInput}" ` +
             `--consultation-id "${consultationId || 'global'}" ` +
             `--patient-name "${patientName.replace(/"/g, '\\"')}" ` +
             `--gemini-key "${geminiKey}" ` +
@@ -76,7 +87,7 @@ export async function processMedicalPdf(options: {
             `--supabase-key "${supabaseKey}"`;
 
         const { stdout, stderr } = await execAsync(cmd, {
-            maxBuffer: 10 * 1024 * 1024,
+            maxBuffer: 15 * 1024 * 1024,
             timeout: 180000 // 3 minutes timeout
         });
 
@@ -92,6 +103,11 @@ export async function processMedicalPdf(options: {
         }
 
         const data = JSON.parse(jsonMatch[0]);
+        if (data.is_medical_imaging === false) {
+            console.log('[MedicalImaging] Document identifié comme administratif / textuel sans imagerie. Pas de planche générée.');
+            return null;
+        }
+
         if (data.error) {
             console.error('[MedicalImaging] Erreur dans le script Python:', data.error);
             return null;
@@ -100,6 +116,7 @@ export async function processMedicalPdf(options: {
         console.log(`[MedicalImaging] Succès ! Planche maîtresse générée: ${data.master_plate_url}`);
         return {
             success: true,
+            isMedicalImaging: true,
             examTitle: data.exam_title,
             examDate: data.exam_date,
             physician: data.physician,
@@ -116,4 +133,20 @@ export async function processMedicalPdf(options: {
     } finally {
         await fs.unlink(tempInput).catch(() => {});
     }
+}
+
+// Backwards compatibility
+export async function processMedicalPdf(options: {
+    pdfBuffer: Buffer;
+    originalName: string;
+    consultationId: string;
+    patientName: string;
+}): Promise<MedicalImagingResult | null> {
+    return processMedicalDocument({
+        fileBuffer: options.pdfBuffer,
+        originalName: options.originalName,
+        mimeType: 'application/pdf',
+        consultationId: options.consultationId,
+        patientName: options.patientName
+    });
 }

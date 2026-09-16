@@ -8,7 +8,7 @@ import fs from 'fs/promises';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { ensureLastNameFirst, extractPatientNameFromText } from '@/lib/utils';
-import { processMedicalPdf, MedicalImagingResult } from '@/lib/medical-imaging';
+import { processMedicalPdf, processMedicalDocument, MedicalImagingResult } from '@/lib/medical-imaging';
 
 const execAsync = promisify(exec);
 
@@ -308,13 +308,15 @@ export async function POST(req: Request) {
                     processedFBuffer = await fixAudioBufferWithFfmpeg(fBuffer, fMimeType);
                 }
 
-                // Déclenchement automatique du pipeline d'imagerie médicale pour les PDF
-                if (fMimeType === 'application/pdf') {
+                // Déclenchement automatique du pipeline d'imagerie médicale pour les PDF et Images
+                const isLikelyMedicalDoc = fMimeType === 'application/pdf' || fMimeType.startsWith('image/');
+                if (isLikelyMedicalDoc) {
                     try {
-                        console.log(`[API] Déclenchement automatique du pipeline d'imagerie médicale pour : ${f.fileName}...`);
-                        const medResult = await processMedicalPdf({
-                            pdfBuffer: fBuffer,
+                        console.log(`[API] Déclenchement automatique du pipeline d'imagerie médicale pour : ${f.fileName} (${fMimeType})...`);
+                        const medResult = await processMedicalDocument({
+                            fileBuffer: fBuffer,
                             originalName: cleanFileName(f.fileName),
+                            mimeType: fMimeType,
                             consultationId: consultationId || 'auto',
                             patientName: patientName || ''
                         });
@@ -416,7 +418,7 @@ export async function POST(req: Request) {
                             model: 'gemini-2.5-flash',
                             contents: [
                                 { fileData: { fileUri: doc.uri, mimeType: doc.mimeType } },
-                                { text: "Extraits de manière exhaustive, structurée et détaillée tout le texte de ce document. Si le document comporte plusieurs pages, extrais absolument toutes les pages sans exception." }
+                                { text: "Extraits de manière exhaustive, structurée et détaillée tout le contenu textuel et médical de ce document (Titre officiel d'examen, Date, Médecins et établissement, Indication, Technique, Résultats descriptifs coupe par coupe, Mesures précises en millimètres, Conclusion intégrale). Si le document comporte plusieurs pages, extrais absolument toutes les pages sans exception ni troncature." }
                             ]
                         });
                         return ocrResponse.text?.trim() || "";
@@ -643,7 +645,7 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
                         },
                         resume: {
                             type: Type.STRING,
-                            description: "Un résumé narratif GLOBAL en 3 à 5 phrases, synthétisant tout le document final complet généré dans 'synthese' (anciennes ET nouvelles informations). Sous forme d'un paragraphe continu unique (AUCUNE liste, AUCUN tiret, AUCUNE puce)."
+                            description: "Le résumé global et évolutif de la consultation. Si des examens d'imagerie médicale sont présents, le résumé DOIT débuter par la planche didactique maîtresse en Markdown pur (![Titre](url.png)), suivi du récapitulatif des repères didactiques (🔴 lésions aiguës, 🟢 zones saines/intègres, 🔵 repères anatomiques, 🟠 remaniements chroniques) et de la synthèse clinique ostéopathique TDT."
                         },
                         synthese: {
                             type: Type.STRING,
@@ -722,6 +724,24 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
 
         if (jsonResult.patientName) {
             jsonResult.patientName = ensureLastNameFirst(jsonResult.patientName);
+        }
+
+        // Garde-Fou : Assainissement anti-PDF dans les balises Markdown ![...](...pdf)
+        const sanitizeMarkdownMedicalImages = (content: string): string => {
+            if (!content) return content;
+            return content.replace(/!\[(.*?)\]\((https?:\/\/[^\s\)]+?\.pdf(?:[^\s\)]*))\)/gi, (_match, title, url) => {
+                const label = title && title !== 'Imagerie médicale' && !title.toLowerCase().endsWith('.pdf') 
+                    ? title 
+                    : 'le compte-rendu officiel original (PDF)';
+                return `\n\n<p><a href="${url}" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; padding: 7px 15px; background: #FAF7F2; border: 1px solid #EAE4D9; border-radius: 8px; color: #8C4E33; font-weight: 600; font-size: 12px; text-decoration: none; box-shadow: 0 1px 2px rgba(0,0,0,0.05); margin: 6px 0;">📄 Consulter ${label}</a></p>\n\n`;
+            });
+        };
+
+        if (jsonResult.resume) {
+            jsonResult.resume = sanitizeMarkdownMedicalImages(jsonResult.resume);
+        }
+        if (jsonResult.synthese) {
+            jsonResult.synthese = sanitizeMarkdownMedicalImages(jsonResult.synthese);
         }
 
         if (jsonResult.synthese) {
