@@ -491,13 +491,20 @@ Ton objectif est de mettre à jour la synthèse PRÉCÉDENTE en FUSIONNANT de ma
 - DOCUMENTS JOINTS : Si un document (PDF, image, texte) t'est fourni, extrais minutieusement les informations médicales et intègre-les au bilan.
 - EXCEPTION (NOM DU PATIENT) : Respecte la casse sobre et naturelle (ex: Jean-Claude Frénot).
 - EXCEPTION (DATE DE LA CONSULTATION) : Si les nouvelles notes précisent les dates, affiche-les dans le titre (# Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- [Date 1] & [Date 2]</span>).
-- EXCEPTION (RÉSUMÉ) : IL EST ABSOLUMENT OBLIGATOIRE que la clé "resume" contienne un résumé GLOBAL et DYNAMIQUE de TOUT LE BILAN FINAL (c'est-à-dire le bilan initial ET l'ensemble des suivis / nouvelles séances / examens d'imagerie récents).
-  * Si des examens d'imagerie médicale (radios, IRM, scanners, échographies) sont présents, le résumé DOIT débuter par la photo/planche d'imagerie clé la plus évocatrice en Markdown pur (![Description](url)).
-  * Chaque suivi ou examen récent doit être mentionné avec sa date explicite (ex: "### 🗓️ Suivi du [Date] : ..."), en détaillant le lieu précis de fracture s'il y a lieu, les conclusions radiologiques, les notes psycho-émotionnelles ou les évolutions posturales.
+- EXCEPTION (RÉSUMÉ) : IL EST ABSOLUMENT OBLIGATOIRE que la clé "resume" contienne un résumé GLOBAL et DYNAMIQUE de TOUT LE BILAN FINAL structuré STRICTEMENT dans cet ordre :
+  * 1. MOTIF, SYMPTÔMES & DEMANDE DU PATIENT EN PREMIER : Le résumé DOIT OBLIGATOIREMENT DÉBUTER par la section :
+    ### 📋 Motif de Consultation, Symptômes Exprimés & Demande du Patient
+    - **Motif de consultation :** [Motif précis]
+    - **Symptômes exprimés :** [Symptômes rapportés par le patient, intensité, gêne]
+    - **Demande du patient :** [Objectif de la prise en charge, attente envers le thérapeute]
+  * 2. EXAMENS D'IMAGERIE ET PLANCHES DIDACTIQUES EN SECOND : Ensuite seulement, si des examens d'imagerie médicale (radios, IRM, scanners, échographies) sont présents, insérer :
+    ### 🎯 Examens d'Imagerie & Planches Didactiques
+    suivi de la planche d'imagerie clé la plus évocatrice en Markdown pur (![Description](url)) et du récapitulatif des repères didactiques.
+  * 3. SUIVIS DATÉS & ÉVOLUTION : Chaque suivi ou examen récent doit être mentionné avec sa date explicite (ex: "### 🗓️ Suivi du [Date] : ..."), en détaillant le lieu précis de fracture s'il y a lieu, les conclusions radiologiques, les notes psycho-émotionnelles ou les évolutions posturales.
   * Le résumé doit être complet, fluide et lisible en un coup d'œil.
 `;
         } else {
-            contextInstruction = `\n- DOCUMENTS JOINTS: Si des documents (PDF, images, textes) te sont fournis, analyse-les pour rédiger le bilan (motif, histoire, examens, ATCD). Si une imagerie est fournie, intègre la planche clé dans le résumé.`;
+            contextInstruction = `\n- DOCUMENTS JOINTS: Si des documents (PDF, images, textes) te sont fournis, analyse-les pour rédiger le bilan (motif, histoire, examens, ATCD). Dans le résumé, présente TOUJOURS en premier le motif de consultation, les symptômes exprimés et la demande du patient, avant d'insérer les planches d'imagerie.`;
         }
 
         const systemPrompt = `Tu es un assistant médical clinique expert (ostéopathie, biokinergie, thérapie manuelle). Ton rôle est d'analyser l'intégralité de la transcription de l'interrogatoire patient (et/ou des documents) et de produire un bilan médical exhaustif, riche et rigoureusement structuré.${contextInstruction}
@@ -567,7 +574,7 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
                     attachedDocsContext += `- Synthèse radiologique officielle : ${plate.conclusionSummary}\n`;
                 }
                 attachedDocsContext += `CONSIGNES STRICTES ET ABSOLUES D'INTÉGRATION DANS LES DEUX RUBRIQUES :\n`;
-                attachedDocsContext += `1. DANS LA CLÉ "resume" : Le résumé DOIT OBLIGATOIREMENT DÉBUTER par la planche didactique maîtresse en Markdown pur : ![Planche Didactique Maîtresse - ${plate.examTitle}](${plate.masterPlateUrl})\n`;
+                attachedDocsContext += `1. DANS LA CLÉ "resume" : Le résumé DOIT OBLIGATOIREMENT DÉBUTER par le Motif de consultation, les Symptômes exprimés et la Demande du patient (### 📋 Motif de Consultation, Symptômes Exprimés & Demande du Patient). Ensuite seulement, insérer la section d'imagerie "### 🎯 Examens d'Imagerie & Planches Didactiques" avec la planche didactique maîtresse en Markdown pur : ![Planche Didactique Maîtresse - ${plate.examTitle}](${plate.masterPlateUrl})\n`;
                 attachedDocsContext += `2. DANS LA CLÉ "synthese" : Tu DOIS OBLIGATOIREMENT afficher la planche didactique maîtresse sous le titre de cet examen : ![Planche Didactique Maîtresse - ${plate.examTitle}](${plate.masterPlateUrl})\n`;
                 attachedDocsContext += `3. DANS LA CLÉ "synthese" : Tu DOIS OBLIGATOIREMENT ajouter juste en-dessous l'accordéon déroulant pour la planche de contact complète :\n`;
                 attachedDocsContext += `<details><summary>🔎 Afficher la planche de contact complète de toutes les coupes...</summary>\n\n![Planche de Contact Complète - ${plate.examTitle}](${plate.contactSheetUrl})\n\n</details>\n`;
@@ -645,7 +652,7 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
                         },
                         resume: {
                             type: Type.STRING,
-                            description: "Le résumé global et évolutif de la consultation. Si des examens d'imagerie médicale sont présents, le résumé DOIT débuter par la planche didactique maîtresse en Markdown pur (![Titre](url.png)), suivi du récapitulatif des repères didactiques (🔴 lésions aiguës, 🟢 zones saines/intègres, 🔵 repères anatomiques, 🟠 remaniements chroniques) et de la synthèse clinique ostéopathique TDT."
+                            description: "Le résumé global et évolutif de la consultation. Il DOIT STRICTEMENT DÉBUTER par le Motif de consultation, les Symptômes exprimés et la Demande du patient (### 📋 Motif de Consultation, Symptômes Exprimés & Demande du Patient). Ensuite seulement, si des examens d'imagerie médicale sont présents, insérer la section d'imagerie (### 🎯 Examens d'Imagerie & Planches Didactiques) avec la planche didactique maîtresse en Markdown pur (![Titre](url.png)), suivi du récapitulatif des repères didactiques et de la synthèse clinique ostéopathique TDT."
                         },
                         synthese: {
                             type: Type.STRING,
