@@ -72,7 +72,7 @@ function EmptyState() {
 function Folder({ title, defaultOpen = false, children }: { title: React.ReactNode, defaultOpen?: boolean, children: React.ReactNode }) {
   return (
     <details open={defaultOpen} className="group mb-4 bg-white/50 border border-[#bd613c]/20 rounded-xl overflow-hidden [&_summary::-webkit-details-marker]:hidden">
-      <summary className="cursor-pointer px-4 py-3 font-bebas text-xl text-[#bd613c] flex items-center justify-between hover:bg-[#ebd9c8]/30 transition-colors list-none">
+      <summary className="cursor-pointer px-4 py-3 font-bebas text-xl text-[#bd613c] flex items-center justify-between hover:bg-[#ebd9c8]/30 transition-colors list-none select-none">
         <div className="flex items-center gap-2">
           <FolderIcon className="w-5 h-5" />
           {title}
@@ -955,20 +955,28 @@ export default function Home() {
         <div className="flex flex-row items-center justify-between p-4 sm:p-5 gap-2 sm:gap-4">
           <div className="flex-1 min-w-0 pr-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <div className="flex items-center gap-1.5">
-              <h3 className="text-lg sm:text-xl font-bebas tracking-wide text-[#594c42] font-medium uppercase leading-tight">
-                {consult.patientName || `Patient #${consult.id}`}
-              </h3>
+              <Link href={`/consultation/${consult.id}`} className="group/name focus:outline-none">
+                <h3 className="text-lg sm:text-xl font-bebas tracking-wide text-[#594c42] group-hover/name:text-[#bd613c] font-medium uppercase leading-tight cursor-pointer transition-colors">
+                  {consult.patientName || `Patient #${consult.id}`}
+                </h3>
+              </Link>
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => handleSwapPatientName(consult)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSwapPatientName(consult);
+                }}
                 className="h-6 w-6 text-slate-400 hover:text-[#bd613c] hover:bg-[#ebd9c8]/30 rounded-full transition-colors shrink-0"
                 title="Inverser Nom et Prénom"
               >
                 <ArrowLeftRight className="w-3.5 h-3.5" />
               </Button>
             </div>
-            <div className="flex flex-row items-center gap-2 text-[10px] sm:text-[11px] text-[#4a3f35]/80 shrink-0">
+            <Link
+              href={`/consultation/${consult.id}`}
+              className="flex flex-row items-center gap-2 text-[10px] sm:text-[11px] text-[#4a3f35]/80 shrink-0 hover:text-[#bd613c] transition-colors cursor-pointer"
+            >
               <span className="font-medium whitespace-nowrap">
                 {format(new Date(consult.date), "dd/MM/yy '•' HH:mm", { locale: fr })}
               </span>
@@ -976,7 +984,7 @@ export default function Home() {
                 <CalendarDays className="w-2.5 h-2.5 opacity-80" />
                 <span>S{sessionCount}</span>
               </div>
-            </div>
+            </Link>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 sm:gap-2 shrink-0">
@@ -1077,14 +1085,21 @@ export default function Home() {
                     </Button>
                   </div>
                 )}
-                {consult.synthese && (
-                  <Button asChild variant="default" className="bg-[#bd613c]/90 hover:bg-[#bd613c] text-white h-9 px-4 rounded-lg shadow-sm" size="sm">
-                    <Link href={`/consultation/${consult.id}`}>
-                      <span className="mr-1">Voir</span>
-                      <ArrowRight className="w-4 h-4 ml-1" />
-                    </Link>
-                  </Button>
-                )}
+                <Button
+                  asChild
+                  variant={consult.synthese ? "default" : "outline"}
+                  className={
+                    consult.synthese
+                      ? "bg-[#bd613c]/90 hover:bg-[#bd613c] text-white h-9 px-4 rounded-lg shadow-sm"
+                      : "border-[#bd613c]/50 text-[#bd613c] hover:bg-[#bd613c] hover:text-white h-9 px-3 rounded-lg text-xs shadow-sm"
+                  }
+                  size="sm"
+                >
+                  <Link href={`/consultation/${consult.id}`}>
+                    <span className="mr-1">{consult.synthese ? "Voir" : "Ouvrir"}</span>
+                    <ArrowRight className="w-4 h-4 ml-1" />
+                  </Link>
+                </Button>
 
                 {/* Dropdown 3 petits points */}
                 <DropdownMenu>
