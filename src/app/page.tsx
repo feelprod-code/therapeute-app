@@ -1225,6 +1225,17 @@ export default function Home() {
                         placeholder="Exemple : Patient Jean Dupont, 45 ans. Douleur cervicale depuis 5 jours. Antécédents d'entorse en 2018..."
                         value={textContent}
                         onChange={(e) => setTextContent(e.target.value)}
+                        onKeyDown={(e) => {
+                          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                            e.preventDefault();
+                            if (textContent.trim()) {
+                              const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
+                              const file = new File([blob], `bilan_manuel_${Date.now()}.txt`, { type: 'text/plain' });
+                              handleRecordingComplete(file);
+                              setTextContent("");
+                            }
+                          }
+                        }}
                       />
                       <Button
                         size="icon"
@@ -1255,18 +1266,23 @@ export default function Home() {
                         )}
                       </Button>
                     </div>
-                    <Button
-                      className="w-full sm:w-auto self-center bg-[#e25822] hover:bg-[#bd613c] text-white px-10 h-11 rounded-full text-base font-medium shadow-md transition-transform hover:scale-105"
-                      disabled={!textContent.trim()}
-                      onClick={() => {
-                        const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
-                        const file = new File([blob], `bilan_manuel_${Date.now()}.txt`, { type: 'text/plain' });
-                        handleRecordingComplete(file);
-                        setTextContent("");
-                      }}
-                    >
-                      Générer le Dossier Patient
-                    </Button>
+                    <div className="flex flex-col items-center gap-2">
+                      <Button
+                        className="w-full sm:w-auto self-center bg-[#e25822] hover:bg-[#bd613c] text-white px-10 h-11 rounded-full text-base font-medium shadow-md transition-transform hover:scale-105"
+                        disabled={!textContent.trim()}
+                        onClick={() => {
+                          const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
+                          const file = new File([blob], `bilan_manuel_${Date.now()}.txt`, { type: 'text/plain' });
+                          handleRecordingComplete(file);
+                          setTextContent("");
+                        }}
+                      >
+                        Générer le Dossier Patient
+                      </Button>
+                      <span className="text-xs text-[#bd613c]/80">
+                        Astuce : Appuyez sur <strong className="font-semibold bg-[#ebd9c8]/30 px-1 py-0.5 rounded border border-[#ebd9c8]/60">⌘ + Entrée</strong> pour générer
+                      </span>
+                    </div>
                   </Card>
                 </TabsContent>
               </div>

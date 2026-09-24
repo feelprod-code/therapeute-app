@@ -997,6 +997,7 @@ export default function ConsultationDetail() {
 
     try {
       if (appendMode === 'bilan') {
+        toast({ title: "Mise à jour en cours...", description: "L'IA analyse et intègre vos informations au bilan..." });
         const response = await fetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1237,6 +1238,19 @@ export default function ConsultationDetail() {
               <textarea
                 value={textContent}
                 onChange={(e) => setTextContent(e.target.value)}
+                onKeyDown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                    e.preventDefault();
+                    if (textContent.trim() && !isAppending) {
+                      handleAppendText();
+                    }
+                  } else if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (textContent.trim() && !isAppending) {
+                      handleAppendText();
+                    }
+                  }
+                }}
                 placeholder="Saisissez ici les informations de votre consultation..."
                 className="w-full min-h-[200px] p-4 pb-14 font-inter text-base rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none resize-none transition-shadow"
                 disabled={isAppending}
@@ -1270,14 +1284,23 @@ export default function ConsultationDetail() {
                 )}
               </Button>
             </div>
-            <div className="flex justify-end gap-3 pt-2">
-              <Button variant="ghost" onClick={() => setIsTextModalOpen(false)} disabled={isAppending} className="text-[#4a3f35]/60 hover:text-[#4a3f35] hover:bg-[#ebd9c8]/20">
-                Annuler
-              </Button>
-              <Button onClick={handleAppendText} disabled={!textContent.trim() || isAppending} className="bg-[#e25822] hover:bg-[#bd613c] text-white px-6">
-                {isAppending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Check className="w-5 h-5 mr-2" />}
-                Traiter & Enregistrer
-              </Button>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2">
+              <div className="text-xs text-[#bd613c]/80 flex flex-wrap items-center gap-1.5">
+                <span className="font-semibold bg-[#ebd9c8]/30 px-1.5 py-0.5 rounded border border-[#ebd9c8]/60">↵ Entrée</span>
+                <span>ou</span>
+                <span className="font-semibold bg-[#ebd9c8]/30 px-1.5 py-0.5 rounded border border-[#ebd9c8]/60">⌘ + Entrée</span>
+                <span>pour valider •</span>
+                <span className="text-slate-500"><strong className="font-medium text-slate-700">Maj + Entrée</strong> pour saut de ligne</span>
+              </div>
+              <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+                <Button variant="ghost" onClick={() => setIsTextModalOpen(false)} disabled={isAppending} className="text-[#4a3f35]/60 hover:text-[#4a3f35] hover:bg-[#ebd9c8]/20">
+                  Annuler
+                </Button>
+                <Button onClick={handleAppendText} disabled={!textContent.trim() || isAppending} className="bg-[#e25822] hover:bg-[#bd613c] text-white px-6">
+                  {isAppending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Check className="w-5 h-5 mr-2" />}
+                  Traiter & Enregistrer
+                </Button>
+              </div>
             </div>
           </div>
         </DialogContent>
@@ -1594,6 +1617,12 @@ export default function ConsultationDetail() {
                   <textarea
                     value={editBilanContent}
                     onChange={(e) => setEditBilanContent(e.target.value)}
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                        e.preventDefault();
+                        handleSaveBilan();
+                      }
+                    }}
                     className="w-full min-h-[500px] p-4 font-mono text-sm sm:text-base rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
                   />
                 ) : (
@@ -1645,6 +1674,12 @@ export default function ConsultationDetail() {
                     <textarea
                       value={editResumeContent}
                       onChange={(e) => setEditResumeContent(e.target.value)}
+                      onKeyDown={(e) => {
+                        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                          e.preventDefault();
+                          handleSaveResume();
+                        }
+                      }}
                       className="w-full min-h-[300px] p-4 font-mono text-sm sm:text-base rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
                     />
                     <div className="flex gap-2 justify-end">
@@ -1701,6 +1736,12 @@ export default function ConsultationDetail() {
                     <textarea
                       value={editTranscriptionContent}
                       onChange={(e) => setEditTranscriptionContent(e.target.value)}
+                      onKeyDown={(e) => {
+                        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                          e.preventDefault();
+                          handleSaveTranscription();
+                        }
+                      }}
                       className="w-full min-h-[500px] p-4 font-mono text-sm rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
                     />
                     <div className="flex gap-2 justify-end">
@@ -1999,6 +2040,12 @@ export default function ConsultationDetail() {
                                       <textarea
                                         value={editFollowUpContent}
                                         onChange={(e) => setEditFollowUpContent(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                                            e.preventDefault();
+                                            handleSaveFollowUp(note.id);
+                                          }
+                                        }}
                                         className="w-full min-h-[150px] p-3 font-mono text-sm rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
                                       />
                                     </div>

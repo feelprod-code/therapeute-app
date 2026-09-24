@@ -46,6 +46,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         // 3. Configuration WKWebView avec permission Micro
         let config = WKWebViewConfiguration()
         config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
+        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
         
         webView = WKWebView(frame: window.contentView!.bounds, configuration: config)
         webView.autoresizingMask = [.width, .height]
@@ -53,10 +54,96 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         webView.navigationDelegate = self
         window.contentView?.addSubview(webView)
 
+        // Configurer le menu principal macOS (Copier / Coller / Sélectionner / Recharger)
+        setupMainMenu()
+
         window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(webView)
         NSApp.activate(ignoringOtherApps: true)
 
         // 4. Charger l'URL locale
+        loadApp()
+    }
+
+    func setupMainMenu() {
+        let mainMenu = NSMenu()
+
+        // 1. Menu Application
+        let appMenuItem = NSMenuItem()
+        mainMenu.addItem(appMenuItem)
+        let appMenu = NSMenu()
+        appMenuItem.submenu = appMenu
+
+        let appName = "TDT Thérapeute"
+        appMenu.addItem(withTitle: "À propos de \(appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        
+        let hideItem = appMenu.addItem(withTitle: "Masquer \(appName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        hideItem.keyEquivalentModifierMask = [.command]
+        
+        let hideOthersItem = appMenu.addItem(withTitle: "Masquer les autres", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+        hideOthersItem.keyEquivalentModifierMask = [.command, .option]
+        
+        appMenu.addItem(withTitle: "Tout afficher", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        
+        let quitItem = appMenu.addItem(withTitle: "Quitter \(appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quitItem.keyEquivalentModifierMask = [.command]
+
+        // 2. Menu Édition (INDISPENSABLE pour Cmd+C, Cmd+V, Cmd+X, Cmd+A dans WKWebView)
+        let editMenuItem = NSMenuItem()
+        mainMenu.addItem(editMenuItem)
+        let editMenu = NSMenu(title: "Édition")
+        editMenuItem.submenu = editMenu
+
+        let undoItem = editMenu.addItem(withTitle: "Annuler", action: #selector(UndoManager.undo), keyEquivalent: "z")
+        undoItem.keyEquivalentModifierMask = [.command]
+
+        let redoItem = editMenu.addItem(withTitle: "Rétablir", action: #selector(UndoManager.redo), keyEquivalent: "Z")
+        redoItem.keyEquivalentModifierMask = [.command, .shift]
+
+        editMenu.addItem(NSMenuItem.separator())
+
+        let cutItem = editMenu.addItem(withTitle: "Couper", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        cutItem.keyEquivalentModifierMask = [.command]
+
+        let copyItem = editMenu.addItem(withTitle: "Copier", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        copyItem.keyEquivalentModifierMask = [.command]
+
+        let pasteItem = editMenu.addItem(withTitle: "Coller", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        pasteItem.keyEquivalentModifierMask = [.command]
+
+        let selectAllItem = editMenu.addItem(withTitle: "Tout sélectionner", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        selectAllItem.keyEquivalentModifierMask = [.command]
+
+        // 3. Menu Affichage (Rechargement rapide)
+        let viewMenuItem = NSMenuItem()
+        mainMenu.addItem(viewMenuItem)
+        let viewMenu = NSMenu(title: "Affichage")
+        viewMenuItem.submenu = viewMenu
+
+        let reloadItem = viewMenu.addItem(withTitle: "Recharger la page", action: #selector(reloadApp), keyEquivalent: "r")
+        reloadItem.keyEquivalentModifierMask = [.command]
+        reloadItem.target = self
+
+        // 4. Menu Fenêtre
+        let windowMenuItem = NSMenuItem()
+        mainMenu.addItem(windowMenuItem)
+        let windowMenu = NSMenu(title: "Fenêtre")
+        windowMenuItem.submenu = windowMenu
+
+        let minItem = windowMenu.addItem(withTitle: "Réduire", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        minItem.keyEquivalentModifierMask = [.command]
+
+        windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        
+        let closeItem = windowMenu.addItem(withTitle: "Fermer la fenêtre", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        closeItem.keyEquivalentModifierMask = [.command]
+
+        NSApp.mainMenu = mainMenu
+    }
+
+    @objc func reloadApp() {
         loadApp()
     }
 
@@ -93,6 +180,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return true
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            window.makeKeyAndOrderFront(nil)
+        }
         return true
     }
 }
