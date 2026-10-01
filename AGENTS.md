@@ -22,19 +22,40 @@ Dès qu'un document visuel (PDF ou image contenant des examens radiologiques, IR
   3. **Cartouches Explicatifs Succincts :** Relier chaque flèche par une fine ligne directrice à un badge/cartouche clair comprenant un titre en gras et une description clinique concise en une ligne, positionné dans les marges sans masquer l'anatomie.
   4. **Bandeau Inférieur de Synthèse Radiologique :** Intégrer en bas de planche un cartouche récapitulant fidèlement la conclusion du radiologue signataire.
 
-- **Intégration Systématique dans les Deux Rubriques :**
-  - **Dans le Résumé (`resume`) :** 
-    1. Afficher la planche didactique maîtresse annotée dès l'en-tête : `![Bilan Didactique Global](url.png)`.
-    2. Insérer le récapitulatif visuel des repères anatomiques et flèches de couleur (🔴, 🟢, 🔵, 🟠).
-    3. Conclure par la synthèse clinique ostéopathique TDT.
-  - **Dans la Synthèse (`synthese`) :** 
-    1. Intégrer la planche didactique annotée sous chaque compte-rendu d'imagerie en visibilité immédiate.
-    2. Insérer le menu accordéon déroulant (`<details>`) regroupant les planches de contact complètes de toutes les coupes (axiales, sagittales, coronales) sans recadrage.
-    3. Ajouter le bouton d'accès direct au PDF officiel original.
+- **Intégration Systématique dans les Deux Rubriques (RÈGLE DU REPLI & ZÉRO ENCOMBREMENT) :**
+  - **Mise en Repli Systématique (`<details><summary>...</summary></details>`) :**
+    Ne JAMAIS afficher de planche didactique ou d'image ouverte directement au milieu du texte par défaut. Tout document importé, compte-rendu ou planche doit être obligatoirement placé dans un accordéon repliable pour préserver la lisibilité de la fiche :
+    ```markdown
+    <details><summary>📄 Voir le document d'imagerie original...</summary>
 
-- **Visionneuse Médicale Interactive (`MedicalImageViewerModal`) :**
-  - Téléverser systématiquement toutes les planches `.png` sur Supabase Storage (`tdt_uploads`).
-  - Utiliser la syntaxe Markdown `![Titre](url.png)` qui active automatiquement l'ouverture en plein écran avec zoom interactif et loupe au clic du praticien.
+    ![Compte-rendu d'imagerie](url.png)
+
+    </details>
+    ```
+    Et pour les planches de contact :
+    ```markdown
+    <details><summary>🔎 Afficher la planche de contact complète de toutes les coupes...</summary>
+
+    ![Planche de Contact](url.png)
+
+    </details>
+    ```
+  - **Zéro Présentation Inutile sur Documents Textuels :**
+    Si un document est un compte-rendu textuel (lettre dactylographiée sans vrais clichés photographiques ou coupes DICOM), il est STRICTEMENT INTERDIT de générer une fausse planche didactique (rectangle gris vide). Le document original est simplement rattaché et mis en repli.
+  - **PAS LA PEINE DE DÉCRIRE CE QUI N'EST PAS (Bannissement des Listes Négatives) :**
+    Dans le résumé comme dans la synthèse, il est STRICTEMENT INTERDIT de décrire ou d'énumérer ce qui est normal, sain ou indemne.
+    Bannir formellement toutes les listes négatives du type :
+    *« Pas de fissure »*, *« Pas d'épanchement »*, *« Pas de calcification »*, *« Respect des autres tendons »*, *« Tendons en place »*, *« Pas d'amyotrophie »*, *« Pas d'anomalie »*, etc.
+    Mentionner EXCLUSIVEMENT et directement les **constatations positives réelles**, les dysfonctions et la **conclusion clinique** utile à la thérapie manuelle TDT.
+
+- **Ergonomie de la Pilule d'Action sur les Images (Coin Supérieur Droit) :**
+  - La pilule d'action (comme *« Ouvrir dans une fenêtre à part »* ou *« Plein écran »*) ne doit JAMAIS être placée en plein centre de l'image (`flex items-center justify-center` est interdit car elle masque les vertèbres, disques et lésions).
+  - Elle doit être ancrée discrètement dans le **coin supérieur droit** (`top-2.5 right-2.5`), visible au survol ou au toucher, sans jamais masquer le motif anatomique central.
+  - Ne jamais assombrir toute l'image au survol (`group-hover:bg-black/20` interdit) pour préserver le contraste radiologique naturel.
+
+- **Visionneuse Médicale Interactive & Fenêtre Dédiée (`/examen-viewer`) :**
+  - Tout clic sur une image ou un PDF ouvre la vue dédiée `/examen-viewer` dans une fenêtre indépendante redimensionnable (1300×920 px sur app native macOS avec plein écran).
+  - Un bouton terracotta proéminent `← Revenir au bilan` permet de fermer la fenêtre (`window.close()` / touche `Échap`) et de revenir instantanément au dossier patient.
 
 - **Pipeline Automatisé CLI / Script :**
   Pour tout traitement automatisé ou correction rapide par un agent, utiliser le script standard :
