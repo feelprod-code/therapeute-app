@@ -80,7 +80,7 @@ function FollowUpCardContent({
   if (!hasSplit) {
     return (
       <div
-        className="w-full mt-3 prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-3.5 rounded-xl border border-[#ebd9c8]/20 bg-white/40"
+        className="w-full mt-2 sm:mt-3 prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-2.5 sm:p-3.5 rounded-xl border border-[#ebd9c8]/20 bg-white/40"
         onDoubleClick={onDoubleClick}
         title="Double-clic pour modifier la note"
       >
@@ -92,7 +92,7 @@ function FollowUpCardContent({
   }
 
   return (
-    <div className="w-full mt-3 rounded-2xl border border-[#ebd9c8]/70 bg-white/70 p-3 sm:p-4 shadow-2xs hover:shadow-xs transition-shadow">
+    <div className="w-full mt-2 sm:mt-3 rounded-xl sm:rounded-2xl border border-[#ebd9c8]/70 bg-white/70 p-2.5 sm:p-4 shadow-2xs hover:shadow-xs transition-shadow">
       {/* Barre de contrôle Résumé / Développement */}
       <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-[#ebd9c8]/40">
         <div className="flex items-center gap-1.5">
@@ -1253,7 +1253,7 @@ export default function ConsultationDetail() {
   }
 
   return (
-    <main className="min-h-screen py-3 sm:py-8 px-4 sm:px-6 mb-12 flex justify-center">
+    <main className="min-h-screen py-2 sm:py-8 px-1.5 sm:px-6 mb-8 sm:mb-12 flex justify-center">
 
       {/* Modal d'enregistrement audio */}
       <Dialog open={isRecordingModalOpen} onOpenChange={(open) => !open && !isAppending ? setIsRecordingModalOpen(false) : null}>
@@ -1400,7 +1400,7 @@ export default function ConsultationDetail() {
         onClose={() => setSelectedImage(null)}
       />
 
-      <div className="w-full max-w-5xl space-y-8 xl:space-y-10">
+      <div className="w-full max-w-5xl space-y-4 sm:space-y-8 xl:space-y-10">
 
         <Button
           variant="ghost"
@@ -1413,10 +1413,10 @@ export default function ConsultationDetail() {
         </Button>
 
         <Tabs defaultValue="synthese" className="w-full">
-          <div className="flex flex-col lg:flex-row gap-8 items-start">
+          <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 items-start">
 
             {/* LECTURE ZONE (Notebook) - Gauche (flex-1) */}
-            <div id="consultation-export-container" className="flex-1 min-w-0 bg-[#fdfcfb] rounded-2xl p-6 sm:p-10 shadow-sm border border-[#ebd9c8]/50 w-full">
+            <div id="consultation-export-container" className="flex-1 min-w-0 bg-[#fdfcfb] rounded-xl sm:rounded-2xl p-2.5 sm:p-6 lg:p-10 shadow-sm border border-[#ebd9c8]/50 w-full">
 
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
@@ -1905,7 +1905,7 @@ export default function ConsultationDetail() {
                     <p className="text-sm text-[#4a3f35]/40 mt-1">Ajoutez un audio ou document pour créer le premier suivi.</p>
                   </div>
                 ) : (
-                  <div className="space-y-8 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-[#ebd9c8] before:to-transparent">
+                  <div className="space-y-6 sm:space-y-8 relative before:absolute before:inset-0 before:ml-3 sm:before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-[#ebd9c8] before:to-transparent">
                     {(() => {
                       // Group follow_ups by day (YYYY-MM-DD)
                       const grouped = data.follow_ups.reduce((acc: any, note: any) => {
@@ -1981,15 +1981,15 @@ export default function ConsultationDetail() {
                       const sortedDays = Object.keys(grouped).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
 
                       return sortedDays.map((dayStr, dayIdx) => (
-                        <div key={dayStr} className="relative flex items-start gap-4 md:gap-6 group is-active">
+                        <div key={dayStr} className="relative flex items-start gap-2 sm:gap-4 md:gap-6 group is-active">
                           {/* Timeline Marker (one per DAY) */}
-                          <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-white bg-[#bd613c] shadow shrink-0 z-10 mt-4 relative">
-                            <Check className="w-4 h-4 text-white" />
+                          <div className="flex items-center justify-center w-6 h-6 sm:w-10 sm:h-10 rounded-full border-2 sm:border-4 border-white bg-[#bd613c] shadow shrink-0 z-10 mt-1 sm:mt-3 relative">
+                            <Check className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
                           </div>
 
                           {/* Card for the DAY */}
-                          <div className="flex-1 min-w-0 p-5 rounded-2xl border border-[#ebd9c8]/50 bg-white shadow-sm hover:shadow-md transition-shadow">
-                            <h3 className="font-bebas tracking-wide text-lg sm:text-xl text-[#bd613c] mb-3 pb-2 border-b border-[#ebd9c8]/30 flex items-center overflow-hidden">
+                          <div className="flex-1 min-w-0 p-2.5 sm:p-5 rounded-xl sm:rounded-2xl border border-[#ebd9c8]/50 bg-white shadow-sm hover:shadow-md transition-shadow">
+                            <h3 className="font-bebas tracking-wide text-base sm:text-xl text-[#bd613c] mb-2 sm:mb-3 pb-1.5 sm:pb-2 border-b border-[#ebd9c8]/30 flex items-center overflow-hidden">
                               <span className="capitalize truncate flex-1">{format(new Date(dayStr), "EEEE d MMMM yyyy", { locale: fr })}</span>
                               <div className="shrink-0 flex items-center border-l border-[#bd613c]/30 pl-2 ml-2">
                                 <span className="text-sm sm:text-base opacity-70">SÉANCE {getSessionNumberForDay(dayStr)}</span>
@@ -2097,31 +2097,53 @@ export default function ConsultationDetail() {
                                       />
                                     </div>
                                   ) : note.type === 'image' ? (
-                                    <div className="mt-2 flex flex-col items-center w-full">
-                                      <div 
-                                        className="relative inline-block overflow-hidden rounded-xl border border-[#ebd9c8]/70 bg-[#faf7f2] shadow-sm hover:shadow-xl hover:border-[#bd613c]/60 transition-all duration-200 cursor-zoom-in group"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setSelectedImage({
-                                            src: getImageUrl(note.url),
-                                            caption: note.content || "Cliché radiologique / imagerie",
-                                            alt: "Image attachée"
-                                          });
-                                        }}
-                                        title="Cliquer pour afficher en plein écran haute résolution"
-                                      >
-                                        <img
-                                          src={getImageUrl(note.url)}
-                                          alt={note.content || "Image attachée"}
-                                          className="max-h-64 object-contain rounded-xl transition-transform duration-300 group-hover:scale-[1.01]"
-                                        />
-                                        <div className="absolute top-2.5 right-2.5 z-10 pointer-events-none transition-all duration-200 opacity-0 group-hover:opacity-100">
-                                          <div className="bg-stone-900/85 text-white text-[11px] px-2.5 py-1 rounded-lg backdrop-blur-sm flex items-center gap-1.5 shadow-md border border-white/20">
-                                            <Maximize2 className="w-3 h-3 text-[#bd613c]" />
-                                            <span className="font-medium">Plein écran</span>
+                                    <div className="mt-2 flex flex-col items-start w-full">
+                                      <details className="w-full rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-2xs bg-white flex flex-col group/img">
+                                        <summary className="bg-[#FAF7F2] hover:bg-[#ebd9c8]/20 p-2.5 px-3 flex justify-between items-center cursor-pointer select-none transition-colors list-none">
+                                          <span className="text-xs font-semibold text-[#5a4e44] flex items-center gap-2 min-w-0">
+                                            <ImageIcon className="w-4 h-4 text-[#bd613c] shrink-0" />
+                                            <span className="truncate">Cliché radiologique / Image</span>
+                                            <span className="text-[10px] text-[#8c7b6d] font-normal hidden sm:inline shrink-0">(cliquer pour déplier)</span>
+                                          </span>
+                                          <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              className="h-6 px-2 text-[11px] bg-white text-[#bd613c] border-[#ebd9c8] hover:bg-[#bd613c] hover:text-white transition-colors"
+                                              onClick={() => {
+                                                const viewerUrl = `/examen-viewer?url=${encodeURIComponent(getImageUrl(note.url))}&title=${encodeURIComponent(note.content || "Cliché radiologique")}&type=image`;
+                                                window.open(viewerUrl, "_blank", "noopener,noreferrer");
+                                              }}
+                                              title="Ouvrir dans une fenêtre à part"
+                                            >
+                                              <ExternalLink className="w-3 h-3 mr-1" /> Fenêtre à part
+                                            </Button>
+                                            <ChevronDown className="w-3.5 h-3.5 text-[#8c7b6d] group-open/img:rotate-180 transition-transform ml-0.5" />
+                                          </div>
+                                        </summary>
+                                        <div className="p-2 sm:p-3 bg-[#faf7f2] flex justify-center border-t border-[#ebd9c8]/30">
+                                          <div 
+                                            className="relative inline-block overflow-hidden rounded-xl border border-[#ebd9c8]/70 bg-white shadow-sm hover:shadow-md cursor-pointer"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              const viewerUrl = `/examen-viewer?url=${encodeURIComponent(getImageUrl(note.url))}&title=${encodeURIComponent(note.content || "Cliché radiologique")}&type=image`;
+                                              window.open(viewerUrl, "_blank", "noopener,noreferrer");
+                                            }}
+                                          >
+                                            <img
+                                              src={getImageUrl(note.url)}
+                                              alt={note.content || "Image attachée"}
+                                              className="max-h-72 object-contain rounded-xl"
+                                            />
+                                            <div className="absolute top-2.5 right-2.5 z-10 pointer-events-none transition-all duration-200 opacity-0 group-hover/img:opacity-100">
+                                              <div className="bg-stone-900/85 text-white text-[11px] px-2 py-1 rounded-lg backdrop-blur-sm flex items-center gap-1 shadow-md border border-white/20">
+                                                <ExternalLink className="w-3 h-3 text-[#bd613c]" />
+                                                <span>Agrandir</span>
+                                              </div>
+                                            </div>
                                           </div>
                                         </div>
-                                      </div>
+                                      </details>
                                       {note.content && (
                                         <FollowUpCardContent
                                           content={note.content}
@@ -2138,22 +2160,38 @@ export default function ConsultationDetail() {
                                       )}
                                     </div>
                                   ) : note.type === 'pdf' ? (
-                                    <div className="mt-2 flex flex-col items-center w-full">
-                                      <div className="w-full sm:w-3/4 lg:w-2/3 rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-sm relative bg-white flex flex-col">
-                                        <div className="bg-slate-50 p-2 px-3 flex justify-between items-center border-b border-[#ebd9c8]/50 z-10">
-                                          <span className="text-xs font-medium text-slate-600 flex items-center gap-2">
-                                            <FileText className="w-4 h-4 text-[#bd613c]" /> Aperçu du PDF
+                                    <div className="mt-2 flex flex-col items-start w-full">
+                                      <details className="w-full rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-2xs bg-white flex flex-col group/pdf">
+                                        <summary className="bg-[#FAF7F2] hover:bg-[#ebd9c8]/20 p-2.5 px-3 flex justify-between items-center cursor-pointer select-none transition-colors list-none">
+                                          <span className="text-xs font-semibold text-[#5a4e44] flex items-center gap-2 min-w-0">
+                                            <FileText className="w-4 h-4 text-[#bd613c] shrink-0" />
+                                            <span className="truncate">Document PDF original</span>
+                                            <span className="text-[10px] text-[#8c7b6d] font-normal hidden sm:inline shrink-0">(cliquer pour déplier l'aperçu)</span>
                                           </span>
-                                          <Button variant="outline" size="sm" className="h-7 text-xs bg-white text-[#bd613c] border-[#ebd9c8] hover:bg-slate-50" onClick={() => window.open(getImageUrl(note.url), "_blank")}>
-                                            <ExternalLink className="w-3 h-3 mr-1" /> Agrandir
-                                          </Button>
+                                          <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              className="h-6 px-2 text-[11px] bg-white text-[#bd613c] border-[#ebd9c8] hover:bg-[#bd613c] hover:text-white transition-colors"
+                                              onClick={() => {
+                                                const viewerUrl = `/examen-viewer?url=${encodeURIComponent(getImageUrl(note.url))}&title=${encodeURIComponent(note.content || "Document PDF")}&type=pdf`;
+                                                window.open(viewerUrl, "_blank", "noopener,noreferrer");
+                                              }}
+                                              title="Ouvrir dans une fenêtre à part"
+                                            >
+                                              <ExternalLink className="w-3 h-3 mr-1" /> Fenêtre à part
+                                            </Button>
+                                            <ChevronDown className="w-3.5 h-3.5 text-[#8c7b6d] group-open/pdf:rotate-180 transition-transform ml-0.5" />
+                                          </div>
+                                        </summary>
+                                        <div className="p-1 sm:p-2 bg-zinc-50 border-t border-[#ebd9c8]/30">
+                                          <iframe
+                                            src={`${getImageUrl(note.url)}#toolbar=0&navpanes=0&view=FitH`}
+                                            className="w-full h-[320px] sm:h-[400px] border-none bg-white rounded-lg shadow-inner"
+                                            title={note.content || "Document PDF"}
+                                          />
                                         </div>
-                                        <iframe
-                                          src={`${getImageUrl(note.url)}#toolbar=0&navpanes=0&view=FitH`}
-                                          className="w-full h-[350px] border-none bg-zinc-100"
-                                          title={note.content || "Document PDF"}
-                                        />
-                                      </div>
+                                      </details>
                                       {note.content && (
                                         <FollowUpCardContent
                                           content={note.content}
