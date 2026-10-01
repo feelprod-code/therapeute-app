@@ -497,15 +497,17 @@ Ton objectif est de mettre à jour la synthèse PRÉCÉDENTE en FUSIONNANT de ma
     - **Motif de consultation :** [Motif précis]
     - **Symptômes exprimés :** [Symptômes rapportés par le patient, intensité, gêne]
     - **Demande du patient :** [Objectif de la prise en charge, attente envers le thérapeute]
-  * 2. EXAMENS D'IMAGERIE ET DOCUMENTS EN REPLI : Si des examens d'imagerie médicale ou documents sont présents, insérer :
-    ### 🎯 Examens Complémentaires & Imagerie
-    avec la synthèse pathologique positive concise (sans énumération de ce qui est normal ou absent) et le document ou la planche placé OBLIGATOIREMENT EN REPLI :
-    <details><summary>📄 Voir le document / l'examen d'imagerie...</summary>\n\n![Titre](url)\n\n</details>
+  * 2. EXAMENS D'IMAGERIE ET DOCUMENTS :
+    - CLICHÉS RADIOLOGIQUES, IRM ET PLANCHES DIDACTIQUES : DOIVENT ÊTRE VISIBLES DIRECTEMENT (hors accordéon, en pleine visibilité) pour une lecture clinique immédiate :
+      ![Titre de la planche](url)
+    - DOCUMENTS ORIGINAUX (PDF, comptes-rendus dactylographiés) : DOIVENT ÊTRE MIS EN REPLI :
+      <details><summary>📄 Voir le document original (PDF)...</summary>\n\n[📄 Consulter le document officiel (PDF)](url)\n\n</details>
+    - PAS LA PEINE DE DÉCRIRE CE QUI N'EST PAS : Bannir toute énumération de ce qui est normal ou absent.
   * 3. SUIVIS DATÉS & ÉVOLUTION : Chaque suivi ou examen récent doit être mentionné avec sa date explicite (ex: "### 🗓️ Suivi du [Date] : ..."), en détaillant le lieu précis de fracture s'il y a lieu, les conclusions radiologiques, les notes psycho-émotionnelles ou les évolutions posturales.
   * Le résumé doit être complet, fluide et lisible en un coup d'œil.
 `;
         } else {
-            contextInstruction = `\n- DOCUMENTS JOINTS: Si des documents (PDF, images, textes) te sont fournis, analyse-les pour rédiger le bilan (motif, histoire, examens, ATCD). Tout document ou image doit être placé EN REPLI (<details><summary>📄 Voir le document...</summary>...</details>) et ne jamais lister ce qui est normal ou absent.`;
+            contextInstruction = `\n- DOCUMENTS JOINTS : Si des documents (PDF, comptes-rendus textuels) te sont fournis, ils doivent être placés EN REPLI (<details><summary>📄 Voir le document...</summary>...</details>). En revanche, s'il s'agit de clichés radiologiques, IRM ou échographies (images), ils DOIVENT ÊTRE VISIBLES DIRECTEMENT sans repli (![Titre](url)). Ne jamais lister ce qui est normal ou absent.`;
         }
 
         const systemPrompt = `Tu es un assistant médical clinique expert (ostéopathie, biokinergie, thérapie manuelle). Ton rôle est d'analyser l'intégralité de la transcription de l'interrogatoire patient (et/ou des documents) et de produire un bilan médical exhaustif, riche et rigoureusement structuré.${contextInstruction}
@@ -545,7 +547,9 @@ Règles impératives et absolues :
 ### Examens Complémentaires
 - **Photos / PDF / Textes :**
 [CONSIGNES DOCUMENTS & IMAGERIE :
-- RÈGLE DU REPLI OBLIGATOIRE : Lorsqu'un document ou examen d'imagerie est présent, place-le TOUJOURS en repli dans un bloc <details><summary>📄 Voir le document ([Titre de l'examen])...</summary> ... </details> pour ne jamais encombrer la page.
+- RÈGLE DES CLICHÉS vs DOCUMENTS :
+  * Clichés radiologiques, IRM, échographies et planches didactiques : ON DOIT LES VOIR DIRECTEMENT ! Insère-les directement dans le texte (![Titre](url.png)), JAMAIS dans un accordéon replié.
+  * Documents (PDFs, comptes-rendus textuels officiels, courriers) : CE SONT EUX QUI DOIVENT ÊTRE EN REPLI (<details><summary>📄 Voir le compte-rendu officiel original...</summary> [📄 Consulter le document (PDF)](url.pdf) </details>).
 - PAS LA PEINE DE DÉCRIRE CE QUI N'EST PAS : Bannis formellement toute énumération négative de ce qui est normal, sain ou absent ("Pas de fissure", "Pas d'épanchement", "Pas de calcification", "Respect de..."). Indique uniquement les constats pathologiques réels et la conclusion utile à l'ostéopathe.
 - RÈGLE ABSOLUE : NE JAMAIS insérer d'URL de fichier .pdf dans une balise image Markdown ![...](...pdf) ! Utilise toujours un lien [Consulter le document (PDF)](url.pdf).]
 ### Antécédents (ATCD) et Chronologie
@@ -566,7 +570,7 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
         }
 
         if (generatedMedicalPlates.length > 0) {
-            attachedDocsContext += "\n\n--- PLANCHES DIDACTIQUES D'IMAGERIE MÉDICALE ANNOTÉES (MISE EN REPLI OBLIGATOIRE) ---\n";
+            attachedDocsContext += "\n\n--- PLANCHES DIDACTIQUES D'IMAGERIE MÉDICALE ANNOTÉES (VISIBLES DIRECTEMENT) ---\n";
             generatedMedicalPlates.forEach(plate => {
                 attachedDocsContext += `\n### EXAMEN D'IMAGERIE RÉALISÉ : ${plate.examTitle}\n`;
                 attachedDocsContext += `- Planche Didactique Maîtresse : ${plate.masterPlateUrl}\n`;
@@ -574,13 +578,15 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
                 if (plate.conclusionSummary) {
                     attachedDocsContext += `- Synthèse radiologique : ${plate.conclusionSummary}\n`;
                 }
-                attachedDocsContext += `CONSIGNES STRICTES D'INTÉGRATION (ZÉRO ENCOMBREMENT VISUEL & ZÉRO LISTE NÉGATIVE) :\n`;
-                attachedDocsContext += `1. TOUT DOCUMENT/PLANCHE DOIT ÊTRE MIS EN REPLI (DÉROULANT PLIÉ PAR DÉFAUT) : Ne JAMAIS afficher de grande image ouverte directement au milieu du texte. Mets TOUJOURS la planche dans un accordéon repliable :\n`;
-                attachedDocsContext += `<details><summary>📄 Voir l'examen d'imagerie (${plate.examTitle})...</summary>\n\n![Planche - ${plate.examTitle}](${plate.masterPlateUrl})\n\n</details>\n`;
-                attachedDocsContext += `2. ACCORDÉON POUR TOUTES LES COUPES (synthese) :\n`;
+                attachedDocsContext += `CONSIGNES STRICTES D'INTÉGRATION :\n`;
+                attachedDocsContext += `1. CLICHÉS RADIOLOGIQUES & IRM VISIBLES DIRECTEMENT : La planche didactique maîtresse d'imagerie DOIT ÊTRE VISIBLE DIRECTEMENT (sans accordéon / sans repli) :\n`;
+                attachedDocsContext += `![Planche Didactique - ${plate.examTitle}](${plate.masterPlateUrl})\n`;
+                attachedDocsContext += `2. ACCORDÉON POUR TOUTES LES COUPES DE CONTACT (optionnel pour ne pas encombrer) :\n`;
                 attachedDocsContext += `<details><summary>🔎 Afficher la planche de contact complète de toutes les coupes...</summary>\n\n![Planche de Contact - ${plate.examTitle}](${plate.contactSheetUrl})\n\n</details>\n`;
-                attachedDocsContext += `3. PAS LA PEINE DE DÉCRIRE CE QUI N'EST PAS (BANNIR LES DESCRIPTIONS NÉGATIVES) : Ne JAMAIS lister ce qui est normal, indemne ou absent (Bannir : "Pas de fissure", "Pas d'épanchement", "Pas de calcification", "Respect des tendons", "Pas d'amyotrophie"). Indique UNIQUEMENT les anomalies positives réelles et la conclusion clinique utile à la thérapie manuelle.\n`;
-                attachedDocsContext += `4. INTERDICTION FORMELLE : Ne JAMAIS insérer d'URL de fichier .pdf dans une balise image ![...](). Seules les URLs des planches .png sont autorisées pour l'affichage visuel !\n`;
+                attachedDocsContext += `3. DOCUMENTS ORIGINAUX EN REPLI : Si un document PDF officiel original est fourni, place-le en repli :\n`;
+                attachedDocsContext += `<details><summary>📄 Voir le compte-rendu officiel original (PDF)...</summary>\n\n[📄 Consulter le compte-rendu officiel original (PDF)](url.pdf)\n\n</details>\n`;
+                attachedDocsContext += `4. PAS LA PEINE DE DÉCRIRE CE QUI N'EST PAS (BANNIR LES DESCRIPTIONS NÉGATIVES) : Ne JAMAIS lister ce qui est normal, indemne ou absent (Bannir : "Pas de fissure", "Pas d'épanchement", "Pas de calcification", "Respect des tendons", "Pas d'amyotrophie"). Indique UNIQUEMENT les anomalies positives réelles et la conclusion clinique utile à la thérapie manuelle.\n`;
+                attachedDocsContext += `5. INTERDICTION FORMELLE : Ne JAMAIS insérer d'URL de fichier .pdf dans une balise image ![...](). Seules les URLs des planches .png sont autorisées pour l'affichage visuel !\n`;
             });
             attachedDocsContext += "----------------------------------------------------------------------------------------------------\n";
         }

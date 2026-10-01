@@ -2097,43 +2097,39 @@ export default function ConsultationDetail() {
                                       />
                                     </div>
                                   ) : note.type === 'image' ? (
-                                    <div className="mt-2 flex flex-col items-start w-full">
-                                      <details className="w-full rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-2xs bg-white flex flex-col group/img">
-                                        <summary className="bg-[#FAF7F2] hover:bg-[#ebd9c8]/20 p-2.5 px-3 flex justify-between items-center cursor-pointer select-none transition-colors list-none">
+                                    <div className="mt-2 flex flex-col items-start w-full gap-2">
+                                      <div className="w-full rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-2xs bg-white flex flex-col">
+                                        <div className="bg-[#FAF7F2] p-2 sm:p-2.5 px-3 flex justify-between items-center border-b border-[#ebd9c8]/40">
                                           <span className="text-xs font-semibold text-[#5a4e44] flex items-center gap-2 min-w-0">
                                             <ImageIcon className="w-4 h-4 text-[#bd613c] shrink-0" />
-                                            <span className="truncate">Cliché radiologique / Image</span>
-                                            <span className="text-[10px] text-[#8c7b6d] font-normal hidden sm:inline shrink-0">(cliquer pour déplier)</span>
+                                            <span className="truncate">Cliché radiologique / IRM</span>
                                           </span>
-                                          <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                                            <Button
-                                              variant="outline"
-                                              size="sm"
-                                              className="h-6 px-2 text-[11px] bg-white text-[#bd613c] border-[#ebd9c8] hover:bg-[#bd613c] hover:text-white transition-colors"
-                                              onClick={() => {
-                                                const viewerUrl = `/examen-viewer?url=${encodeURIComponent(getImageUrl(note.url))}&title=${encodeURIComponent(note.content || "Cliché radiologique")}&type=image`;
-                                                window.open(viewerUrl, "_blank", "noopener,noreferrer");
-                                              }}
-                                              title="Ouvrir dans une fenêtre à part"
-                                            >
-                                              <ExternalLink className="w-3 h-3 mr-1" /> Fenêtre à part
-                                            </Button>
-                                            <ChevronDown className="w-3.5 h-3.5 text-[#8c7b6d] group-open/img:rotate-180 transition-transform ml-0.5" />
-                                          </div>
-                                        </summary>
-                                        <div className="p-2 sm:p-3 bg-[#faf7f2] flex justify-center border-t border-[#ebd9c8]/30">
-                                          <div 
-                                            className="relative inline-block overflow-hidden rounded-xl border border-[#ebd9c8]/70 bg-white shadow-sm hover:shadow-md cursor-pointer"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-6 px-2 text-[11px] bg-white text-[#bd613c] border-[#ebd9c8] hover:bg-[#bd613c] hover:text-white transition-colors"
+                                            onClick={() => {
                                               const viewerUrl = `/examen-viewer?url=${encodeURIComponent(getImageUrl(note.url))}&title=${encodeURIComponent(note.content || "Cliché radiologique")}&type=image`;
                                               window.open(viewerUrl, "_blank", "noopener,noreferrer");
                                             }}
+                                            title="Ouvrir dans une fenêtre à part"
+                                          >
+                                            <ExternalLink className="w-3 h-3 mr-1" /> Fenêtre à part
+                                          </Button>
+                                        </div>
+                                        <div className="p-2 sm:p-3 bg-[#faf7f2] flex justify-center">
+                                          <div 
+                                            className="relative inline-block overflow-hidden rounded-xl border border-[#ebd9c8]/70 bg-white shadow-sm hover:shadow-md cursor-pointer group/img"
+                                            onClick={() => {
+                                              const viewerUrl = `/examen-viewer?url=${encodeURIComponent(getImageUrl(note.url))}&title=${encodeURIComponent(note.content || "Cliché radiologique")}&type=image`;
+                                              window.open(viewerUrl, "_blank", "noopener,noreferrer");
+                                            }}
+                                            title="Cliquer pour ouvrir dans une fenêtre à part"
                                           >
                                             <img
                                               src={getImageUrl(note.url)}
-                                              alt={note.content || "Image attachée"}
-                                              className="max-h-72 object-contain rounded-xl"
+                                              alt={note.content || "Cliché radiologique / Image"}
+                                              className="max-h-80 sm:max-h-96 w-auto object-contain rounded-xl"
                                             />
                                             <div className="absolute top-2.5 right-2.5 z-10 pointer-events-none transition-all duration-200 opacity-0 group-hover/img:opacity-100">
                                               <div className="bg-stone-900/85 text-white text-[11px] px-2 py-1 rounded-lg backdrop-blur-sm flex items-center gap-1 shadow-md border border-white/20">
@@ -2143,7 +2139,7 @@ export default function ConsultationDetail() {
                                             </div>
                                           </div>
                                         </div>
-                                      </details>
+                                      </div>
                                       {note.content && (
                                         <FollowUpCardContent
                                           content={note.content}

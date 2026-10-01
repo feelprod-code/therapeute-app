@@ -22,17 +22,23 @@ Dès qu'un document visuel (PDF ou image contenant des examens radiologiques, IR
   3. **Cartouches Explicatifs Succincts :** Relier chaque flèche par une fine ligne directrice à un badge/cartouche clair comprenant un titre en gras et une description clinique concise en une ligne, positionné dans les marges sans masquer l'anatomie.
   4. **Bandeau Inférieur de Synthèse Radiologique :** Intégrer en bas de planche un cartouche récapitulant fidèlement la conclusion du radiologue signataire.
 
-- **Intégration Systématique dans les Deux Rubriques (RÈGLE DU REPLI & ZÉRO ENCOMBREMENT) :**
-  - **Mise en Repli Systématique (`<details><summary>...</summary></details>`) :**
-    Ne JAMAIS afficher de planche didactique ou d'image ouverte directement au milieu du texte par défaut. Tout document importé, compte-rendu ou planche doit être obligatoirement placé dans un accordéon repliable pour préserver la lisibilité de la fiche :
+- **Règle Fondamentale : IRM & Clichés Radiologiques VISIBLES DIRECTEMENT vs Documents Textuels/PDF REPLIÉS :**
+  - **IRM, Radios, Scanners, Échographies & Planches Didactiques : ON DOIT LES VOIR DIRECTEMENT !**
+    Ne JAMAIS cacher ou replier une radio, une IRM, une échographie ou une planche didactique maîtresse dans un accordéon fermé.
+    L'imagerie médicale est le cœur diagnostique de la consultation : elle doit être affichée en pleine visibilité dès l'ouverture de la fiche (`![Planche Didactique](url.png)`), avec sa netteté native, son badge discret dans le coin supérieur droit et l'option d'ouverture instantanée dans la fenêtre dédiée `/examen-viewer`.
+    Dans les fiches de suivi (`suivi`), les clichés radiologiques et images sont également affichés directement ouverts et visibles, avec leur bouton d'en-tête « Fenêtre à part ».
+  - **Documents Textuels, Comptes-Rendus Dactylographiés & Fichiers PDF : CE SONT EUX QUI DOIVENT ÊTRE REPLIÉS !**
+    Tout document administratif, compte-rendu textuel ou fichier PDF (fiches d'admission, courriers de confrères, examens scannés dactylographiés) doit être obligatoirement placé dans un accordéon repliable `<details>` pour ne jamais encombrer la lecture :
     ```markdown
-    <details><summary>📄 Voir le document d'imagerie original...</summary>
+    <details><summary>📄 Voir le compte-rendu officiel original (PDF)...</summary>
 
-    ![Compte-rendu d'imagerie](url.png)
+    [📄 Consulter le compte-rendu officiel original (PDF)](url.pdf)
 
     </details>
     ```
-    Et pour les planches de contact :
+    Dans les séances de suivi (`suivi`), les documents PDF sont repliés par défaut avec le bouton d'en-tête « Fenêtre à part ».
+  - **Planches de contact exhaustives de toutes les coupes (48 coupes) :**
+    Pour ne pas saturer l'espace avec des dizaines de coupes brutes secondaires, seule la mosaïque de contact de toutes les coupes reste accessible sous un volet replié :
     ```markdown
     <details><summary>🔎 Afficher la planche de contact complète de toutes les coupes...</summary>
 
@@ -40,7 +46,7 @@ Dès qu'un document visuel (PDF ou image contenant des examens radiologiques, IR
 
     </details>
     ```
-  - **Zéro Présentation Inutile sur Documents Textuels :**
+  - **Zéro Fausse Planche sur Documents Textuels :**
     Si un document est un compte-rendu textuel (lettre dactylographiée sans vrais clichés photographiques ou coupes DICOM), il est STRICTEMENT INTERDIT de générer une fausse planche didactique (rectangle gris vide). Le document original est simplement rattaché et mis en repli.
   - **PAS LA PEINE DE DÉCRIRE CE QUI N'EST PAS (Bannissement des Listes Négatives) :**
     Dans le résumé comme dans la synthèse, il est STRICTEMENT INTERDIT de décrire ou d'énumérer ce qui est normal, sain ou indemne.
