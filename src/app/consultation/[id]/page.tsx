@@ -268,12 +268,39 @@ export default function ConsultationDetail() {
 
   // Nouveaux états pour le suivi chronologique
   const [appendMode, setAppendMode] = useState<'bilan' | 'suivi'>('suivi');
-  const fileInputRefBilanMobile = useRef<HTMLInputElement>(null);
-  const fileInputRefSuiviMobile = useRef<HTMLInputElement>(null);
-  const fileInputRefBilanDesktop = useRef<HTMLInputElement>(null);
-  const fileInputRefSuiviDesktop = useRef<HTMLInputElement>(null);
-  const fileInputRefImageMobile = useRef<HTMLInputElement>(null);
-  const fileInputRefImageDesktop = useRef<HTMLInputElement>(null);
+  const fileInputRefBilan = useRef<HTMLInputElement>(null);
+  const fileInputRefSuivi = useRef<HTMLInputElement>(null);
+  const fileInputRefImage = useRef<HTMLInputElement>(null);
+
+  const triggerBilanUpload = (e?: any) => {
+    if (e && typeof e.stopPropagation === 'function') {
+      e.stopPropagation();
+    }
+    if (fileInputRefBilan.current) {
+      fileInputRefBilan.current.value = '';
+      fileInputRefBilan.current.click();
+    }
+  };
+
+  const triggerSuiviUpload = (e?: any) => {
+    if (e && typeof e.stopPropagation === 'function') {
+      e.stopPropagation();
+    }
+    if (fileInputRefSuivi.current) {
+      fileInputRefSuivi.current.value = '';
+      fileInputRefSuivi.current.click();
+    }
+  };
+
+  const triggerImageUpload = (e?: any) => {
+    if (e && typeof e.stopPropagation === 'function') {
+      e.stopPropagation();
+    }
+    if (fileInputRefImage.current) {
+      fileInputRefImage.current.value = '';
+      fileInputRefImage.current.click();
+    }
+  };
 
   const [attachedDocs, setAttachedDocs] = useState<{ name: string, originalName: string, url: string, type: 'image' | 'pdf' | 'audio' | 'other' }[] | null>(null);
 
@@ -1742,51 +1769,41 @@ export default function ConsultationDetail() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="center" className="w-60 bg-white border-[#ebd9c8] p-1.5 shadow-lg">
-                      <label className="cursor-pointer py-2.5 px-3 flex items-center hover:bg-[#ebd9c8]/20 transition-colors rounded-lg w-full select-none">
+                      <DropdownMenuItem
+                        onSelect={triggerBilanUpload}
+                        onClick={triggerBilanUpload}
+                        className="cursor-pointer py-2.5 px-3 flex items-center hover:bg-[#ebd9c8]/20 transition-colors rounded-lg w-full select-none"
+                      >
                         <span className="text-xl mr-2.5 opacity-80">🔄</span>
                         <div className="flex flex-col text-left">
                           <span className="font-semibold text-xs sm:text-sm text-slate-800">Mettre à jour le Bilan</span>
                           <span className="text-[10px] text-[#8c7b6d]">Ajouter document/CR au bilan</span>
                         </div>
-                        <input
-                          type="file"
-                          className="hidden"
-                          multiple
-                          accept="image/*,application/pdf,.txt"
-                          disabled={isAppending}
-                          onChange={(e) => handleAppendFile(e, 'bilan')}
-                        />
-                      </label>
-                      <label className="cursor-pointer py-2.5 px-3 flex items-center mt-1 bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors rounded-lg text-[#bd613c] shadow-xs border border-[#bd613c]/10 w-full select-none">
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={triggerSuiviUpload}
+                        onClick={triggerSuiviUpload}
+                        className="cursor-pointer py-2.5 px-3 flex items-center mt-1 bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors rounded-lg text-[#bd613c] shadow-xs border border-[#bd613c]/10 w-full select-none"
+                      >
                         <span className="text-xl mr-2.5">📝</span>
                         <div className="flex flex-col text-left">
                           <span className="font-semibold text-xs sm:text-sm text-[#bd613c]">Nouvelle Note de Suivi</span>
                           <span className="text-[10px] text-[#8c7b6d]">Créer une séance avec ce doc</span>
                         </div>
-                        <input
-                          type="file"
-                          className="hidden"
-                          multiple
-                          accept="image/*,application/pdf,.txt"
-                          disabled={isAppending}
-                          onChange={(e) => handleAppendFile(e, 'suivi')}
-                        />
-                      </label>
+                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
 
-                  {/* Nouveau bouton Image Mobile avec choix direct */}
-                  <label className="cursor-pointer h-9 sm:h-10 px-2 sm:px-5 rounded-full text-[#bd613c] border border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all text-[11px] sm:text-[13px] inline-flex items-center justify-center font-medium select-none">
+                  {/* Bouton Visuel Mobile */}
+                  <Button
+                    variant="outline"
+                    className="h-9 sm:h-10 px-2 sm:px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all text-[11px] sm:text-[13px] inline-flex items-center justify-center font-medium select-none"
+                    disabled={isAppending}
+                    onClick={triggerImageUpload}
+                  >
                     {isAppending ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1 sm:mr-2 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1 sm:mr-2" />}
                     <span>Visuel</span>
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept="image/*,application/pdf"
-                      disabled={isAppending}
-                      onChange={(e) => handleAppendImage(e)}
-                    />
-                  </label>
+                  </Button>
                 </div>
 
                 {/* TabsList Mobile (Horizontale à 5 colonnes) */}
@@ -1894,18 +1911,15 @@ export default function ConsultationDetail() {
                           </p>
                         </div>
                       </div>
-                      <label className="cursor-pointer inline-flex items-center gap-1.5 bg-[#bd613c] hover:bg-[#a55130] text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow-xs transition-all shrink-0">
+                      <Button
+                        type="button"
+                        onClick={triggerBilanUpload}
+                        disabled={isAppending}
+                        className="cursor-pointer inline-flex items-center gap-1.5 bg-[#bd613c] hover:bg-[#a55130] text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow-xs transition-all shrink-0"
+                      >
                         <Paperclip className="w-3.5 h-3.5" />
                         <span>Sélectionner document(s)</span>
-                        <input
-                          type="file"
-                          className="hidden"
-                          multiple
-                          accept="image/*,application/pdf,.txt"
-                          disabled={isAppending}
-                          onChange={(e) => handleAppendFile(e, 'bilan')}
-                        />
-                      </label>
+                      </Button>
                     </div>
 
                     <div className="relative group">
@@ -2737,51 +2751,41 @@ export default function ConsultationDetail() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-64 p-2 bg-white border-[#ebd9c8] shadow-lg">
-                      <label className="cursor-pointer py-2.5 px-3 flex items-center rounded-lg hover:bg-[#ebd9c8]/20 transition-colors w-full select-none">
+                      <DropdownMenuItem
+                        onSelect={triggerBilanUpload}
+                        onClick={triggerBilanUpload}
+                        className="cursor-pointer py-2.5 px-3 flex items-center rounded-lg hover:bg-[#ebd9c8]/20 transition-colors w-full select-none"
+                      >
                         <span className="text-xl mr-3 opacity-80">🔄</span>
                         <div className="flex flex-col text-left">
                           <span className="font-medium text-sm text-slate-800">Mettre à jour le Bilan</span>
                           <span className="text-[11px] text-[#8c7b6d]">Intégrer document/CR au bilan</span>
                         </div>
-                        <input
-                          type="file"
-                          className="hidden"
-                          multiple
-                          accept="image/*,application/pdf,.txt"
-                          disabled={isAppending}
-                          onChange={(e) => handleAppendFile(e, 'bilan')}
-                        />
-                      </label>
-                      <label className="cursor-pointer py-2.5 px-3 flex items-center rounded-lg text-[#bd613c] mt-1.5 bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors shadow-xs border border-[#bd613c]/10 w-full select-none">
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={triggerSuiviUpload}
+                        onClick={triggerSuiviUpload}
+                        className="cursor-pointer py-2.5 px-3 flex items-center rounded-lg text-[#bd613c] mt-1.5 bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors shadow-xs border border-[#bd613c]/10 w-full select-none"
+                      >
                         <span className="text-xl mr-3">📝</span>
                         <div className="flex flex-col text-left">
                           <span className="font-medium text-sm">Nouvelle Note de Suivi</span>
                           <span className="text-[11px] text-[#8c7b6d]">Créer une séance avec ce doc</span>
                         </div>
-                        <input
-                          type="file"
-                          className="hidden"
-                          multiple
-                          accept="image/*,application/pdf,.txt"
-                          disabled={isAppending}
-                          onChange={(e) => handleAppendFile(e, 'suivi')}
-                        />
-                      </label>
+                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
 
                   {/* Bouton Image Desktop avec déclencheur direct */}
-                  <label className="cursor-pointer w-full justify-start text-left h-12 px-4 rounded-xl text-[#bd613c] border border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all inline-flex items-center select-none font-medium text-base">
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start text-left h-12 px-4 rounded-xl text-[#bd613c] border border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all inline-flex items-center select-none font-medium text-base"
+                    disabled={isAppending}
+                    onClick={triggerImageUpload}
+                  >
                     {isAppending ? <Loader2 className="w-5 h-5 mr-3 animate-spin text-[#bd613c]" /> : <ImageIcon className="w-5 h-5 mr-3 text-[#bd613c]" />}
                     <span>{isAppending ? "Traitement..." : "Doc Visuel (Image / PDF)"}</span>
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept="image/*,application/pdf"
-                      disabled={isAppending}
-                      onChange={(e) => handleAppendImage(e)}
-                    />
-                  </label>
+                  </Button>
                 </div>
               </div>
 
@@ -2821,6 +2825,34 @@ export default function ConsultationDetail() {
         currentPatientName={data?.patient_name}
         onRestoreVersion={handleRestoreVersion}
         onDeleteVersion={handleDeleteVersion}
+      />
+
+      {/* Hidden file inputs mounted persistently at the root of the DOM tree */}
+      <input
+        type="file"
+        ref={fileInputRefBilan}
+        className="hidden"
+        multiple
+        accept="image/*,application/pdf,.txt"
+        disabled={isAppending}
+        onChange={(e) => handleAppendFile(e, 'bilan')}
+      />
+      <input
+        type="file"
+        ref={fileInputRefSuivi}
+        className="hidden"
+        multiple
+        accept="image/*,application/pdf,.txt"
+        disabled={isAppending}
+        onChange={(e) => handleAppendFile(e, 'suivi')}
+      />
+      <input
+        type="file"
+        ref={fileInputRefImage}
+        className="hidden"
+        accept="image/*,application/pdf"
+        disabled={isAppending}
+        onChange={(e) => handleAppendImage(e)}
       />
     </main>
   );
