@@ -128,11 +128,12 @@ def call_gemini_vision(gemini_api_key, page_image_paths, patient_name):
 Analyse ces pages de document pour le patient: {patient_name or 'Patient'}.
 
 ÉVALUATION INITIALE :
-Ce document contient-il des clichés radiologiques, scanners, IRM, radiographies, scintigraphies ou échographies ?
-- Si c'est un document purement administratif (ex: facture, devis, ordonnance textuelle seule sans cliché radiologique), réponds :
+Ce document contient-il des clichés radiologiques, scanners, IRM, radiographies, scintigraphies ou échographies VISUELLES (photographies d'imagerie médicale découpables) ?
+- Si c'est un compte-rendu médical purement textuel (paragraphes de texte dactylographié sur fond blanc sans cliché photographique d'imagerie), ou un document administratif, ordonnance, facture :
+Réponds OBLIGATOIREMENT :
 {{"is_medical_imaging": false}}
 
-- Si ce document comporte des examens d'imagerie (radiographie, scanner, IRM, arthroscanner, infiltration sous scopie, échographie) :
+- Si et seulement si ce document comporte de VRAIS CLICHÉS D'IMAGERIE MÉDICALE photographiques ou coupes DICOM découpables :
 Identifie avec une extrême rigueur anatomique :
 1. "is_medical_imaging": true
 2. "exam_title": Le titre officiel complet en français (ex: 'IRM DE L'ÉPAULE GAUCHE', 'IRM DU RACHIS CERVICAL', 'ARTHRO-DISTENSION ÉPAULE DROITE')
@@ -465,11 +466,11 @@ def main():
 
         analysis = call_gemini_vision(args.gemini_key, rendered_pages, args.patient_name)
 
-        if not analysis.get("is_medical_imaging", True):
+        if not analysis.get("is_medical_imaging", True) or len(analysis.get("panels", [])) == 0:
             print(json.dumps({
                 "success": False,
                 "is_medical_imaging": False,
-                "message": "Document administratif ou texte sans clichés radiologiques."
+                "message": "Document textuel ou sans clichés radiologiques exploitables découpés."
             }))
             sys.exit(0)
 

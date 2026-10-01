@@ -330,9 +330,10 @@ export default function ConsultationDetail() {
             alt={alt}
             className="max-h-[480px] w-auto mx-auto object-contain transition-transform duration-300 group-hover:scale-[1.01]"
           />
-          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center pointer-events-none">
-            <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/85 text-white text-xs px-3.5 py-1.5 rounded-full backdrop-blur-md flex items-center gap-1.5 shadow-lg border border-white/20">
-              <ExternalLink className="w-3.5 h-3.5 text-[#bd613c]" />
+          {/* Badge discret calé en haut à droite — JAMAIS en plein milieu pour ne masquer ni le rachis ni les lésions */}
+          <div className="absolute top-2.5 right-2.5 z-10 pointer-events-none transition-all duration-200 opacity-0 group-hover:opacity-100">
+            <div className="bg-stone-900/85 hover:bg-stone-900 text-white text-[11px] px-2.5 py-1 rounded-lg backdrop-blur-md flex items-center gap-1.5 shadow-md border border-white/20">
+              <ExternalLink className="w-3 h-3 text-[#bd613c]" />
               <span className="font-medium">Ouvrir dans une fenêtre à part</span>
             </div>
           </div>
@@ -2114,9 +2115,9 @@ export default function ConsultationDetail() {
                                           alt={note.content || "Image attachée"}
                                           className="max-h-64 object-contain rounded-xl transition-transform duration-300 group-hover:scale-[1.01]"
                                         />
-                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors flex items-center justify-center pointer-events-none">
-                                          <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/80 text-white text-xs px-3.5 py-1.5 rounded-full backdrop-blur-sm flex items-center gap-1.5 shadow-lg border border-white/20">
-                                            <Maximize2 className="w-3.5 h-3.5 text-[#bd613c]" />
+                                        <div className="absolute top-2.5 right-2.5 z-10 pointer-events-none transition-all duration-200 opacity-0 group-hover:opacity-100">
+                                          <div className="bg-stone-900/85 text-white text-[11px] px-2.5 py-1 rounded-lg backdrop-blur-sm flex items-center gap-1.5 shadow-md border border-white/20">
+                                            <Maximize2 className="w-3 h-3 text-[#bd613c]" />
                                             <span className="font-medium">Plein écran</span>
                                           </div>
                                         </div>
