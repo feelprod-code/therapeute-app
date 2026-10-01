@@ -99,6 +99,7 @@ export default function Home() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
   const [isDraggingDocument, setIsDraggingDocument] = useState(false);
+  const [isDraggingGlobal, setIsDraggingGlobal] = useState(false);
   const [isProcessingDocument, setIsProcessingDocument] = useState(false);
   const [documentProgressText, setDocumentProgressText] = useState("");
   const {
@@ -1309,7 +1310,49 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-[100dvh] flex flex-col py-2 sm:py-8 px-4 sm:px-6 mb-12 md:mb-0 overscroll-none" style={{ overscrollBehavior: 'none' }}>
+    <main 
+      className="min-h-[100dvh] flex flex-col py-2 sm:py-8 px-4 sm:px-6 mb-12 md:mb-0 overscroll-none relative" 
+      style={{ overscrollBehavior: 'none' }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isDraggingGlobal && !isProcessingDocument) setIsDraggingGlobal(true);
+      }}
+    >
+      {/* Overlay Drag-and-Drop Global pour toute la page d'accueil */}
+      {isDraggingGlobal && (
+        <div 
+          className="fixed inset-0 z-50 bg-[#2d241e]/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-white text-center animate-in fade-in duration-150"
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDraggingGlobal(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDraggingGlobal(false);
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+              handleDocumentsSubmit(Array.from(e.dataTransfer.files));
+            }
+          }}
+        >
+          <div className="w-24 h-24 rounded-3xl bg-[#bd613c] flex items-center justify-center shadow-2xl mb-6 animate-bounce">
+            <FileUp className="w-12 h-12 text-white" />
+          </div>
+          <h2 className="font-bebas text-4xl sm:text-5xl tracking-wide uppercase mb-3 text-[#ebd9c8]">
+            Créer un Nouveau Patient par Compte-Rendu
+          </h2>
+          <p className="text-base sm:text-lg text-white/90 max-w-xl font-sans font-light leading-relaxed mb-6">
+            Déposez votre fichier (PDF, Radio, IRM, Scanner). L'IA extrait automatiquement le <strong className="text-white font-bold underline">NOM</strong>, le <strong className="text-white font-bold underline">Prénom</strong> et génère le bilan complet.
+          </p>
+          <span className="text-xs text-[#ebd9c8]/70 border border-white/20 px-4 py-2 rounded-full bg-white/5">
+            Relâchez le document pour lancer l'analyse instantanée
+          </span>
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto w-full flex flex-col relative md:h-full">
 
         {/* Bouton Agenda et En-tête */}
@@ -1332,6 +1375,35 @@ export default function Home() {
           {/* Colonne de Gauche : Outils d'Enregistrement (Fixe ou scroll indépendant) */}
           <div className="md:col-span-5 flex flex-col gap-6 md:h-full md:overflow-y-auto custom-scrollbar md:pr-2 pb-4">
 
+            {/* Bouton direct d'import rapide de compte-rendu pour nouveau patient */}
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-white border border-[#ebd9c8] shadow-xs hover:border-[#bd613c]/50 transition-all">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-lg bg-[#bd613c]/10 text-[#bd613c] flex items-center justify-center shrink-0">
+                  <FileUp className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs sm:text-sm font-semibold text-[#5a4e44] leading-tight">Nouveau Patient par Document</p>
+                  <p className="text-[11px] text-[#8c7b6d]">Glissez un PDF / Radio ou cliquez pour importer</p>
+                </div>
+              </div>
+              <label className="cursor-pointer inline-flex items-center gap-1.5 bg-[#bd613c] hover:bg-[#a55130] text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow-xs transition-all shrink-0">
+                <Paperclip className="w-3.5 h-3.5" />
+                <span>Importer</span>
+                <input
+                  type="file"
+                  className="hidden"
+                  multiple
+                  accept="application/pdf,image/*,.txt"
+                  disabled={isProcessingDocument}
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      handleDocumentsSubmit(Array.from(e.target.files));
+                      e.target.value = '';
+                    }
+                  }}
+                />
+              </label>
+            </div>
 
             {/* Sélection du Mode d'Enregistrement */}
             <Tabs value={recorderMode} onValueChange={setRecorderMode} className="w-full">

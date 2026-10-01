@@ -1,12 +1,12 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any, react/no-unescaped-entities, @typescript-eslint/no-unused-expressions */
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon, Trash2, Square, ExternalLink, ArrowLeftRight, History, Maximize2, ZoomIn, ZoomOut, RotateCcw, Download, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, Loader2, FileText, Activity, Printer, Share, Pencil, Check, X as XIcon, MessageSquare, Mic, Paperclip, Image as ImageIcon, Trash2, Square, ExternalLink, ArrowLeftRight, History, Maximize2, ZoomIn, ZoomOut, RotateCcw, Download, ChevronDown, ChevronUp, FileUp } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import ReactMarkdown from "react-markdown";
@@ -80,7 +80,7 @@ function FollowUpCardContent({
   if (!hasSplit) {
     return (
       <div
-        className="w-full mt-2 sm:mt-3 prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-2.5 sm:p-3.5 rounded-xl border border-[#ebd9c8]/20 bg-white/40"
+        className="w-full mt-1.5 sm:mt-3 prose prose-sm prose-stone prose-p:text-[#4a3f35]/80 prose-strong:text-[#bd613c] cursor-pointer hover:bg-[#ebd9c8]/10 transition-colors p-1.5 sm:p-3.5 rounded-lg sm:rounded-xl border border-[#ebd9c8]/20 bg-white/40"
         onDoubleClick={onDoubleClick}
         title="Double-clic pour modifier la note"
       >
@@ -92,11 +92,11 @@ function FollowUpCardContent({
   }
 
   return (
-    <div className="w-full mt-2 sm:mt-3 rounded-xl sm:rounded-2xl border border-[#ebd9c8]/70 bg-white/70 p-2.5 sm:p-4 shadow-2xs hover:shadow-xs transition-shadow">
+    <div className="w-full mt-1.5 sm:mt-3 rounded-lg sm:rounded-2xl border border-[#ebd9c8]/70 bg-white/70 p-1.5 sm:p-4 shadow-2xs hover:shadow-xs transition-shadow">
       {/* Barre de contrôle Résumé / Développement */}
-      <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-[#ebd9c8]/40">
-        <div className="flex items-center gap-1.5">
-          <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-md ${
+      <div className="flex items-center justify-between gap-1.5 sm:gap-2 mb-2 sm:mb-3 pb-1.5 sm:pb-2 border-b border-[#ebd9c8]/40">
+        <div className="flex items-center gap-1">
+          <span className={`inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-semibold px-2 sm:px-2.5 py-0.5 rounded-md ${
             !isExpanded
               ? 'bg-[#bd613c]/10 text-[#bd613c] border border-[#bd613c]/20'
               : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
@@ -109,7 +109,7 @@ function FollowUpCardContent({
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onToggleExpand(false); }}
-            className={`text-[11px] font-medium px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+            className={`text-[10px] sm:text-[11px] font-medium px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md transition-all cursor-pointer ${
               !isExpanded
                 ? 'bg-white text-[#bd613c] shadow-2xs font-semibold'
                 : 'text-[#5a4e44]/70 hover:text-[#bd613c]'
@@ -120,7 +120,7 @@ function FollowUpCardContent({
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onToggleExpand(true); }}
-            className={`text-[11px] font-medium px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+            className={`text-[10px] sm:text-[11px] font-medium px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md transition-all cursor-pointer ${
               isExpanded
                 ? 'bg-white text-[#bd613c] shadow-2xs font-semibold'
                 : 'text-[#5a4e44]/70 hover:text-[#bd613c]'
@@ -190,6 +190,7 @@ export default function ConsultationDetail() {
   const [isEditingDate, setIsEditingDate] = useState(false);
   const [editDate, setEditDate] = useState("");
   const [isAppending, setIsAppending] = useState(false);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [isRecordingModalOpen, setIsRecordingModalOpen] = useState(false);
   const [isTextModalOpen, setIsTextModalOpen] = useState(false);
   const [textContent, setTextContent] = useState("");
@@ -314,6 +315,42 @@ export default function ConsultationDetail() {
       window.open(viewerUrl, '_blank', 'noopener,noreferrer');
     };
 
+    const isDocReport = /doc_|compte[-_]?rendu|rapport|ordonnance|certificat|courrier|attestation|capture|scan/i.test(
+      `${src} ${alt} ${props.title || ''}`
+    ) && !/coupe|radio|irm|scanner|echographie_cut|planche|didactique|lesion|rachis/i.test(`${src} ${alt} ${props.title || ''}`);
+
+    if (isDocReport) {
+      return (
+        <details className="my-3 rounded-xl border border-[#EAE4D9] bg-[#FAF7F2] p-2.5 sm:p-3 text-xs sm:text-sm text-[#4a3f35] group/doc shadow-2xs">
+          <summary className="cursor-pointer font-semibold text-[#bd613c] flex items-center justify-between select-none list-none outline-none">
+            <span className="flex items-center gap-2 min-w-0">
+              <FileText className="w-4 h-4 text-[#bd613c] shrink-0" />
+              <span className="truncate">{caption || alt || "Compte-rendu officiel original"}</span>
+              <span className="text-[10px] text-[#8c7b6d] font-normal hidden sm:inline shrink-0">(cliquer pour déplier le document)</span>
+            </span>
+            <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                onClick={handleOpenInViewer}
+                className="h-6 px-2 text-[11px] bg-white text-[#bd613c] border border-[#ebd9c8] hover:bg-[#bd613c] hover:text-white rounded transition-colors inline-flex items-center"
+              >
+                <ExternalLink className="w-3 h-3 mr-1" /> Fenêtre à part
+              </button>
+              <ChevronDown className="w-3.5 h-3.5 text-[#8c7b6d] group-open/doc:rotate-180 transition-transform ml-0.5" />
+            </div>
+          </summary>
+          <div className="mt-2.5 pt-2 border-t border-[#ebd9c8]/40 flex justify-center">
+            <img
+              {...props}
+              src={resolvedUrl}
+              alt={alt}
+              className="max-h-[480px] w-auto mx-auto object-contain rounded-lg border border-[#ebd9c8]/50"
+            />
+          </div>
+        </details>
+      );
+    }
+
     return (
       <figure className="my-5 text-center group not-prose">
         <a 
@@ -391,7 +428,24 @@ export default function ConsultationDetail() {
 
   const markdownComponents = {
     img: renderMarkdownImage,
-    a: renderMarkdownLink
+    a: renderMarkdownLink,
+    details: ({ node, children, ...props }: any) => (
+      <details
+        {...props}
+        className="my-3 rounded-xl border border-[#EAE4D9] bg-[#FAF7F2]/90 hover:bg-[#FAF7F2] p-3 text-xs sm:text-sm text-[#4a3f35] transition-all group/details shadow-2xs"
+      >
+        {children}
+      </details>
+    ),
+    summary: ({ node, children, ...props }: any) => (
+      <summary
+        {...props}
+        className="cursor-pointer font-semibold text-[#bd613c] hover:text-[#8C4E33] select-none flex items-center gap-2 list-none outline-none py-1"
+      >
+        <span className="text-sm font-bold text-[#bd613c] group-open/details:rotate-90 transition-transform">▸</span>
+        {children}
+      </summary>
+    )
   };
 
   const handleDeleteFollowUp = async (followUpId: string) => {
@@ -424,7 +478,9 @@ export default function ConsultationDetail() {
     newPatientName?: string, 
     actionLabel: string = "Modification",
     userPrompt?: string,
-    aiResponseSummary?: string
+    aiResponseSummary?: string,
+    newResume?: string,
+    newTranscription?: string
   ) => {
     try {
       const currentFollowUps = data?.follow_ups || [];
@@ -439,7 +495,7 @@ export default function ConsultationDetail() {
           date: new Date().toISOString(),
           label: actionLabel,
           userPrompt: userPrompt || actionLabel,
-          aiResponseSummary: aiResponseSummary,
+          aiResponseSummary: aiResponseSummary || newResume,
           synthese: currentSynthese,
           patient_name: data?.patient_name
         };
@@ -450,9 +506,20 @@ export default function ConsultationDetail() {
         synthese: newSynthese,
         follow_ups: updatedFollowUps
       };
+
+      if (newResume !== undefined) {
+        updatePayload.resume = newResume;
+      }
+      if (newTranscription !== undefined) {
+        updatePayload.transcription = newTranscription;
+      }
+
       let resolvedName = data?.patient_name;
-      if (newPatientName && !newPatientName.toLowerCase().startsWith("patient anonyme") && newPatientName.trim() !== "") {
-        resolvedName = newPatientName;
+      const isCurrentNameGeneric = !resolvedName || resolvedName.toLowerCase().startsWith("patient anonyme") || resolvedName.toLowerCase() === "hmm." || resolvedName.trim() === "";
+      if (newPatientName && newPatientName.trim() !== "" && !newPatientName.toLowerCase().startsWith("patient anonyme") && newPatientName.toLowerCase() !== "hmm.") {
+        if (isCurrentNameGeneric || newPatientName !== resolvedName) {
+          resolvedName = newPatientName;
+        }
       }
       if (resolvedName) {
         updatePayload.patient_name = resolvedName;
@@ -469,9 +536,7 @@ export default function ConsultationDetail() {
 
       setData(updated || {
         ...data,
-        synthese: newSynthese,
-        follow_ups: updatedFollowUps,
-        ...(resolvedName ? { patient_name: resolvedName } : {})
+        ...updatePayload
       });
     } catch (e: any) {
       console.error("Erreur sauvegarde synthèse avec historique:", e);
@@ -775,6 +840,7 @@ export default function ConsultationDetail() {
       if (updateError) throw updateError;
 
       if (updatedData) setData(updatedData);
+      await fetchDocs();
       toast({ title: "Succès", description: "Le document a bien été analysé et ajouté au dossier." });
 
     } catch (err) {
@@ -787,12 +853,12 @@ export default function ConsultationDetail() {
     }
   };
 
-  const handleAppendFile = async (e: React.ChangeEvent<HTMLInputElement>, mode: 'bilan' | 'suivi') => {
-    if (!e.target.files || e.target.files.length === 0) return;
+  const handleAppendFilesList = async (files: File[], mode: 'bilan' | 'suivi') => {
+    if (!files || files.length === 0) return;
     setIsAppending(true);
     try {
-      const uploadedFiles = [];
-      for (const file of Array.from(e.target.files)) {
+      const uploadedFiles: { fileName: string; mimeType: string }[] = [];
+      for (const file of files) {
         const extension = file.name.split('.').pop()?.toLowerCase();
         let mimeType = file.type;
         if (!mimeType) {
@@ -805,58 +871,68 @@ export default function ConsultationDetail() {
           }
         }
 
-        const fileName = `doc_${Date.now()}_${params.id}_${file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')}`;
+        const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+        const fileName = `doc_${Date.now()}_${params.id}_${safeName}`;
         const { error } = await supabase.storage.from('tdt_uploads').upload(fileName, file, {
           contentType: mimeType
         });
-        if (!error) {
+        if (error) {
+          console.error("Erreur upload storage:", error);
+        } else {
           uploadedFiles.push({ fileName, mimeType });
         }
       }
 
+      if (uploadedFiles.length === 0) {
+        throw new Error("Aucun document n'a pu être téléversé.");
+      }
 
       if (mode === 'bilan') {
+        toast({ title: "Analyse en cours...", description: "Fusion et intégration du document au bilan..." });
+
         const response = await fetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            consultationId: params.id,
+            patientName: data?.patient_name || data?.patientName || "",
             attachedFiles: uploadedFiles,
             previousContext: {
-              synthese: data.synthese,
-              transcription: data.transcription,
-              patientName: data.patient_name || data.patientName || ""
+              id: params.id,
+              synthese: data?.synthese || "",
+              transcription: data?.transcription || "",
+              patientName: data?.patient_name || data?.patientName || "",
+              resume: data?.resume || ""
             }
           })
         });
 
-        if (!response.ok) throw new Error("Erreur lors de la mise à jour par l'IA.");
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || "Erreur lors de la mise à jour par l'IA.");
+        }
         const result = await response.json();
 
         await saveSyntheseWithHistory(
           result.synthese,
-          result.patientName || data.patient_name,
+          result.patientName || data?.patient_name,
           "Ajout de document au bilan",
           `Ajout de ${uploadedFiles.length} fichier(s)`,
-          result.resume
+          result.resume,
+          result.resume,
+          result.transcription
         );
 
-        const { data: updatedData } = await supabase.from('consultations').update({
-          transcription: result.transcription,
-          resume: result.resume,
-        }).eq('id', params.id).select().single();
-
-        if (updatedData) setData(updatedData);
+        await fetchDocs();
+        toast({ title: "Bilan enrichi avec succès !", description: "Le document a été analysé et intégré au bilan." });
 
       } else {
         // SUIVI
-        if (uploadedFiles.length === 0) {
-          throw new Error("Aucun fichier n'a pu être téléversé.");
-        }
-
         const analyzeResp = await fetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            consultationId: params.id,
             attachedFiles: uploadedFiles,
           })
         });
@@ -900,29 +976,24 @@ export default function ConsultationDetail() {
           throw new Error("Erreur de sauvegarde dans la base de données.");
         }
         if (updatedData) setData(updatedData);
+
+        await fetchDocs();
+        toast({ title: "Note ajoutée", description: "Le document a été ajouté en note de suivi." });
       }
 
-      // Conservation des fichiers dans le stockage Supabase (désactivation du cleanup pour permettre la lecture et la fusion)
-      /*
-      try {
-        const filesToDelete = uploadedFiles.filter(f => !f.mimeType.startsWith('image/')).map(f => f.fileName);
-        if (filesToDelete.length > 0) {
-          await supabase.storage.from('tdt_uploads').remove(filesToDelete);
-          console.log("Fichiers temporaires supprimés:", filesToDelete);
-        }
-      } catch (e) {
-        console.error("Erreur suppression fichiers:", e);
-      }
-      */
-
-      toast({ title: "Bilan mis à jour", description: "Le document a bien été ajouté au dossier." });
-
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      toast({ title: "Erreur", description: "Une erreur est survenue lors de l'ajout du document.", variant: "destructive" });
+      toast({ title: "Erreur", description: err.message || "Une erreur est survenue lors de l'ajout du document.", variant: "destructive" });
     } finally {
       setIsAppending(false);
     }
+  };
+
+  const handleAppendFile = async (e: React.ChangeEvent<HTMLInputElement>, mode: 'bilan' | 'suivi') => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const files = Array.from(e.target.files);
+    e.target.value = '';
+    await handleAppendFilesList(files, mode);
   };
 
   const handleAppendRecording = async (audioBlob: Blob) => {
@@ -1025,6 +1096,7 @@ export default function ConsultationDetail() {
       }
       */
 
+      await fetchDocs();
       toast({ title: "Bilan mis à jour", description: "L'enregistrement a bien été ajouté au dossier." });
       return true;
 
@@ -1165,71 +1237,73 @@ export default function ConsultationDetail() {
     fetchConsultation();
   }, [params.id]);
 
-  useEffect(() => {
+  const fetchDocs = useCallback(async () => {
     if (!params.id) return;
-    async function fetchDocs() {
-      try {
-        const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { limit: 1000 });
-        if (listError || !listData) return;
+    try {
+      const consultationIdStr = String(params.id);
+      const { data: listData, error: listError } = await supabase.storage.from('tdt_uploads').list('', { limit: 1000 });
+      if (listError || !listData) return;
 
-        const patientFiles = listData.filter(f => f.name.includes(params.id as string));
+      const patientFiles = listData.filter(f => f.name.includes(consultationIdStr));
 
-        const loadedDocs = patientFiles.map((f) => {
-          const { data } = supabase.storage.from('tdt_uploads').getPublicUrl(f.name);
-          const url = data.publicUrl;
-          
-          let type: 'image' | 'pdf' | 'audio' | 'other' = 'other';
-          let originalName = f.name;
+      const loadedDocs = patientFiles.map((f) => {
+        const { data } = supabase.storage.from('tdt_uploads').getPublicUrl(f.name);
+        const url = data.publicUrl;
+        
+        let type: 'image' | 'pdf' | 'audio' | 'other' = 'other';
+        let originalName = f.name;
 
-          const lower = f.name.toLowerCase();
-          if (lower.startsWith('audio_')) {
-            type = 'audio';
-            if (lower.startsWith('audio_addendum_')) {
-              originalName = "Audio de suivi (fusion)";
-            } else {
-              originalName = "Audio initial";
-            }
+        const lower = f.name.toLowerCase();
+        if (lower.startsWith('audio_')) {
+          type = 'audio';
+          if (lower.startsWith('audio_addendum_')) {
+            originalName = "Audio de suivi (fusion)";
           } else {
-            const nameParts = f.name.split('_');
-            originalName = nameParts.slice(3).join('_') || f.name;
-            if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp')) {
-              type = 'image';
-            } else if (lower.endsWith('.pdf')) {
-              type = 'pdf';
-            }
+            originalName = "Audio initial";
           }
-
-          return { name: f.name, originalName, url, type };
-        });
-
-        // Force retrieve the initial audio path from the consultations database table
-        const { data: consultData } = await supabase
-          .from("consultations")
-          .select("audio_path")
-          .eq("id", params.id)
-          .single();
-
-        const finalDocs = [...loadedDocs];
-        if (consultData && consultData.audio_path) {
-          const alreadyExists = loadedDocs.some(d => d.name === consultData.audio_path);
-          if (!alreadyExists) {
-            const { data: urlData } = supabase.storage.from('tdt_uploads').getPublicUrl(consultData.audio_path);
-            finalDocs.unshift({
-              name: consultData.audio_path,
-              originalName: "Audio initial",
-              url: urlData.publicUrl,
-              type: 'audio'
-            });
+        } else {
+          const nameParts = f.name.split('_');
+          originalName = nameParts.slice(3).join('_') || f.name;
+          if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp')) {
+            type = 'image';
+          } else if (lower.endsWith('.pdf')) {
+            type = 'pdf';
           }
         }
 
-        setAttachedDocs(finalDocs);
-      } catch (e) {
-        console.error(e);
+        return { name: f.name, originalName, url, type };
+      });
+
+      // Force retrieve the initial audio path from the consultations database table
+      const { data: consultData } = await supabase
+        .from("consultations")
+        .select("audio_path")
+        .eq("id", consultationIdStr)
+        .single();
+
+      const finalDocs = [...loadedDocs];
+      if (consultData && consultData.audio_path) {
+        const alreadyExists = loadedDocs.some(d => d.name === consultData.audio_path);
+        if (!alreadyExists) {
+          const { data: urlData } = supabase.storage.from('tdt_uploads').getPublicUrl(consultData.audio_path);
+          finalDocs.unshift({
+            name: consultData.audio_path,
+            originalName: "Audio initial",
+            url: urlData.publicUrl,
+            type: 'audio'
+          });
+        }
       }
+
+      setAttachedDocs(finalDocs);
+    } catch (e) {
+      console.error("Erreur lors de la récupération des documents:", e);
     }
-    fetchDocs();
   }, [params.id]);
+
+  useEffect(() => {
+    fetchDocs();
+  }, [fetchDocs]);
 
   if (loading) {
     return (
@@ -1253,7 +1327,97 @@ export default function ConsultationDetail() {
   }
 
   return (
-    <main className="min-h-screen py-2 sm:py-8 px-1.5 sm:px-6 mb-8 sm:mb-12 flex justify-center">
+    <main 
+      className="min-h-screen py-2 sm:py-8 px-1.5 sm:px-6 mb-8 sm:mb-12 flex justify-center relative"
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isDraggingFile && !isAppending) setIsDraggingFile(true);
+      }}
+    >
+
+      {/* Overlay Drag-and-Drop pour toute la page de consultation */}
+      {isDraggingFile && (
+        <div 
+          className="fixed inset-0 z-50 bg-[#2d241e]/75 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-white text-center animate-in fade-in duration-150"
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDraggingFile(false);
+          }}
+        >
+          <div className="max-w-2xl w-full p-8 rounded-3xl bg-[#1e1713] border border-white/20 shadow-2xl flex flex-col items-center">
+            <div className="w-16 h-16 rounded-2xl bg-[#bd613c] flex items-center justify-center mb-4 shadow-lg animate-bounce">
+              <FileUp className="w-8 h-8 text-white" />
+            </div>
+            <h3 className="font-bebas text-3xl tracking-wide uppercase mb-2">
+              Déposer le Document
+            </h3>
+            <p className="text-sm text-stone-300 font-sans mb-8 max-w-md">
+              Où souhaitez-vous intégrer ce document pour {data?.patient_name || 'ce patient'} ?
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+              {/* Option 1: Bilan */}
+              <div 
+                className="p-6 rounded-2xl border-2 border-dashed border-[#bd613c] bg-[#bd613c]/20 hover:bg-[#bd613c]/35 cursor-pointer transition-all flex flex-col items-center text-center group"
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDraggingFile(false);
+                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    handleAppendFilesList(Array.from(e.dataTransfer.files), 'bilan');
+                  }
+                }}
+              >
+                <div className="w-12 h-12 rounded-xl bg-[#bd613c] text-white flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <h4 className="font-bebas text-xl text-[#ebd9c8] uppercase">
+                  Mettre à jour le Bilan
+                </h4>
+                <p className="text-xs text-stone-300 font-sans mt-1">
+                  Insérer dans le bilan initial (Compte-rendu replié, radio/IRM visible directement)
+                </p>
+              </div>
+
+              {/* Option 2: Suivi */}
+              <div 
+                className="p-6 rounded-2xl border-2 border-dashed border-emerald-500/80 bg-emerald-950/30 hover:bg-emerald-950/50 cursor-pointer transition-all flex flex-col items-center text-center group"
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDraggingFile(false);
+                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    handleAppendFilesList(Array.from(e.dataTransfer.files), 'suivi');
+                  }
+                }}
+              >
+                <div className="w-12 h-12 rounded-xl bg-emerald-600 text-white flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                  <Activity className="w-6 h-6" />
+                </div>
+                <h4 className="font-bebas text-xl text-emerald-300 uppercase">
+                  Nouvelle Note de Suivi
+                </h4>
+                <p className="text-xs text-stone-300 font-sans mt-1">
+                  Créer une nouvelle séance chronologique de suivi avec ce document
+                </p>
+              </div>
+            </div>
+
+            <Button 
+              variant="ghost" 
+              className="mt-6 text-stone-400 hover:text-white"
+              onClick={() => setIsDraggingFile(false)}
+            >
+              Annuler
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Modal d'enregistrement audio */}
       <Dialog open={isRecordingModalOpen} onOpenChange={(open) => !open && !isAppending ? setIsRecordingModalOpen(false) : null}>
@@ -1577,26 +1741,52 @@ export default function ConsultationDetail() {
                         <span className="font-medium">Doc</span>
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="center" className="w-56 bg-white border-[#ebd9c8]">
-                      <DropdownMenuItem onClick={() => fileInputRefBilanMobile.current?.click()} className="cursor-pointer py-3 flex items-center hover:bg-[#ebd9c8]/20 transition-colors rounded-lg">
-                        <span className="text-xl mr-3 opacity-80">🔄</span>
-                        <span className="font-medium text-[15px] text-slate-700">Mettre à jour le Bilan</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => fileInputRefSuiviMobile.current?.click()} className="cursor-pointer py-3 flex items-center mt-1 bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors rounded-lg text-[#bd613c] shadow-sm border border-[#bd613c]/10">
-                        <span className="text-xl mr-3">📝</span>
-                        <span className="font-medium text-[15px]">Nouvelle Note de Suivi</span>
-                      </DropdownMenuItem>
+                    <DropdownMenuContent align="center" className="w-60 bg-white border-[#ebd9c8] p-1.5 shadow-lg">
+                      <label className="cursor-pointer py-2.5 px-3 flex items-center hover:bg-[#ebd9c8]/20 transition-colors rounded-lg w-full select-none">
+                        <span className="text-xl mr-2.5 opacity-80">🔄</span>
+                        <div className="flex flex-col text-left">
+                          <span className="font-semibold text-xs sm:text-sm text-slate-800">Mettre à jour le Bilan</span>
+                          <span className="text-[10px] text-[#8c7b6d]">Ajouter document/CR au bilan</span>
+                        </div>
+                        <input
+                          type="file"
+                          className="hidden"
+                          multiple
+                          accept="image/*,application/pdf,.txt"
+                          disabled={isAppending}
+                          onChange={(e) => handleAppendFile(e, 'bilan')}
+                        />
+                      </label>
+                      <label className="cursor-pointer py-2.5 px-3 flex items-center mt-1 bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors rounded-lg text-[#bd613c] shadow-xs border border-[#bd613c]/10 w-full select-none">
+                        <span className="text-xl mr-2.5">📝</span>
+                        <div className="flex flex-col text-left">
+                          <span className="font-semibold text-xs sm:text-sm text-[#bd613c]">Nouvelle Note de Suivi</span>
+                          <span className="text-[10px] text-[#8c7b6d]">Créer une séance avec ce doc</span>
+                        </div>
+                        <input
+                          type="file"
+                          className="hidden"
+                          multiple
+                          accept="image/*,application/pdf,.txt"
+                          disabled={isAppending}
+                          onChange={(e) => handleAppendFile(e, 'suivi')}
+                        />
+                      </label>
                     </DropdownMenuContent>
                   </DropdownMenu>
 
-                  {/* Nouveau bouton Image Mobile */}
-                  <Button variant="outline" className="h-9 sm:h-10 px-2 sm:px-5 rounded-full text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all text-[11px] sm:text-[13px]" disabled={isAppending} onClick={() => fileInputRefImageMobile.current?.click()}>
-                    <ImageIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1 sm:mr-2" /> <span className="font-medium">Visuel</span>
-                  </Button>
-
-                  <input type="file" ref={fileInputRefBilanMobile} className="hidden" accept="image/*,application/pdf" onChange={(e) => handleAppendFile(e, 'bilan')} multiple />
-                  <input type="file" ref={fileInputRefSuiviMobile} className="hidden" accept="image/*,application/pdf" onChange={(e) => handleAppendFile(e, 'suivi')} multiple />
-                  <input type="file" ref={fileInputRefImageMobile} className="hidden" accept="image/*,application/pdf" onChange={(e) => handleAppendImage(e)} />
+                  {/* Nouveau bouton Image Mobile avec choix direct */}
+                  <label className="cursor-pointer h-9 sm:h-10 px-2 sm:px-5 rounded-full text-[#bd613c] border border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all text-[11px] sm:text-[13px] inline-flex items-center justify-center font-medium select-none">
+                    {isAppending ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1 sm:mr-2 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1 sm:mr-2" />}
+                    <span>Visuel</span>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*,application/pdf"
+                      disabled={isAppending}
+                      onChange={(e) => handleAppendImage(e)}
+                    />
+                  </label>
                 </div>
 
                 {/* TabsList Mobile (Horizontale à 5 colonnes) */}
@@ -1673,7 +1863,52 @@ export default function ConsultationDetail() {
                     className="w-full min-h-[500px] p-4 font-mono text-sm sm:text-base rounded-xl border border-[#ebd9c8] focus:border-[#bd613c] focus:ring-1 focus:ring-[#bd613c] outline-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
                   />
                 ) : (
-                  <div className="relative group">
+                  <>
+                    {/* Bandeau d'ajout direct de document au Bilan */}
+                    <div 
+                      className={`mb-6 p-3.5 sm:p-4 rounded-xl border border-dashed transition-all duration-200 print:hidden ${
+                        isDraggingFile
+                          ? 'border-[#bd613c] bg-[#ebd9c8]/40 scale-[1.01] shadow-md'
+                          : 'border-[#ebd9c8] hover:border-[#bd613c]/60 bg-[#FAF7F2]/60 hover:bg-[#FAF7F2]'
+                      } flex flex-col sm:flex-row items-center justify-between gap-3`}
+                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingFile(true); }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDraggingFile(false);
+                        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                          handleAppendFilesList(Array.from(e.dataTransfer.files), 'bilan');
+                        }
+                      }}
+                    >
+                      <div className="flex items-center gap-3 w-full sm:w-auto">
+                        <div className="w-10 h-10 rounded-lg bg-[#bd613c]/10 text-[#bd613c] flex items-center justify-center shrink-0">
+                          {isAppending ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileUp className="w-5 h-5" />}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs sm:text-sm font-semibold text-[#5a4e44] leading-tight">
+                            Ajouter un Document ou Compte-Rendu au Bilan
+                          </p>
+                          <p className="text-[11px] text-[#8c7b6d] truncate">
+                            Glissez vos fichiers ici ou parcourez (PDFs repliés, Radios/IRM visibles directement)
+                          </p>
+                        </div>
+                      </div>
+                      <label className="cursor-pointer inline-flex items-center gap-1.5 bg-[#bd613c] hover:bg-[#a55130] text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow-xs transition-all shrink-0">
+                        <Paperclip className="w-3.5 h-3.5" />
+                        <span>Sélectionner document(s)</span>
+                        <input
+                          type="file"
+                          className="hidden"
+                          multiple
+                          accept="image/*,application/pdf,.txt"
+                          disabled={isAppending}
+                          onChange={(e) => handleAppendFile(e, 'bilan')}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="relative group">
                     <Button
                       variant="ghost"
                       size="icon"
@@ -1699,8 +1934,9 @@ export default function ConsultationDetail() {
                       ) : "Aucune synthèse disponible."}
                     </div>
                   </div>
-                )}
-              </TabsContent>
+                </>
+              )}
+            </TabsContent>
 
               <TabsContent value="notes" className="mt-8 lg:border-t border-[#ebd9c8]/50 lg:pt-8 print:hidden">
                 <div className="flex items-center justify-between mb-6">
@@ -1905,7 +2141,7 @@ export default function ConsultationDetail() {
                     <p className="text-sm text-[#4a3f35]/40 mt-1">Ajoutez un audio ou document pour créer le premier suivi.</p>
                   </div>
                 ) : (
-                  <div className="space-y-6 sm:space-y-8 relative before:absolute before:inset-0 before:ml-3 sm:before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-[#ebd9c8] before:to-transparent">
+                  <div className="space-y-4 sm:space-y-8 relative before:absolute before:inset-0 before:ml-2.5 sm:before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-[#ebd9c8] before:to-transparent">
                     {(() => {
                       // Group follow_ups by day (YYYY-MM-DD)
                       const grouped = data.follow_ups.reduce((acc: any, note: any) => {
@@ -1981,18 +2217,18 @@ export default function ConsultationDetail() {
                       const sortedDays = Object.keys(grouped).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
 
                       return sortedDays.map((dayStr, dayIdx) => (
-                        <div key={dayStr} className="relative flex items-start gap-2 sm:gap-4 md:gap-6 group is-active">
+                        <div key={dayStr} className="relative flex items-start gap-1.5 sm:gap-4 md:gap-6 group is-active">
                           {/* Timeline Marker (one per DAY) */}
-                          <div className="flex items-center justify-center w-6 h-6 sm:w-10 sm:h-10 rounded-full border-2 sm:border-4 border-white bg-[#bd613c] shadow shrink-0 z-10 mt-1 sm:mt-3 relative">
-                            <Check className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
+                          <div className="flex items-center justify-center w-5 h-5 sm:w-10 sm:h-10 rounded-full border sm:border-4 border-white bg-[#bd613c] shadow shrink-0 z-10 mt-1 sm:mt-3 relative">
+                            <Check className="w-2.5 h-2.5 sm:w-4 sm:h-4 text-white" />
                           </div>
 
                           {/* Card for the DAY */}
-                          <div className="flex-1 min-w-0 p-2.5 sm:p-5 rounded-xl sm:rounded-2xl border border-[#ebd9c8]/50 bg-white shadow-sm hover:shadow-md transition-shadow">
-                            <h3 className="font-bebas tracking-wide text-base sm:text-xl text-[#bd613c] mb-2 sm:mb-3 pb-1.5 sm:pb-2 border-b border-[#ebd9c8]/30 flex items-center overflow-hidden">
+                          <div className="flex-1 min-w-0 p-1.5 sm:p-5 rounded-lg sm:rounded-2xl border border-[#ebd9c8]/50 bg-white shadow-sm hover:shadow-md transition-shadow">
+                            <h3 className="font-bebas tracking-wide text-base sm:text-xl text-[#bd613c] mb-2 sm:mb-3 pb-1 sm:pb-2 border-b border-[#ebd9c8]/30 flex items-center overflow-hidden">
                               <span className="capitalize truncate flex-1">{format(new Date(dayStr), "EEEE d MMMM yyyy", { locale: fr })}</span>
                               <div className="shrink-0 flex items-center border-l border-[#bd613c]/30 pl-2 ml-2">
-                                <span className="text-sm sm:text-base opacity-70">SÉANCE {getSessionNumberForDay(dayStr)}</span>
+                                <span className="text-xs sm:text-base opacity-70">SÉANCE {getSessionNumberForDay(dayStr)}</span>
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -2023,7 +2259,7 @@ export default function ConsultationDetail() {
                               </span>
                             </h3>
 
-                            <div className="space-y-6">
+                            <div className="space-y-3 sm:space-y-6">
                               {grouped[dayStr].filter((n: any) => n.type !== 'session_override' && n.type !== 'synthese_version').length === 0 ? (
                                 <p className="text-xs text-slate-400 italic">Aucune note pour ce jour (Séance enregistrée via l'historique).</p>
                               ) : grouped[dayStr].filter((n: any) => n.type !== 'session_override' && n.type !== 'synthese_version').sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()).map((note: any, noteIdx: number, arr: any[]) => (
@@ -2097,68 +2333,128 @@ export default function ConsultationDetail() {
                                       />
                                     </div>
                                   ) : note.type === 'image' ? (
-                                    <div className="mt-2 flex flex-col items-start w-full gap-2">
-                                      <div className="w-full rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-2xs bg-white flex flex-col">
-                                        <div className="bg-[#FAF7F2] p-2 sm:p-2.5 px-3 flex justify-between items-center border-b border-[#ebd9c8]/40">
-                                          <span className="text-xs font-semibold text-[#5a4e44] flex items-center gap-2 min-w-0">
-                                            <ImageIcon className="w-4 h-4 text-[#bd613c] shrink-0" />
-                                            <span className="truncate">Cliché radiologique / IRM</span>
-                                          </span>
-                                          <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="h-6 px-2 text-[11px] bg-white text-[#bd613c] border-[#ebd9c8] hover:bg-[#bd613c] hover:text-white transition-colors"
-                                            onClick={() => {
-                                              const viewerUrl = `/examen-viewer?url=${encodeURIComponent(getImageUrl(note.url))}&title=${encodeURIComponent(note.content || "Cliché radiologique")}&type=image`;
-                                              window.open(viewerUrl, "_blank", "noopener,noreferrer");
-                                            }}
-                                            title="Ouvrir dans une fenêtre à part"
-                                          >
-                                            <ExternalLink className="w-3 h-3 mr-1" /> Fenêtre à part
-                                          </Button>
-                                        </div>
-                                        <div className="p-2 sm:p-3 bg-[#faf7f2] flex justify-center">
-                                          <div 
-                                            className="relative inline-block overflow-hidden rounded-xl border border-[#ebd9c8]/70 bg-white shadow-sm hover:shadow-md cursor-pointer group/img"
-                                            onClick={() => {
-                                              const viewerUrl = `/examen-viewer?url=${encodeURIComponent(getImageUrl(note.url))}&title=${encodeURIComponent(note.content || "Cliché radiologique")}&type=image`;
-                                              window.open(viewerUrl, "_blank", "noopener,noreferrer");
-                                            }}
-                                            title="Cliquer pour ouvrir dans une fenêtre à part"
-                                          >
-                                            <img
-                                              src={getImageUrl(note.url)}
-                                              alt={note.content || "Cliché radiologique / Image"}
-                                              className="max-h-80 sm:max-h-96 w-auto object-contain rounded-xl"
-                                            />
-                                            <div className="absolute top-2.5 right-2.5 z-10 pointer-events-none transition-all duration-200 opacity-0 group-hover/img:opacity-100">
-                                              <div className="bg-stone-900/85 text-white text-[11px] px-2 py-1 rounded-lg backdrop-blur-sm flex items-center gap-1 shadow-md border border-white/20">
-                                                <ExternalLink className="w-3 h-3 text-[#bd613c]" />
-                                                <span>Agrandir</span>
+                                    (() => {
+                                      const isDocReport = /doc_|compte[-_]?rendu|rapport|ordonnance|certificat|courrier|attestation|capture|scan/i.test(
+                                        `${note.url || ''} ${note.content || ''} ${note.title || ''}`
+                                      ) && !/coupe|radio|irm|scanner|echographie_cut|planche|didactique|lesion|rachis/i.test(`${note.url || ''} ${note.content || ''}`);
+
+                                      if (isDocReport) {
+                                        return (
+                                          <div className="mt-2 flex flex-col items-start w-full">
+                                            <details className="w-full rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-2xs bg-white flex flex-col group/doc">
+                                              <summary className="bg-[#FAF7F2] hover:bg-[#ebd9c8]/20 p-2 sm:p-2.5 px-3 flex justify-between items-center cursor-pointer select-none transition-colors list-none">
+                                                <span className="text-xs font-semibold text-[#5a4e44] flex items-center gap-2 min-w-0">
+                                                  <FileText className="w-4 h-4 text-[#bd613c] shrink-0" />
+                                                  <span className="truncate">{note.title || "Compte-rendu officiel original (Image)"}</span>
+                                                  <span className="text-[10px] text-[#8c7b6d] font-normal hidden sm:inline shrink-0">(cliquer pour déplier l'aperçu)</span>
+                                                </span>
+                                                <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                  <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-6 px-2 text-[11px] bg-white text-[#bd613c] border-[#ebd9c8] hover:bg-[#bd613c] hover:text-white transition-colors"
+                                                    onClick={() => {
+                                                      const viewerUrl = `/examen-viewer?url=${encodeURIComponent(getImageUrl(note.url))}&title=${encodeURIComponent(note.content || "Document original")}&type=image`;
+                                                      window.open(viewerUrl, "_blank", "noopener,noreferrer");
+                                                    }}
+                                                    title="Ouvrir dans une fenêtre à part"
+                                                  >
+                                                    <ExternalLink className="w-3 h-3 mr-1" /> Fenêtre à part
+                                                  </Button>
+                                                  <ChevronDown className="w-3.5 h-3.5 text-[#8c7b6d] group-open/doc:rotate-180 transition-transform ml-0.5" />
+                                                </div>
+                                              </summary>
+                                              <div className="p-2 sm:p-3 bg-[#faf7f2] flex justify-center border-t border-[#ebd9c8]/40">
+                                                <img
+                                                  src={getImageUrl(note.url)}
+                                                  alt={note.content || "Document original"}
+                                                  className="max-h-[480px] w-auto object-contain rounded-lg border border-[#ebd9c8]/50"
+                                                />
+                                              </div>
+                                            </details>
+                                            {note.content && (
+                                              <FollowUpCardContent
+                                                content={note.content}
+                                                noteId={note.id || `note-${noteIdx}`}
+                                                isExpanded={expandedFollowUpIds[note.id] ?? (globalFollowUpView === 'developpement')}
+                                                onToggleExpand={(explicit) => toggleFollowUpExpanded(note.id, explicit)}
+                                                onDoubleClick={() => {
+                                                  setEditFollowUpContent(note.content);
+                                                  setEditFollowUpDate(format(new Date(note.date), "HH:mm"));
+                                                  setEditingFollowUpId(note.id);
+                                                }}
+                                                markdownComponents={markdownComponents}
+                                              />
+                                            )}
+                                          </div>
+                                        );
+                                      }
+
+                                      return (
+                                        <div className="mt-2 flex flex-col items-start w-full gap-2">
+                                          <div className="w-full rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-2xs bg-white flex flex-col">
+                                            <div className="bg-[#FAF7F2] p-2 sm:p-2.5 px-3 flex justify-between items-center border-b border-[#ebd9c8]/40">
+                                              <span className="text-xs font-semibold text-[#5a4e44] flex items-center gap-2 min-w-0">
+                                                <ImageIcon className="w-4 h-4 text-[#bd613c] shrink-0" />
+                                                <span className="truncate">Cliché radiologique / IRM</span>
+                                              </span>
+                                              <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-6 px-2 text-[11px] bg-white text-[#bd613c] border-[#ebd9c8] hover:bg-[#bd613c] hover:text-white transition-colors"
+                                                onClick={() => {
+                                                  const viewerUrl = `/examen-viewer?url=${encodeURIComponent(getImageUrl(note.url))}&title=${encodeURIComponent(note.content || "Cliché radiologique")}&type=image`;
+                                                  window.open(viewerUrl, "_blank", "noopener,noreferrer");
+                                                }}
+                                                title="Ouvrir dans une fenêtre à part"
+                                              >
+                                                <ExternalLink className="w-3 h-3 mr-1" /> Fenêtre à part
+                                              </Button>
+                                            </div>
+                                            <div className="p-2 sm:p-3 bg-[#faf7f2] flex justify-center">
+                                              <div 
+                                                className="relative inline-block overflow-hidden rounded-xl border border-[#ebd9c8]/70 bg-white shadow-sm hover:shadow-md cursor-pointer group/img"
+                                                onClick={() => {
+                                                  const viewerUrl = `/examen-viewer?url=${encodeURIComponent(getImageUrl(note.url))}&title=${encodeURIComponent(note.content || "Cliché radiologique")}&type=image`;
+                                                  window.open(viewerUrl, "_blank", "noopener,noreferrer");
+                                                }}
+                                                title="Cliquer pour ouvrir dans une fenêtre à part"
+                                              >
+                                                <img
+                                                  src={getImageUrl(note.url)}
+                                                  alt={note.content || "Cliché radiologique / Image"}
+                                                  className="max-h-80 sm:max-h-96 w-auto object-contain rounded-xl"
+                                                />
+                                                <div className="absolute top-2.5 right-2.5 z-10 pointer-events-none transition-all duration-200 opacity-0 group-hover/img:opacity-100">
+                                                  <div className="bg-stone-900/85 text-white text-[11px] px-2 py-1 rounded-lg backdrop-blur-sm flex items-center gap-1 shadow-md border border-white/20">
+                                                    <ExternalLink className="w-3 h-3 text-[#bd613c]" />
+                                                    <span>Agrandir</span>
+                                                  </div>
+                                                </div>
                                               </div>
                                             </div>
                                           </div>
+                                          {note.content && (
+                                            <FollowUpCardContent
+                                              content={note.content}
+                                              noteId={note.id || `note-${noteIdx}`}
+                                              isExpanded={expandedFollowUpIds[note.id] ?? (globalFollowUpView === 'developpement')}
+                                              onToggleExpand={(explicit) => toggleFollowUpExpanded(note.id, explicit)}
+                                              onDoubleClick={() => {
+                                                setEditFollowUpContent(note.content);
+                                                setEditFollowUpDate(format(new Date(note.date), "HH:mm"));
+                                                setEditingFollowUpId(note.id);
+                                              }}
+                                              markdownComponents={markdownComponents}
+                                            />
+                                          )}
                                         </div>
-                                      </div>
-                                      {note.content && (
-                                        <FollowUpCardContent
-                                          content={note.content}
-                                          noteId={note.id || `note-${noteIdx}`}
-                                          isExpanded={expandedFollowUpIds[note.id] ?? (globalFollowUpView === 'developpement')}
-                                          onToggleExpand={(explicit) => toggleFollowUpExpanded(note.id, explicit)}
-                                          onDoubleClick={() => {
-                                            setEditFollowUpContent(note.content);
-                                            setEditFollowUpDate(format(new Date(note.date), "HH:mm"));
-                                            setEditingFollowUpId(note.id);
-                                          }}
-                                          markdownComponents={markdownComponents}
-                                        />
-                                      )}
-                                    </div>
+                                      );
+                                    })()
                                   ) : note.type === 'pdf' ? (
                                     <div className="mt-2 flex flex-col items-start w-full">
                                       <details className="w-full rounded-xl overflow-hidden border border-[#ebd9c8]/80 shadow-2xs bg-white flex flex-col group/pdf">
-                                        <summary className="bg-[#FAF7F2] hover:bg-[#ebd9c8]/20 p-2.5 px-3 flex justify-between items-center cursor-pointer select-none transition-colors list-none">
+                                        <summary className="bg-[#FAF7F2] hover:bg-[#ebd9c8]/20 p-2 sm:p-2.5 px-2.5 sm:px-3 flex justify-between items-center cursor-pointer select-none transition-colors list-none">
                                           <span className="text-xs font-semibold text-[#5a4e44] flex items-center gap-2 min-w-0">
                                             <FileText className="w-4 h-4 text-[#bd613c] shrink-0" />
                                             <span className="truncate">Document PDF original</span>
@@ -2183,7 +2479,7 @@ export default function ConsultationDetail() {
                                         <div className="p-1 sm:p-2 bg-zinc-50 border-t border-[#ebd9c8]/30">
                                           <iframe
                                             src={`${getImageUrl(note.url)}#toolbar=0&navpanes=0&view=FitH`}
-                                            className="w-full h-[320px] sm:h-[400px] border-none bg-white rounded-lg shadow-inner"
+                                            className="w-full h-[260px] sm:h-[400px] border-none bg-white rounded-lg shadow-inner"
                                             title={note.content || "Document PDF"}
                                           />
                                         </div>
@@ -2440,27 +2736,52 @@ export default function ConsultationDetail() {
                         <span className="font-medium text-base">{isAppending ? "Traitement..." : "Ajouter un Document"}</span>
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-64 p-2 bg-white border-[#ebd9c8]">
-                      <DropdownMenuItem onClick={() => fileInputRefBilanDesktop.current?.click()} className="cursor-pointer py-3 flex items-center rounded-lg hover:bg-[#ebd9c8]/20 transition-colors">
+                    <DropdownMenuContent align="end" className="w-64 p-2 bg-white border-[#ebd9c8] shadow-lg">
+                      <label className="cursor-pointer py-2.5 px-3 flex items-center rounded-lg hover:bg-[#ebd9c8]/20 transition-colors w-full select-none">
                         <span className="text-xl mr-3 opacity-80">🔄</span>
-                        <span className="font-medium text-base text-slate-700">Mettre à jour le Bilan</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => fileInputRefSuiviDesktop.current?.click()} className="cursor-pointer py-3 flex items-center rounded-lg text-[#bd613c] mt-1 bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors shadow-sm border border-[#bd613c]/10">
+                        <div className="flex flex-col text-left">
+                          <span className="font-medium text-sm text-slate-800">Mettre à jour le Bilan</span>
+                          <span className="text-[11px] text-[#8c7b6d]">Intégrer document/CR au bilan</span>
+                        </div>
+                        <input
+                          type="file"
+                          className="hidden"
+                          multiple
+                          accept="image/*,application/pdf,.txt"
+                          disabled={isAppending}
+                          onChange={(e) => handleAppendFile(e, 'bilan')}
+                        />
+                      </label>
+                      <label className="cursor-pointer py-2.5 px-3 flex items-center rounded-lg text-[#bd613c] mt-1.5 bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors shadow-xs border border-[#bd613c]/10 w-full select-none">
                         <span className="text-xl mr-3">📝</span>
-                        <span className="font-medium text-base">Nouvelle Note de Suivi</span>
-                      </DropdownMenuItem>
+                        <div className="flex flex-col text-left">
+                          <span className="font-medium text-sm">Nouvelle Note de Suivi</span>
+                          <span className="text-[11px] text-[#8c7b6d]">Créer une séance avec ce doc</span>
+                        </div>
+                        <input
+                          type="file"
+                          className="hidden"
+                          multiple
+                          accept="image/*,application/pdf,.txt"
+                          disabled={isAppending}
+                          onChange={(e) => handleAppendFile(e, 'suivi')}
+                        />
+                      </label>
                     </DropdownMenuContent>
                   </DropdownMenu>
 
-                  {/* Nouveau bouton Image Desktop */}
-                  <Button variant="outline" className="w-full justify-start text-left h-12 px-4 rounded-xl text-[#bd613c] border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all" disabled={isAppending} onClick={() => fileInputRefImageDesktop.current?.click()}>
+                  {/* Bouton Image Desktop avec déclencheur direct */}
+                  <label className="cursor-pointer w-full justify-start text-left h-12 px-4 rounded-xl text-[#bd613c] border border-[#ebd9c8] bg-white shadow-sm hover:shadow hover:-translate-y-0.5 transition-all inline-flex items-center select-none font-medium text-base">
                     {isAppending ? <Loader2 className="w-5 h-5 mr-3 animate-spin text-[#bd613c]" /> : <ImageIcon className="w-5 h-5 mr-3 text-[#bd613c]" />}
-                    <span className="font-medium text-base">{isAppending ? "Traitement..." : "Doc Visuel (Image / PDF)"}</span>
-                  </Button>
-
-                  <input type="file" ref={fileInputRefBilanDesktop} className="hidden" accept="image/*,application/pdf" onChange={(e) => handleAppendFile(e, 'bilan')} multiple />
-                  <input type="file" ref={fileInputRefSuiviDesktop} className="hidden" accept="image/*,application/pdf" onChange={(e) => handleAppendFile(e, 'suivi')} multiple />
-                  <input type="file" ref={fileInputRefImageDesktop} className="hidden" accept="image/*,application/pdf" onChange={(e) => handleAppendImage(e)} />
+                    <span>{isAppending ? "Traitement..." : "Doc Visuel (Image / PDF)"}</span>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*,application/pdf"
+                      disabled={isAppending}
+                      onChange={(e) => handleAppendImage(e)}
+                    />
+                  </label>
                 </div>
               </div>
 

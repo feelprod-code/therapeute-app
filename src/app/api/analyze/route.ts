@@ -465,7 +465,7 @@ export async function POST(req: Request) {
         // --- ETAPE 2 (PASS 2) : ANALYSE CLINIQUE ET SYNTHESE EXHAUSTIVE ---
         const currentDate = new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-        const isUpdate = previousContext && (previousContext.synthese || previousContext.transcription);
+        const isUpdate = Boolean(previousContext && (previousContext.id || previousContext.synthese || previousContext.transcription || consultationId));
 
         let contextInstruction = "";
         if (isUpdate) {
@@ -486,9 +486,13 @@ ${previousContext.synthese || 'Aucune synthèse précédente.'}
 
 Instructions de MISE A JOUR:
 Ton objectif est de mettre à jour la synthèse PRÉCÉDENTE en FUSIONNANT de manière cohérente les nouveaux éléments issus de l'audio/document/texte dans les sections appropriées existantes.
+- EXTRACTION DU NOM : Si le nom précédent était 'Patient Anonyme', 'Hmm.' ou 'Non renseigné', et que le nouveau document contient le NOM et Prénom réels du patient, tu DOIS ABSOLUMENT extraire le vrai nom du patient dans le champ "patientName" (ex: "DUPONT Marie").
 - MULTI-SÉANCES & SUIVI CHRONOLOGIQUE : Si les nouvelles informations correspondent à une NOUVELLE SÉANCE ou consultation à une date différente, CONSERVE TOUJOURS LE BILAN DE LA SÉANCE PRÉCÉDENTE au début et structure le document avec les séances successives (ex: "## 📅 Séance 1 : [Date 1]" puis "## 📅 Séance 2 : [Date 2]"). L'onglet Bilan doit afficher l'intégralité des séances de façon cumulative sans jamais effacer la séance précédente.
 - FORMATAGE DES AJOUTS D'UNE MÊME SÉANCE : Si c'est une précision pour la même séance, intègre-le naturellement dans les listes à puces existantes sans section isolée "Ajout".
-- DOCUMENTS JOINTS : Si un document (PDF, image, texte) t'est fourni, extrais minutieusement les informations médicales et intègre-les au bilan.
+- DOCUMENTS JOINTS & IMAGERIE :
+  * CLICHÉS RADIOLOGIQUES, IRM, ÉCHOGRAPHIES ET PLANCHES DIDACTIQUES (images) : ON DOIT LES VOIR DIRECTEMENT ! Insère-les directement dans le texte (![Titre](url.png)), JAMAIS dans un accordéon replié.
+  * COMPTES-RENDUS OFFICIELS, RAPPORTS DACTYLOGRAPHIÉS ET DOCUMENTS PDF : CE SONT EUX QUI DOIVENT ÊTRE MIS EN REPLI (<details><summary>📄 Voir le compte-rendu officiel original...</summary>\n\n[📄 Consulter le document officiel (PDF)](url)\n\nExtrait ou texte du compte-rendu officiel si pertinent\n\n</details>).
+  * PAS LA PEINE DE DÉCRIRE CE QUI N'EST PAS : Bannir toute énumération de ce qui est normal ou absent.
 - EXCEPTION (NOM DU PATIENT) : Respecte la casse sobre et naturelle (ex: Jean-Claude Frénot).
 - EXCEPTION (DATE DE LA CONSULTATION) : Si les nouvelles notes précisent les dates, affiche-les dans le titre (# Bilan de consultation <span style="font-size: 0.6em; color: #8c7b6d;">- [Date 1] & [Date 2]</span>).
 - EXCEPTION (RÉSUMÉ) : IL EST ABSOLUMENT OBLIGATOIRE que la clé "resume" contienne un résumé GLOBAL et DYNAMIQUE de TOUT LE BILAN FINAL structuré STRICTEMENT dans cet ordre :
@@ -498,16 +502,16 @@ Ton objectif est de mettre à jour la synthèse PRÉCÉDENTE en FUSIONNANT de ma
     - **Symptômes exprimés :** [Symptômes rapportés par le patient, intensité, gêne]
     - **Demande du patient :** [Objectif de la prise en charge, attente envers le thérapeute]
   * 2. EXAMENS D'IMAGERIE ET DOCUMENTS :
-    - CLICHÉS RADIOLOGIQUES, IRM ET PLANCHES DIDACTIQUES : DOIVENT ÊTRE VISIBLES DIRECTEMENT (hors accordéon, en pleine visibilité) pour une lecture clinique immédiate :
+    - CLICHÉS RADIOLOGIQUES, IRM ET PLANCHES DIDACTIQUES : DOIVENT ÊTRE VISIBLES DIRECTEMENT (hors accordéon, en pleine visibilité) :
       ![Titre de la planche](url)
     - DOCUMENTS ORIGINAUX (PDF, comptes-rendus dactylographiés) : DOIVENT ÊTRE MIS EN REPLI :
       <details><summary>📄 Voir le document original (PDF)...</summary>\n\n[📄 Consulter le document officiel (PDF)](url)\n\n</details>
     - PAS LA PEINE DE DÉCRIRE CE QUI N'EST PAS : Bannir toute énumération de ce qui est normal ou absent.
-  * 3. SUIVIS DATÉS & ÉVOLUTION : Chaque suivi ou examen récent doit être mentionné avec sa date explicite (ex: "### 🗓️ Suivi du [Date] : ..."), en détaillant le lieu précis de fracture s'il y a lieu, les conclusions radiologiques, les notes psycho-émotionnelles ou les évolutions posturales.
+  * 3. SUIVIS DATÉS & ÉVOLUTION : Chaque suivi ou examen récent doit être mentionné avec sa date explicite.
   * Le résumé doit être complet, fluide et lisible en un coup d'œil.
 `;
         } else {
-            contextInstruction = `\n- DOCUMENTS JOINTS : Si des documents (PDF, comptes-rendus textuels) te sont fournis, ils doivent être placés EN REPLI (<details><summary>📄 Voir le document...</summary>...</details>). En revanche, s'il s'agit de clichés radiologiques, IRM ou échographies (images), ils DOIVENT ÊTRE VISIBLES DIRECTEMENT sans repli (![Titre](url)). Ne jamais lister ce qui est normal ou absent.`;
+            contextInstruction = `\n- DOCUMENTS JOINTS : Si des documents (PDF, comptes-rendus textuels officiels) te sont fournis, ils doivent être placés EN REPLI (<details><summary>📄 Voir le compte-rendu officiel...</summary>...</details>). En revanche, s'il s'agit de clichés radiologiques, IRM, échographies ou planches didactiques (images), ils DOIVENT ÊTRE VISIBLES DIRECTEMENT sans repli (![Titre](url.png)). Ne jamais lister ce qui est normal ou absent.`;
         }
 
         const systemPrompt = `Tu es un assistant médical clinique expert (ostéopathie, biokinergie, thérapie manuelle). Ton rôle est d'analyser l'intégralité de la transcription de l'interrogatoire patient (et/ou des documents) et de produire un bilan médical exhaustif, riche et rigoureusement structuré.${contextInstruction}
@@ -561,11 +565,16 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
         if (attachedFilesUrls.length > 0) {
             const docsOnly = attachedFilesUrls.filter(file => !file.mimeType.startsWith('audio/'));
             if (docsOnly.length > 0) {
-                attachedDocsContext = "\n\n--- DOCUMENTS IMPORTÉS (IMAGERIES / COMPTES-RENDUS) A INTÉGRER ---\n";
+                attachedDocsContext = "\n\n--- DOCUMENTS IMPORTÉS (COMPTES-RENDUS / PDF / RAPPORTS) A METTRE EN REPLI ---\n";
                 docsOnly.forEach(doc => {
-                    attachedDocsContext += `- Nom : "${doc.originalName}" | URL Publique : ${doc.publicUrl} | Type : ${doc.mimeType}\n`;
+                    attachedDocsContext += `- Document : "${doc.originalName}" | URL Publique : ${doc.publicUrl} | Type : ${doc.mimeType}\n`;
                 });
-                attachedDocsContext += "-----------------------------------------------------\n";
+                attachedDocsContext += `CONSIGNE ABSOLUE SUR CES DOCUMENTS :\n`;
+                attachedDocsContext += `Ces documents sont des comptes-rendus dactylographiés, courriers ou fiches administratives.\n`;
+                attachedDocsContext += `Ils doivent IMPÉRATIVEMENT être insérés EN REPLI via une balise <details> :\n`;
+                attachedDocsContext += `<details><summary>📄 Voir le compte-rendu officiel original...</summary>\n\n[📄 Consulter le document officiel original](url)\n\n</details>\n`;
+                attachedDocsContext += `INTERDICTION FORMELLE d'afficher une balise image ![...] pour ces comptes-rendus écrits ou captures de texte !\n`;
+                attachedDocsContext += `--------------------------------------------------------------------------------\n`;
             }
         }
 
@@ -729,27 +738,61 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
             jsonResult.transcription = previousContext.transcription + separator + (jsonResult.transcription || "");
         }
 
-        // Fallback extraction de nom si l'IA n'a rien trouvé ou a mis Anonyme
-        if (!jsonResult.patientName || jsonResult.patientName.toLowerCase().startsWith("patient anonyme") || jsonResult.patientName.toLowerCase() === "anonyme" || jsonResult.patientName.toLowerCase().includes("non précisé")) {
+        // Validation stricte du nom du patient (rejet des faux positifs de dialogue comme "Hmm.", "Oui", "Non", etc.)
+        const isInvalidPatientName = (name?: string) => {
+            if (!name) return true;
+            const clean = name.trim().toLowerCase().replace(/[^a-zà-öø-ÿ]/g, '');
+            if (clean.length < 3) return true;
+            const invalidTokens = [
+                'hmm', 'mhm', 'oui', 'non', 'bonjour', 'merci', 'patient', 'patiente',
+                'patientanonyme', 'anonyme', 'inconnu', 'nonprecise', 'nonrenseigne', 'null', 'undefined'
+            ];
+            return invalidTokens.includes(clean) || clean.startsWith('patientanonyme');
+        };
+
+        if (isInvalidPatientName(jsonResult.patientName)) {
             const fallbackName = extractPatientNameFromText(finalTranscription) || extractPatientNameFromText(newText || "");
-            if (fallbackName) {
+            if (fallbackName && !isInvalidPatientName(fallbackName)) {
                 jsonResult.patientName = fallbackName;
+            } else if (previousContext?.patientName && !isInvalidPatientName(previousContext.patientName)) {
+                jsonResult.patientName = previousContext.patientName;
+            } else {
+                jsonResult.patientName = "";
             }
         }
 
-        if (jsonResult.patientName) {
+        if (jsonResult.patientName && !isInvalidPatientName(jsonResult.patientName)) {
             jsonResult.patientName = ensureLastNameFirst(jsonResult.patientName);
+        } else {
+            jsonResult.patientName = "";
         }
 
-        // Garde-Fou : Assainissement anti-PDF dans les balises Markdown ![...](...pdf)
+        // Garde-Fou Clinique : Repli automatique des PDF et comptes-rendus textuels, conservation des clichés ouverts
         const sanitizeMarkdownMedicalImages = (content: string): string => {
             if (!content) return content;
-            return content.replace(/!\[(.*?)\]\((https?:\/\/[^\s\)]+?\.pdf(?:[^\s\)]*))\)/gi, (_match, title, url) => {
+
+            // 1. Anti-PDF dans les balises Markdown ![...](...pdf) -> Repli dans un volet <details>
+            let sanitized = content.replace(/!\[(.*?)\]\((https?:\/\/[^\s\)]+?\.pdf(?:[^\s\)]*))\)/gi, (_match, title, url) => {
                 const label = title && title !== 'Imagerie médicale' && !title.toLowerCase().endsWith('.pdf') 
                     ? title 
                     : 'le compte-rendu officiel original (PDF)';
-                return `\n\n<p><a href="${url}" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; padding: 7px 15px; background: #FAF7F2; border: 1px solid #EAE4D9; border-radius: 8px; color: #8C4E33; font-weight: 600; font-size: 12px; text-decoration: none; box-shadow: 0 1px 2px rgba(0,0,0,0.05); margin: 6px 0;">📄 Consulter ${label}</a></p>\n\n`;
+                return `\n\n<details><summary>📄 Voir ${label}...</summary>\n\n[📄 Consulter ${label}](${url})\n\n</details>\n\n`;
             });
+
+            // 2. Si une capture de compte-rendu textuel (non radiologique) a été insérée en image Markdown directe, la replier
+            sanitized = sanitized.replace(/!\[(.*?(?:compte[-_ ]?rendu|rapport|courrier|lettre|ordonnance|capture).*?)\]\((https?:\/\/[^\s\)]+?\.(?:png|jpg|jpeg|webp)(?:[^\s\)]*))\)/gi, (_match, title, url) => {
+                const label = title || 'le compte-rendu officiel original';
+                return `\n\n<details><summary>📄 Voir ${label}...</summary>\n\n[📄 Consulter le document officiel original](${url})\n\n</details>\n\n`;
+            });
+
+            // 3. Bannissement des descriptions négatives ("Pas de fissure", "Pas d'épanchement", etc.)
+            sanitized = sanitized
+                .replace(/(?:^|\n|\.\s*|\;\s*)-\s*(?:Pas de fissure|Pas d'épanchement[^.,;\n]*|Pas de calcification|Respect des autres tendons[^.,;\n]*|Les tendons des longs biceps sont en place[^.,;\n]*|Pas d'amyotrophie[^.,;\n]*|Pas d'anomalie[^.,;\n]*|Absence d'anomalie[^.,;\n]*|Examen normal[^.,;\n]*)[.,;]?/gi, '')
+                .replace(/(?:Pas de fissure|Pas d'épanchement des bourses[^.,;\n]*|Pas de calcification|Respect des autres tendons[^.,;\n]*|Les tendons des longs biceps sont en place[^.,;\n]*|Pas d'amyotrophie[^.,;\n]*|Pas d'anomalie acromioclaviculaire)[.,;]?\s*/gi, '')
+                .replace(/\n\s*-\s*\n/g, '\n')
+                .replace(/[ \t]{2,}/g, ' ');
+
+            return sanitized;
         };
 
         if (jsonResult.resume) {
