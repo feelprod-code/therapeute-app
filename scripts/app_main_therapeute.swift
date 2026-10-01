@@ -18,16 +18,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         try? proc.run()
         proc.waitUntilExit()
 
-        // 2. Fenêtre principale macOS calée au format iPhone
-        let windowWidth: CGFloat = 440
+        // 2. Fenêtre principale macOS - redimensionnable sans restriction et plein écran
         let screenRect = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let windowHeight: CGFloat = min(screenRect.height - 60, 920)
+        let defaultWidth: CGFloat = min(max(screenRect.width * 0.70, 1100), 1400)
+        let defaultHeight: CGFloat = min(screenRect.height - 60, 960)
         
         let rect = NSRect(
-            x: screenRect.origin.x + screenRect.width - windowWidth - 40,
-            y: screenRect.origin.y + (screenRect.height - windowHeight) / 2,
-            width: windowWidth,
-            height: windowHeight
+            x: screenRect.origin.x + (screenRect.width - defaultWidth) / 2,
+            y: screenRect.origin.y + (screenRect.height - defaultHeight) / 2,
+            width: defaultWidth,
+            height: defaultHeight
         )
 
         window = NSWindow(
@@ -38,9 +38,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         )
         window.title = "TDT Thérapeute"
         window.delegate = self
-        window.minSize = NSSize(width: 380, height: 550)
-        window.maxSize = NSSize(width: 600, height: 1400)
-        window.setFrameAutosaveName("TDTTherapeutePhoneWindow")
+        window.minSize = NSSize(width: 380, height: 500)
+        // Aucune limite maximale pour permettre le redimensionnement libre et le plein écran
+        window.collectionBehavior = [.fullScreenPrimary, .fullScreenAllowsTiling]
+        window.setFrameAutosaveName("TDTTherapeuteMainWindow")
         window.isReleasedWhenClosed = false
 
         // 3. Configuration WKWebView avec permission Micro
@@ -116,7 +117,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         let selectAllItem = editMenu.addItem(withTitle: "Tout sélectionner", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         selectAllItem.keyEquivalentModifierMask = [.command]
 
-        // 3. Menu Affichage (Rechargement rapide)
+        // 3. Menu Affichage (Rechargement rapide & Plein écran)
         let viewMenuItem = NSMenuItem()
         mainMenu.addItem(viewMenuItem)
         let viewMenu = NSMenu(title: "Affichage")
@@ -126,7 +127,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         reloadItem.keyEquivalentModifierMask = [.command]
         reloadItem.target = self
 
-        // 4. Menu Fenêtre
+        viewMenu.addItem(NSMenuItem.separator())
+
+        let fullScreenItem = viewMenu.addItem(withTitle: "Activer le mode plein écran", action: #selector(toggleFullScreen), keyEquivalent: "f")
+        fullScreenItem.keyEquivalentModifierMask = [.command, .control]
+        fullScreenItem.target = self
+
+        // 4. Menu Fenêtre (Redimensionnement & Formats)
         let windowMenuItem = NSMenuItem()
         mainMenu.addItem(windowMenuItem)
         let windowMenu = NSMenu(title: "Fenêtre")
@@ -135,12 +142,54 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         let minItem = windowMenu.addItem(withTitle: "Réduire", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         minItem.keyEquivalentModifierMask = [.command]
 
-        windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(withTitle: "Zoomer / Maximiser", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
         
+        windowMenu.addItem(NSMenuItem.separator())
+        
+        let deskItem = windowMenu.addItem(withTitle: "Format Grand Écran (1200 px)", action: #selector(setDesktopSize), keyEquivalent: "2")
+        deskItem.keyEquivalentModifierMask = [.command, .option]
+        deskItem.target = self
+
+        let phoneItem = windowMenu.addItem(withTitle: "Format Mobile (440 px)", action: #selector(setPhoneSize), keyEquivalent: "1")
+        phoneItem.keyEquivalentModifierMask = [.command, .option]
+        phoneItem.target = self
+
+        windowMenu.addItem(NSMenuItem.separator())
+
         let closeItem = windowMenu.addItem(withTitle: "Fermer la fenêtre", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         closeItem.keyEquivalentModifierMask = [.command]
 
         NSApp.mainMenu = mainMenu
+    }
+
+    @objc func toggleFullScreen() {
+        window.toggleFullScreen(nil)
+    }
+
+    @objc func setDesktopSize() {
+        let screen = window.screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let w: CGFloat = min(max(screen.width * 0.70, 1100), 1400)
+        let h: CGFloat = min(screen.height - 60, 960)
+        let frame = NSRect(
+            x: screen.origin.x + (screen.width - w) / 2,
+            y: screen.origin.y + (screen.height - h) / 2,
+            width: w,
+            height: h
+        )
+        window.setFrame(frame, display: true, animate: true)
+    }
+
+    @objc func setPhoneSize() {
+        let screen = window.screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let w: CGFloat = 440
+        let h: CGFloat = min(screen.height - 60, 920)
+        let frame = NSRect(
+            x: screen.origin.x + screen.width - w - 40,
+            y: screen.origin.y + (screen.height - h) / 2,
+            width: w,
+            height: h
+        )
+        window.setFrame(frame, display: true, animate: true)
     }
 
     @objc func reloadApp() {
@@ -160,12 +209,56 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         decisionHandler(.grant)
     }
 
-    // Gestion des liens target="_blank"
+    var childWindows: [NSWindow] = []
+
+    // Gestion des liens target="_blank" et fenêtres pop-up (Examens, Radios HD, Liens externes)
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        if navigationAction.targetFrame == nil {
-            webView.load(navigationAction.request)
+        let screenRect = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let childWidth: CGFloat = min(max(screenRect.width * 0.85, 1100), 1500)
+        let childHeight: CGFloat = min(screenRect.height - 40, 960)
+        
+        let childRect = NSRect(
+            x: screenRect.origin.x + (screenRect.width - childWidth) / 2,
+            y: screenRect.origin.y + (screenRect.height - childHeight) / 2,
+            width: childWidth,
+            height: childHeight
+        )
+
+        let childWindow = NSWindow(
+            contentRect: childRect,
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        childWindow.title = "Examen / Radio HD — TDT Thérapeute"
+        childWindow.minSize = NSSize(width: 480, height: 400)
+        childWindow.collectionBehavior = [.fullScreenPrimary, .fullScreenAllowsTiling]
+        childWindow.isReleasedWhenClosed = false
+        childWindow.delegate = self
+
+        let childWebView = WKWebView(frame: childWindow.contentView!.bounds, configuration: configuration)
+        childWebView.autoresizingMask = [.width, .height]
+        childWebView.uiDelegate = self
+        childWebView.navigationDelegate = self
+        childWindow.contentView?.addSubview(childWebView)
+
+        childWindows.append(childWindow)
+        childWindow.makeKeyAndOrderFront(nil)
+        childWindow.makeFirstResponder(childWebView)
+        NSApp.activate(ignoringOtherApps: true)
+
+        if let req = navigationAction.request.url != nil ? navigationAction.request : nil {
+            childWebView.load(req)
         }
-        return nil
+
+        return childWebView
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+        if let win = webView.window {
+            childWindows.removeAll(where: { $0 == win })
+            win.close()
+        }
     }
 
     // Réessai automatique si échec provisoire
@@ -176,7 +269,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
     }
 
     func windowWillClose(_ notification: Notification) {
-        NSApplication.shared.terminate(nil)
+        if let closingWin = notification.object as? NSWindow {
+            if closingWin == window {
+                NSApplication.shared.terminate(nil)
+            } else {
+                childWindows.removeAll(where: { $0 == closingWin })
+            }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

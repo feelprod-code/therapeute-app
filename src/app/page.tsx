@@ -10,10 +10,11 @@ import { compressAudio } from '@/lib/compress-audio';
 import { supabase, SupabaseConsultation } from "@/lib/supabaseClient";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Copy, Plus, Trash2, ArrowRight, Loader2, RefreshCw, FileText, Check, MessageSquare, ListTodo, MoreHorizontal, Merge, Search, Mic, Type, FileUp, X as XIcon, CalendarDays, Folder as FolderIcon, ChevronDown, Combine, Paperclip, Image as ImageIcon, X, Download, Square, ArrowLeftRight } from "lucide-react";
+import { Copy, Plus, Trash2, ArrowRight, Loader2, RefreshCw, FileText, Check, MessageSquare, ListTodo, MoreHorizontal, Merge, Search, Mic, Type, FileUp, X as XIcon, CalendarDays, Folder as FolderIcon, ChevronDown, Combine, Paperclip, Image as ImageIcon, X, Download, Square, ArrowLeftRight, Activity } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useVoiceDictation } from "@/hooks/use-voice-dictation";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { swapFirstLastName, extractLastName, extractFirstName, getClassificationLetter, normalizeSearch, extractPatientNameFromText } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -88,6 +89,7 @@ function Folder({ title, defaultOpen = false, children }: { title: React.ReactNo
 
 export default function Home() {
   const { toast } = useToast();
+  const router = useRouter();
   const [recorderMode, setRecorderMode] = useState('standard');
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [activeProcessingIds, setActiveProcessingIds] = useState<string[]>([]);
@@ -96,6 +98,9 @@ export default function Home() {
   const [consultations, setConsultations] = useState<SupabaseConsultation[] | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
+  const [isDraggingDocument, setIsDraggingDocument] = useState(false);
+  const [isProcessingDocument, setIsProcessingDocument] = useState(false);
+  const [documentProgressText, setDocumentProgressText] = useState("");
   const {
     isRecording: isDictating,
     isTranscribing: isTranscribingDictation,
@@ -167,7 +172,167 @@ export default function Home() {
     setAttachedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
+  // Traitement direct et spécialisé des documents médicaux (PDF, Compte-rendu, Radios, IRM) pour créer un nouveau patient
+  const handleDocumentsSubmit = async (files: File[]): Promise<boolean> => {
+    if (!files || files.length === 0) return false;
+
+    let newConsultationId: string | undefined = undefined;
+
+    try {
+      setIsProcessingDocument(true);
+      setDocumentProgressText("Création du dossier patient pour le compte-rendu...");
+      toast({ title: "⏳ Étape 1/3", description: "Création du dossier patient pour le compte-rendu..." });
+
+      const { data: { user } } = await supabase.auth.getUser();
+
+      const initialPatientName = files.length === 1 && files[0].name
+        ? `Nouveau Patient (${files[0].name.replace(/\.[^/.]+$/, "").substring(0, 30)})`
+        : `Nouveau Patient (${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })})`;
+
+      // 1. Création de la consultation dans Supabase
+      const { data: newConsultation, error: insertError } = await supabase.from('consultations').insert({
+        user_id: user?.id || "00000000-0000-0000-0000-000000000000",
+        date: new Date().toISOString(),
+        patient_name: initialPatientName,
+        synthese: "",
+        transcription: "",
+        resume: "",
+        created_at: new Date().toISOString(),
+      }).select().single();
+
+      if (insertError || !newConsultation) {
+        throw new Error("Impossible de créer le dossier : " + (insertError?.message || "Erreur inconnue"));
+      }
+
+      newConsultationId = newConsultation.id;
+      setActiveProcessingIds(prev => [...prev, newConsultation.id]);
+
+      // 2. Upload des fichiers attachés vers Supabase Storage (tdt_uploads)
+      setDocumentProgressText(`Upload sécurisé de ${files.length} document(s)...`);
+      toast({ title: "⏳ Étape 2/3", description: `Upload sécurisé de ${files.length} document(s)...` });
+
+      const uploadedAttachedFiles: { fileName: string, mimeType: string }[] = [];
+      for (const file of files) {
+        const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+        const fileName = `doc_${Date.now()}_${newConsultationId}_${safeName}`;
+        let fileMime = file.type;
+        if (!fileMime) {
+          if (file.name.toLowerCase().endsWith('.pdf')) fileMime = 'application/pdf';
+          else if (file.name.toLowerCase().endsWith('.png')) fileMime = 'image/png';
+          else if (file.name.toLowerCase().endsWith('.jpg') || file.name.toLowerCase().endsWith('.jpeg')) fileMime = 'image/jpeg';
+          else fileMime = 'application/octet-stream';
+        }
+
+        const { error: fileError } = await supabase.storage
+          .from('tdt_uploads')
+          .upload(fileName, file, { contentType: fileMime });
+
+        if (fileError) {
+          console.error("Erreur upload document:", file.name, fileError);
+        } else {
+          uploadedAttachedFiles.push({ fileName, mimeType: fileMime });
+        }
+      }
+
+      if (uploadedAttachedFiles.length === 0) {
+        throw new Error("Aucun document n'a pu être téléversé.");
+      }
+
+      // 3. Déclenchement de l'analyse IA via /api/analyze (sans audio, avec pipeline médical)
+      setDocumentProgressText("Analyse IA du compte-rendu, extraction du NOM et des planches...");
+      toast({ title: "⏳ Étape 3/3", description: "Analyse IA du compte-rendu, extraction du NOM & Prénom..." });
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 900000); // 15 min
+
+      const analyzeRes = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          consultationId: newConsultationId,
+          attachedFiles: uploadedAttachedFiles
+        }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!analyzeRes.ok) {
+        const errText = await analyzeRes.text();
+        throw new Error(`Erreur lors de l'analyse (${analyzeRes.status}): ${errText}`);
+      }
+
+      const analyzeData = await analyzeRes.json();
+
+      let resolvedPatientName = analyzeData.patientName && analyzeData.patientName.trim() !== "" ? analyzeData.patientName : "";
+      if (!resolvedPatientName || resolvedPatientName.toLowerCase().startsWith("patient anonyme") || resolvedPatientName.toLowerCase() === "anonyme") {
+        const fallback = extractPatientNameFromText(analyzeData.transcription || "") || extractPatientNameFromText(analyzeData.synthese || "");
+        if (fallback) resolvedPatientName = fallback;
+      }
+      if (!resolvedPatientName) {
+        resolvedPatientName = files.length === 1 && files[0].name
+          ? files[0].name.replace(/\.[^/.]+$/, "")
+          : "Nouveau Patient (Compte-rendu)";
+      }
+
+      const updatePayload: any = {
+        patient_name: resolvedPatientName,
+        resume: analyzeData.resume || "",
+        synthese: analyzeData.synthese || "",
+        transcription: analyzeData.transcription || "",
+      };
+
+      if (analyzeData.consultationDate) {
+        const parsedDate = new Date(analyzeData.consultationDate);
+        if (!isNaN(parsedDate.getTime())) {
+          updatePayload.date = parsedDate.toISOString();
+        }
+      }
+
+      await supabase
+        .from('consultations')
+        .update(updatePayload)
+        .eq('id', newConsultationId);
+
+      toast({
+        title: "✅ Dossier créé avec succès !",
+        description: `Patient identifié : ${resolvedPatientName}`
+      });
+
+      // Rediriger immédiatement vers le dossier patient
+      router.push(`/consultation/${newConsultationId}`);
+      return true;
+
+    } catch (err: any) {
+      console.error("Erreur handleDocumentsSubmit:", err);
+      toast({
+        title: "Erreur d'import du document",
+        description: err.message || "Une erreur est survenue lors de l'analyse.",
+        variant: "destructive"
+      });
+      return false;
+    } finally {
+      if (newConsultationId) {
+        setActiveProcessingIds(prev => prev.filter(id => id !== newConsultationId));
+      }
+      setIsProcessingDocument(false);
+      setDocumentProgressText("");
+    }
+  };
+
   const handleRecordingComplete = async (inputBlob: Blob | File): Promise<boolean> => {
+    // Si c'est un document (PDF ou image) envoyé par erreur dans l'enregistreur audio, rediriger vers handleDocumentsSubmit
+    if (inputBlob instanceof File && (
+      inputBlob.type === 'application/pdf' || 
+      inputBlob.type.startsWith('image/') || 
+      inputBlob.name.toLowerCase().endsWith('.pdf') ||
+      inputBlob.name.toLowerCase().endsWith('.png') ||
+      inputBlob.name.toLowerCase().endsWith('.jpg') ||
+      inputBlob.name.toLowerCase().endsWith('.jpeg')
+    )) {
+      return handleDocumentsSubmit([inputBlob]);
+    }
+
     let newConsultationId: string | undefined = undefined;
 
     try {
@@ -1195,21 +1360,92 @@ export default function Home() {
                 </TabsContent>
 
                 <TabsContent value="document">
-                  <Card className="w-full max-w-4xl mx-auto border-[#bd613c]/30 shadow-sm bg-white p-6 md:p-8 min-h-[350px] flex flex-col items-center justify-center">
-                    <h3 className="font-bebas tracking-wide text-2xl text-[#bd613c] uppercase mb-2 text-center">Ajouter un Document</h3>
-                    <p className="text-sm text-[#4a3f35]/70 mb-6 text-center max-w-md">
-                      Chargez un ancien bilan, un compte-rendu, ou une photo. L'IA en extraira toutes les informations pour créer un nouveau dossier patient.
-                    </p>
-                    <label className="cursor-pointer flex flex-col items-center justify-center w-64 h-32 border-2 border-dashed border-[#bd613c]/40 rounded-xl bg-[#ebd9c8]/10 hover:bg-[#ebd9c8]/30 transition-colors">
-                      <Paperclip className="w-8 h-8 text-[#bd613c] mb-2" />
-                      <span className="font-medium text-[#bd613c]">Sélectionner un fichier</span>
-                      <input type="file" className="hidden" accept="image/*,application/pdf" onChange={(e) => {
-                        if (e.target.files && e.target.files.length > 0) {
-                          handleRecordingComplete(e.target.files[0]);
-                          e.target.value = ''; // reset
-                        }
-                      }} />
-                    </label>
+                  <Card
+                    className={`w-full max-w-4xl mx-auto border-2 border-dashed transition-all duration-300 shadow-sm bg-white p-6 md:p-8 min-h-[350px] flex flex-col items-center justify-center relative overflow-hidden ${
+                      isDraggingDocument
+                        ? "border-[#bd613c] bg-[#ebd9c8]/30 scale-[1.01] shadow-lg"
+                        : "border-[#bd613c]/40 hover:border-[#bd613c]/80 bg-[#FAF7F2]/50"
+                    }`}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingDocument(true);
+                    }}
+                    onDragEnter={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingDocument(true);
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingDocument(false);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingDocument(false);
+                      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        handleDocumentsSubmit(Array.from(e.dataTransfer.files));
+                      }
+                    }}
+                  >
+                    {isProcessingDocument ? (
+                      <div className="flex flex-col items-center justify-center text-center p-6 space-y-4">
+                        <div className="relative">
+                          <div className="w-16 h-16 rounded-2xl bg-[#bd613c]/10 flex items-center justify-center text-[#bd613c]">
+                            <Activity className="w-8 h-8 animate-pulse" />
+                          </div>
+                          <Loader2 className="w-6 h-6 animate-spin text-[#bd613c] absolute -top-1 -right-1" />
+                        </div>
+                        <div>
+                          <h4 className="font-bebas text-2xl text-[#bd613c] tracking-wide uppercase">
+                            Traitement du compte-rendu...
+                          </h4>
+                          <p className="text-sm text-stone-600 font-sans mt-1 max-w-md">
+                            {documentProgressText || "Extraction du nom, prénom, date et analyse médicale du compte-rendu..."}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="w-16 h-16 rounded-2xl bg-[#bd613c]/10 border border-[#bd613c]/20 flex items-center justify-center text-[#bd613c] mb-4 shadow-inner">
+                          <FileUp className="w-8 h-8" />
+                        </div>
+
+                        <h3 className="font-bebas tracking-wide text-2xl md:text-3xl text-[#bd613c] uppercase mb-2 text-center">
+                          Nouveau Patient par Compte-Rendu
+                        </h3>
+
+                        <p className="text-xs sm:text-sm text-[#4a3f35]/80 mb-6 text-center max-w-lg leading-relaxed font-sans">
+                          Glissez-déposez ici votre compte-rendu médical (PDF, Radio, IRM, Scanner). 
+                          L&apos;IA extrait automatiquement le <strong className="text-[#bd613c]">NOM</strong>, le <strong className="text-[#bd613c]">Prénom</strong>, la date et génère le bilan didactique complet.
+                        </p>
+
+                        <div className="flex flex-col sm:flex-row items-center gap-3">
+                          <label className="cursor-pointer inline-flex items-center gap-2 bg-[#bd613c] hover:bg-[#a55130] text-white px-6 py-3 rounded-xl font-semibold text-sm shadow-md hover:shadow-lg transition-all active:scale-95 border border-[#d8734c]/40">
+                            <Paperclip className="w-4 h-4" />
+                            <span>Sélectionner un fichier (PDF ou Image)</span>
+                            <input
+                              type="file"
+                              className="hidden"
+                              multiple
+                              accept="application/pdf,image/*,.txt"
+                              onChange={(e) => {
+                                if (e.target.files && e.target.files.length > 0) {
+                                  handleDocumentsSubmit(Array.from(e.target.files));
+                                  e.target.value = '';
+                                }
+                              }}
+                            />
+                          </label>
+                        </div>
+
+                        <span className="text-[11px] text-[#8c7b6d] mt-3 font-sans">
+                          Glisser-déposer supporté • Multi-fichiers PDF, PNG, JPG, DICOM
+                        </span>
+                      </>
+                    )}
                   </Card>
                 </TabsContent>
 

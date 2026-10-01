@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import {
+  ArrowLeft,
   X as XIcon,
   ZoomIn,
   ZoomOut,
@@ -136,11 +137,18 @@ export function MedicalImageViewerModal({
       >
         {/* TOP BAR / HEADER */}
         <header className="w-full flex items-center justify-between px-3 sm:px-5 py-2.5 sm:py-3.5 border-b border-[#26221F] bg-[#181615]/95 backdrop-blur-md z-30 shrink-0 pt-[max(env(safe-area-inset-top),10px)] sm:pt-3">
-          {/* Badge & Titre Sober */}
-          <div className="flex items-center gap-2.5 min-w-0 pr-2">
-            <div className="w-7 h-7 rounded-lg bg-[#bd613c]/15 text-[#bd613c] flex items-center justify-center shrink-0 border border-[#bd613c]/30">
-              <Activity className="w-4 h-4" />
-            </div>
+          {/* BOUTON REVENIR AU BILAN + Titre */}
+          <div className="flex items-center gap-2 sm:gap-3.5 min-w-0 pr-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex items-center gap-1.5 bg-[#bd613c] hover:bg-[#a55130] text-white px-2.5 sm:px-3 py-1.5 rounded-xl font-semibold text-xs sm:text-sm shadow-md transition-all active:scale-95 shrink-0 border border-[#d8734c]/40 cursor-pointer"
+              title="Revenir au bilan (ou appuyez sur Échap)"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span className="font-sans">Revenir au bilan</span>
+            </button>
+
             <div className="flex flex-col min-w-0">
               <span className="text-xs sm:text-sm font-semibold tracking-tight text-stone-100 truncate">
                 Visualisation Imagerie HD
@@ -153,6 +161,22 @@ export function MedicalImageViewerModal({
 
           {/* Controls Toolbar (Zoom + Actions) */}
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            {/* Bouton pour ouvrir dans une fenêtre à part redimensionnable */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="hidden sm:inline-flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold bg-[#231F1C] border-[#38322d] text-stone-200 hover:text-white hover:bg-[#bd613c] hover:border-[#bd613c] transition-all rounded-xl"
+              onClick={() => {
+                const viewerUrl = `/examen-viewer?url=${encodeURIComponent(image.src)}&title=${encodeURIComponent(displayCaption || 'Radio HD')}`;
+                window.open(viewerUrl, '_blank', 'noopener,noreferrer');
+                onClose();
+              }}
+              title="Ouvrir dans une fenêtre indépendante que vous pouvez redimensionner et grossir"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-[#bd613c]" />
+              <span>Fenêtre à part</span>
+            </Button>
+
             {/* Zoom controls */}
             <div className="flex items-center bg-[#231F1C] border border-[#332D28] rounded-xl p-0.5 sm:p-1 shadow-inner">
               <Button
@@ -203,17 +227,6 @@ export function MedicalImageViewerModal({
               title={isFullDesktop ? "Réduire la fenêtre" : "Agrandir en plein écran"}
             >
               {isFullDesktop ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-            </Button>
-
-            {/* Open in external tab */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-[#bd613c] hover:text-[#bd613c] hover:bg-[#bd613c]/15 rounded-xl"
-              onClick={() => window.open(image.src, "_blank")}
-              title="Ouvrir l'image originale HD dans un nouvel onglet"
-            >
-              <ExternalLink className="w-4 h-4" />
             </Button>
 
             {/* Close Button */}
@@ -290,6 +303,18 @@ export function MedicalImageViewerModal({
             </div>
           </div>
         </footer>
+
+        {/* BOUTON FLOTTANT GÉANT POUR IPHONE & PETITS ÉCRANS */}
+        <div className="fixed bottom-12 left-1/2 -translate-x-1/2 z-50 sm:hidden pointer-events-auto">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center gap-2 bg-[#bd613c] active:bg-[#9e4324] text-white px-5 py-2 rounded-full font-bold text-xs shadow-2xl border-2 border-white/20 active:scale-95 transition-all backdrop-blur-md cursor-pointer"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 stroke-[2.5]" />
+            <span>Revenir au bilan</span>
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -306,20 +306,23 @@ export default function ConsultationDetail() {
     const alt = props.alt || 'Imagerie médicale';
     const resolvedUrl = getImageUrl(src);
     const caption = props.title || (alt && alt !== 'Imagerie médicale' ? alt : undefined);
+    const viewerUrl = `/examen-viewer?url=${encodeURIComponent(resolvedUrl)}&title=${encodeURIComponent(caption || alt)}&consultationId=${encodeURIComponent(String(params.id || ''))}&patientName=${encodeURIComponent(data?.patient_name || '')}&type=image`;
+
+    const handleOpenInViewer = (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.open(viewerUrl, '_blank', 'noopener,noreferrer');
+    };
 
     return (
       <figure className="my-5 text-center group not-prose">
-        <div 
-          className="relative inline-block overflow-hidden rounded-xl border border-[#ebd9c8]/70 bg-[#faf7f2] shadow-sm hover:shadow-xl hover:border-[#bd613c]/60 transition-all duration-200 cursor-zoom-in"
-          onClick={(e) => { 
-            e.stopPropagation();
-            setSelectedImage({
-              src: resolvedUrl,
-              caption: caption,
-              alt: alt
-            });
-          }}
-          title="Cliquer pour afficher en plein écran haute résolution"
+        <a 
+          href={viewerUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={handleOpenInViewer}
+          className="relative inline-block overflow-hidden rounded-xl border border-[#ebd9c8]/70 bg-[#faf7f2] shadow-sm hover:shadow-xl hover:border-[#bd613c]/60 transition-all duration-200 cursor-pointer"
+          title="Cliquer pour ouvrir dans une fenêtre à part (redimensionnable & zoomable)"
         >
           <img
             {...props}
@@ -327,13 +330,13 @@ export default function ConsultationDetail() {
             alt={alt}
             className="max-h-[480px] w-auto mx-auto object-contain transition-transform duration-300 group-hover:scale-[1.01]"
           />
-          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors flex items-center justify-center pointer-events-none">
-            <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/80 text-white text-xs px-3.5 py-1.5 rounded-full backdrop-blur-sm flex items-center gap-1.5 shadow-lg border border-white/20">
-              <Maximize2 className="w-3.5 h-3.5 text-[#bd613c]" />
-              <span className="font-medium">Plein écran</span>
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center pointer-events-none">
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/85 text-white text-xs px-3.5 py-1.5 rounded-full backdrop-blur-md flex items-center gap-1.5 shadow-lg border border-white/20">
+              <ExternalLink className="w-3.5 h-3.5 text-[#bd613c]" />
+              <span className="font-medium">Ouvrir dans une fenêtre à part</span>
             </div>
           </div>
-        </div>
+        </a>
         {caption && (
           <figcaption className="text-xs text-[#8c7b6d] mt-2 font-medium italic">
             {caption}
@@ -343,8 +346,51 @@ export default function ConsultationDetail() {
     );
   };
 
+  const renderMarkdownLink = ({ node, href, children, ...props }: any) => {
+    if (!href) return <span {...props}>{children}</span>;
+
+    const isPDF = href.toLowerCase().endsWith('.pdf') || href.toLowerCase().includes('.pdf');
+    const isImage = href.match(/\.(jpeg|jpg|gif|png|webp)($|\?)/i);
+
+    if (isPDF || isImage) {
+      const viewerUrl = `/examen-viewer?url=${encodeURIComponent(href)}&title=${encodeURIComponent(typeof children === 'string' ? children : 'Examen complémentaire')}&consultationId=${encodeURIComponent(String(params.id || ''))}&patientName=${encodeURIComponent(data?.patient_name || '')}&type=${isPDF ? 'pdf' : 'image'}`;
+
+      return (
+        <a
+          {...props}
+          href={viewerUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            window.open(viewerUrl, '_blank', 'noopener,noreferrer');
+          }}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#FAF7F2] hover:bg-[#bd613c] text-[#8C4E33] hover:text-white font-semibold text-xs sm:text-sm border border-[#EAE4D9] hover:border-[#bd613c] transition-all my-1.5 shadow-xs cursor-pointer no-underline group/link"
+          title="Ouvrir dans une fenêtre à part (redimensionnable)"
+        >
+          <ExternalLink className="w-3.5 h-3.5 opacity-80 group-hover/link:translate-x-0.5 transition-transform" />
+          <span>{children}</span>
+        </a>
+      );
+    }
+
+    return (
+      <a
+        {...props}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-[#bd613c] hover:underline font-medium"
+      >
+        {children}
+      </a>
+    );
+  };
+
   const markdownComponents = {
-    img: renderMarkdownImage
+    img: renderMarkdownImage,
+    a: renderMarkdownLink
   };
 
   const handleDeleteFollowUp = async (followUpId: string) => {
@@ -1790,7 +1836,7 @@ export default function ConsultationDetail() {
                         Notes de Suivi Chronologique
                       </h2>
                       <p className="text-[11px] sm:text-xs text-[#4a3f35]/60 mt-0.5">
-                        {data?.follow_ups?.length || 0} fiches et documents enregistrés
+                        {(data?.follow_ups || []).filter((n: any) => n.type !== 'session_override' && n.type !== 'synthese_version').length} fiches et documents enregistrés
                       </p>
                     </div>
                   </div>
@@ -1977,9 +2023,9 @@ export default function ConsultationDetail() {
                             </h3>
 
                             <div className="space-y-6">
-                              {grouped[dayStr].filter((n: any) => n.type !== 'session_override').length === 0 ? (
+                              {grouped[dayStr].filter((n: any) => n.type !== 'session_override' && n.type !== 'synthese_version').length === 0 ? (
                                 <p className="text-xs text-slate-400 italic">Aucune note pour ce jour (Séance enregistrée via l'historique).</p>
-                              ) : grouped[dayStr].filter((n: any) => n.type !== 'session_override').sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()).map((note: any, noteIdx: number, arr: any[]) => (
+                              ) : grouped[dayStr].filter((n: any) => n.type !== 'session_override' && n.type !== 'synthese_version').sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()).map((note: any, noteIdx: number, arr: any[]) => (
                                 <div key={note.id || noteIdx} className="relative">
                                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
                                     <div className="flex items-center">
@@ -2230,15 +2276,28 @@ export default function ConsultationDetail() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                      {attachedDocs.map((doc, idx) => (
-                        <a
-                          key={idx}
-                          href={doc.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title={doc.originalName}
-                          className="flex flex-col justify-between aspect-square rounded-2xl overflow-hidden border border-[#bd613c]/15 hover:border-[#bd613c]/40 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 bg-white group/doc relative"
-                        >
+                      {attachedDocs.map((doc, idx) => {
+                        const isDocPDF = doc.type === 'pdf' || doc.url?.toLowerCase().includes('.pdf');
+                        const isDocImage = doc.type === 'image' || doc.url?.match(/\.(jpeg|jpg|gif|png|webp)($|\?)/i);
+                        const viewerUrl = (isDocPDF || isDocImage)
+                          ? `/examen-viewer?url=${encodeURIComponent(doc.url)}&title=${encodeURIComponent(doc.originalName)}&consultationId=${encodeURIComponent(String(params.id || ''))}&patientName=${encodeURIComponent(data?.patient_name || '')}&type=${isDocPDF ? 'pdf' : 'image'}`
+                          : doc.url;
+
+                        return (
+                          <a
+                            key={idx}
+                            href={viewerUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => {
+                              if (isDocPDF || isDocImage) {
+                                e.preventDefault();
+                                window.open(viewerUrl, '_blank', 'noopener,noreferrer');
+                              }
+                            }}
+                            title={doc.originalName}
+                            className="flex flex-col justify-between aspect-square rounded-2xl overflow-hidden border border-[#bd613c]/15 hover:border-[#bd613c]/40 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 bg-white group/doc relative"
+                          >
                           {/* Aperçu visuel en fonction du type */}
                           <div className="w-full flex-grow relative overflow-hidden bg-[#ebd9c8]/10 flex items-center justify-center border-b border-[#bd613c]/5">
                             {doc.type === 'image' ? (
@@ -2284,7 +2343,8 @@ export default function ConsultationDetail() {
                             </span>
                           </div>
                         </a>
-                      ))}
+                      );
+                    })}
                     </div>
                   )}
                 </div>
