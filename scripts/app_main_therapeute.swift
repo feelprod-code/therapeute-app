@@ -209,6 +209,49 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         decisionHandler(.grant)
     }
 
+    // Ouvrir le sélecteur de fichiers macOS natif (NSOpenPanel) lors d'un clic sur <input type="file">
+    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
+        let openPanel = NSOpenPanel()
+        openPanel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        openPanel.canChooseDirectories = parameters.allowsDirectories
+        openPanel.canChooseFiles = true
+        openPanel.canCreateDirectories = false
+        openPanel.resolvesAliases = true
+        openPanel.title = "Sélectionner un document ou un compte-rendu"
+        openPanel.prompt = "Sélectionner"
+        
+        let targetWindow = webView.window ?? self.window ?? NSApp.keyWindow
+        if let win = targetWindow, win.attachedSheet == nil {
+            openPanel.beginSheetModal(for: win) { response in
+                completionHandler(response == .OK ? openPanel.urls : nil)
+            }
+        } else {
+            openPanel.begin { response in
+                completionHandler(response == .OK ? openPanel.urls : nil)
+            }
+        }
+    }
+
+    // Gestion des alertes et confirmations JavaScript
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+        completionHandler()
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Annuler")
+        let response = alert.runModal()
+        completionHandler(response == .alertFirstButtonReturn)
+    }
+
     var childWindows: [NSWindow] = []
 
     // Gestion des liens target="_blank" et fenêtres pop-up (Examens, Radios HD, Liens externes)

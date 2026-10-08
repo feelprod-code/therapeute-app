@@ -276,9 +276,10 @@ export default function ConsultationDetail() {
     if (e && typeof e.stopPropagation === 'function') {
       e.stopPropagation();
     }
-    if (fileInputRefBilan.current) {
-      fileInputRefBilan.current.value = '';
-      fileInputRefBilan.current.click();
+    const input = fileInputRefBilan.current || (document.getElementById('bilan-native-file-input') as HTMLInputElement | null);
+    if (input) {
+      input.value = '';
+      input.click();
     }
   };
 
@@ -286,9 +287,10 @@ export default function ConsultationDetail() {
     if (e && typeof e.stopPropagation === 'function') {
       e.stopPropagation();
     }
-    if (fileInputRefSuivi.current) {
-      fileInputRefSuivi.current.value = '';
-      fileInputRefSuivi.current.click();
+    const input = fileInputRefSuivi.current || (document.getElementById('suivi-native-file-input') as HTMLInputElement | null);
+    if (input) {
+      input.value = '';
+      input.click();
     }
   };
 
@@ -296,9 +298,10 @@ export default function ConsultationDetail() {
     if (e && typeof e.stopPropagation === 'function') {
       e.stopPropagation();
     }
-    if (fileInputRefImage.current) {
-      fileInputRefImage.current.value = '';
-      fileInputRefImage.current.click();
+    const input = fileInputRefImage.current || (document.getElementById('image-native-file-input') as HTMLInputElement | null);
+    if (input) {
+      input.value = '';
+      input.click();
     }
   };
 
@@ -1911,15 +1914,13 @@ export default function ConsultationDetail() {
                           </p>
                         </div>
                       </div>
-                      <Button
-                        type="button"
-                        onClick={triggerBilanUpload}
-                        disabled={isAppending}
-                        className="cursor-pointer inline-flex items-center gap-1.5 bg-[#bd613c] hover:bg-[#a55130] text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow-xs transition-all shrink-0"
+                      <label
+                        htmlFor="bilan-native-file-input"
+                        className={`cursor-pointer inline-flex items-center gap-1.5 bg-[#bd613c] hover:bg-[#a55130] text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow-xs transition-all shrink-0 select-none ${isAppending ? 'opacity-50 pointer-events-none' : ''}`}
                       >
                         <Paperclip className="w-3.5 h-3.5" />
                         <span>Sélectionner document(s)</span>
-                      </Button>
+                      </label>
                     </div>
 
                     <div className="relative group">
@@ -2827,29 +2828,32 @@ export default function ConsultationDetail() {
         onDeleteVersion={handleDeleteVersion}
       />
 
-      {/* Hidden file inputs mounted persistently at the root of the DOM tree */}
+      {/* File inputs mounted persistently at the root of the DOM tree (offscreen for WebKit compatibility) */}
       <input
+        id="bilan-native-file-input"
         type="file"
         ref={fileInputRefBilan}
-        className="hidden"
+        style={{ position: 'fixed', top: -10000, left: -10000, opacity: 0.0001, width: '1px', height: '1px', pointerEvents: 'none' }}
         multiple
         accept="image/*,application/pdf,.txt"
         disabled={isAppending}
         onChange={(e) => handleAppendFile(e, 'bilan')}
       />
       <input
+        id="suivi-native-file-input"
         type="file"
         ref={fileInputRefSuivi}
-        className="hidden"
+        style={{ position: 'fixed', top: -10000, left: -10000, opacity: 0.0001, width: '1px', height: '1px', pointerEvents: 'none' }}
         multiple
         accept="image/*,application/pdf,.txt"
         disabled={isAppending}
         onChange={(e) => handleAppendFile(e, 'suivi')}
       />
       <input
+        id="image-native-file-input"
         type="file"
         ref={fileInputRefImage}
-        className="hidden"
+        style={{ position: 'fixed', top: -10000, left: -10000, opacity: 0.0001, width: '1px', height: '1px', pointerEvents: 'none' }}
         accept="image/*,application/pdf"
         disabled={isAppending}
         onChange={(e) => handleAppendImage(e)}

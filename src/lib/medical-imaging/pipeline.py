@@ -38,9 +38,15 @@ OCHRE_BG = (254, 247, 242)
 
 def load_fonts():
     font_paths = [
-        "/System/Library/Fonts/HelveticaNeue.ttc",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/System/Library/Fonts/HelveticaNeue.ttc",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    ]
+    bold_paths = [
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/System/Library/Fonts/HelveticaNeue.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
     ]
     path_to_use = None
     is_ttc = False
@@ -50,25 +56,39 @@ def load_fonts():
             is_ttc = p.endswith(".ttc")
             break
 
-    def get_font(size, is_bold=False):
-        if not path_to_use:
+    bold_to_use = None
+    bold_is_ttc = False
+    for p in bold_paths:
+        if os.path.exists(p):
+            bold_to_use = p
+            bold_is_ttc = p.endswith(".ttc")
+            break
+
+    def get_font(path, is_ttc_flag, size, is_bold=False):
+        if not path:
             return ImageFont.load_default()
         try:
-            if is_ttc:
-                return ImageFont.truetype(path_to_use, size, index=1 if is_bold else 0)
-            return ImageFont.truetype(path_to_use, size)
+            if is_ttc_flag:
+                return ImageFont.truetype(path, size, index=1 if is_bold else 0)
+            return ImageFont.truetype(path, size)
         except Exception:
             return ImageFont.load_default()
 
     return {
-        "title": get_font(34, True),
-        "subtitle": get_font(19, False),
-        "panel_title": get_font(18, True),
-        "panel_sub": get_font(13, False),
-        "pill_title": get_font(16, True),
-        "pill_sub": get_font(13, False),
-        "legend_bold": get_font(16, True),
-        "legend": get_font(15, False),
+        "title": get_font(bold_to_use or path_to_use, bold_is_ttc, 23, True),
+        "subtitle": get_font(path_to_use, is_ttc, 13, False),
+        "panel_title": get_font(bold_to_use or path_to_use, bold_is_ttc, 14, True),
+        "panel_sub": get_font(path_to_use, is_ttc, 11, False),
+        "badge": get_font(bold_to_use or path_to_use, bold_is_ttc, 11, True),
+        "num": get_font(bold_to_use or path_to_use, bold_is_ttc, 12, True),
+        "card_title": get_font(bold_to_use or path_to_use, bold_is_ttc, 13, True),
+        "card_desc": get_font(path_to_use, is_ttc, 11, False),
+        "syn_badge": get_font(bold_to_use or path_to_use, bold_is_ttc, 12, True),
+        "syn_body": get_font(path_to_use, is_ttc, 12, False),
+        "pill_title": get_font(bold_to_use or path_to_use, bold_is_ttc, 14, True),
+        "pill_sub": get_font(path_to_use, is_ttc, 11, False),
+        "legend_bold": get_font(bold_to_use or path_to_use, bold_is_ttc, 14, True),
+        "legend": get_font(path_to_use, is_ttc, 12, False),
     }
 
 def draw_pill(draw, x, y, title, subtitle=None, bg_color=(255, 255, 255, 245),
@@ -146,10 +166,13 @@ Identifie avec une extrême rigueur anatomique :
    - "title": Titre en majuscules (ex: 'COUPE AXIALE DP FAT-SAT', 'COUPE SAGITTALE T2')
    - "subtitle": Sous-titre anatomique (ex: 'Fissure céphalique postérieure', 'Kyste arc postérieur C5 12x8mm')
    - "crop_box": [ymin, xmin, ymax, xmax] en coordonnées normalisées de 0 à 1000 pour recadrer la coupe sans texte parasite ni bord noir inutile
-   - "annotations": 1 à 3 repères ou lésions à pointer précisément :
+   - "annotations": 2 à 3 repères ou lésions à pointer précisément :
      * "title": Titre du repère (ex: 'Fissure osseuse corticale')
      * "subtitle": Explication concise (ex: 'Hypersignal oedémateux sous-cortical')
      * "target_point": [y, x] coordonnées normalisées de 0 à 1000 DANS le crop_box (l'endroit précis de l'anomalie)
+       ATTENTION RÈGLES RADIOLOGIQUES CRITIQUES :
+       - LATÉRALITÉ RADIOLOGIQUE STRICTE : En coupe axiale ou coronale de face, la DROITE anatomique du patient est à GAUCHE de l'image (x < 500), et la GAUCHE du patient est à DROITE de l'image (x > 500). En coupe sagittale, repère scrupuleusement la face antérieure et postérieure.
+       - PRÉCISION CHIRURGICALE : target_point [y, x] doit pointer EXACTEMENT dans la structure cible (dans l'épaisseur du tendon, dans la bourse séreuse, dans la lumière vasculaire ou du calcul, sur la corticale fracturée). Ne JAMAIS pointer dans l'os spongieux normal, dans le vide ou sur du texte.
      * "category": 
          - 'acute_lesion' (🔴 anneau rouge : fissure, hernie, sténose, kyste algogène)
          - 'integrity' (🟢 vert : intégrité coiffe/tendons, moelle saine, absence de rupture)
@@ -209,21 +232,39 @@ Réponds STRICTEMENT avec l'objet JSON :
 
     raise Exception(f"Gemini Vision API error with all models: {last_error}")
 
+def wrap_text_lines(text, max_chars=75):
+    if not text:
+        return []
+    words = text.split()
+    lines = []
+    current_line = []
+    current_len = 0
+    for w in words:
+        if current_len + len(w) + 1 > max_chars:
+            if current_line:
+                lines.append(" ".join(current_line))
+            current_line = [w]
+            current_len = len(w)
+        else:
+            current_line.append(w)
+            current_len += len(w) + 1
+    if current_line:
+        lines.append(" ".join(current_line))
+    return lines
+
 def generate_master_plate(analysis, rendered_pages, output_path, patient_name):
     fonts = load_fonts()
-    canvas_w = 2600
-    canvas_h = 1650
-    canvas = Image.new("RGB", (canvas_w, canvas_h), BG_COLOR)
+    canvas_w = 1600
+    canvas_h = 1040
+    canvas = Image.new("RGB", (canvas_w, canvas_h), (250, 247, 242))  # #FAF7F2 warm cream
     draw = ImageDraw.Draw(canvas)
 
-    # Header
-    draw.rectangle([0, 0, canvas_w, 130], fill=(255, 255, 255))
-    draw.line([(0, 130), (canvas_w, 130)], fill=BORDER_COLOR, width=2)
-    
+    # 1. Header
+    margin_x = 45
     exam_title = analysis.get("exam_title", "EXAMEN D'IMAGERIE MÉDICALE").upper()
     display_patient = patient_name.upper() if patient_name else "PATIENT"
     header_main = f"PLANCHE DIDACTIQUE — {exam_title} — {display_patient}"
-    draw.text((50, 22), header_main, font=fonts["title"], fill=TEXT_MAIN)
+    draw.text((margin_x, 26), header_main, font=fonts["title"], fill="#0F172A")
 
     date_str = analysis.get("exam_date", "")
     physician = analysis.get("physician", "")
@@ -233,132 +274,177 @@ def generate_master_plate(analysis, rendered_pages, output_path, patient_name):
     if physician: sub_parts.append(physician)
     if facility: sub_parts.append(facility)
     sub_parts.append("Analyse Clinique & Pointage Ligne Claire TDT")
-    draw.text((50, 78), " • ".join(sub_parts), font=fonts["subtitle"], fill=TEXT_MUTED)
+    draw.text((margin_x, 58), " • ".join(sub_parts), font=fonts["subtitle"], fill="#64748B")
+    draw.line([(margin_x, 86), (canvas_w - margin_x, 86)], fill="#E2E8F0", width=1)
 
-    # Panels layout
+    # 2. Panels layout (Golden Layout - Bottom Card Pattern, Zero Crossing Lines)
     panels_data = analysis.get("panels", [])[:3]
     if not panels_data:
         canvas.save(output_path, quality=95)
         return
 
     num_panels = len(panels_data)
-    panel_y = 155
-    panel_h = 1150
-    margin_x = 420
     available_w = canvas_w - (2 * margin_x)
-    gap = 25
-    panel_w = int((available_w - (num_panels - 1) * gap) / num_panels)
-
-    left_callouts = []
-    right_callouts = []
+    gap = 25 if num_panels >= 3 else 35
+    pan_w = int((available_w - (num_panels - 1) * gap) / num_panels)
+    pan_y = 102
+    pan_h = 490
 
     for i, p_info in enumerate(panels_data):
-        p_x = margin_x + i * (panel_w + gap)
-        draw.rounded_rectangle([p_x, panel_y, p_x + panel_w, panel_y + panel_h], radius=14, fill=PANEL_BG, outline=BORDER_COLOR, width=2)
+        p_x = margin_x + i * (pan_w + gap)
+
+        # Panel container
+        draw.rounded_rectangle([(p_x, pan_y), (p_x + pan_w, pan_y + pan_h)], radius=12, fill="#FFFFFF", outline="#E2E8F0", width=1)
+        # Panel header bar
+        draw.rounded_rectangle([(p_x, pan_y), (p_x + pan_w, pan_y + 46)], radius=12, fill="#F8FAFC", outline="#E2E8F0", width=1)
+        draw.rectangle([(p_x, pan_y + 36), (p_x + pan_w, pan_y + 46)], fill="#F8FAFC")
         
-        draw.rectangle([p_x + 2, panel_y + 2, p_x + panel_w - 2, panel_y + 65], fill=(22, 22, 26))
-        draw.text((p_x + 16, panel_y + 12), p_info.get("title", f"VUE {i+1}"), font=fonts["panel_title"], fill=(255, 255, 255))
-        draw.text((p_x + 16, panel_y + 38), p_info.get("subtitle", ""), font=fonts["panel_sub"], fill=(175, 175, 175))
+        view_title = p_info.get("title", f"VUE {i+1}").upper()
+        view_sub = p_info.get("subtitle", "")
+        draw.text((p_x + 16, pan_y + 10), view_title, fill="#1E293B", font=fonts["panel_title"])
+        draw.text((p_x + 16, pan_y + 28), view_sub, fill="#64748B", font=fonts["panel_sub"])
 
+        # Orientation / Lateralite pill badge
+        header_text_combined = f"{view_title} {view_sub}".lower()
+        if "axial" in header_text_combined:
+            badge_text = "DROITE (PAT.) | GAUCHE (PAT.)"
+            badge_col = "#BE123C"
+            badge_bg = "#FFF1F2"
+            badge_border = "#FDA4AF"
+        elif "sagitt" in header_text_combined:
+            badge_text = "PLAN SAGITTAL"
+            badge_col = "#475569"
+            badge_bg = "#F1F5F9"
+            badge_border = "#CBD5E1"
+        elif "coron" in header_text_combined or "front" in header_text_combined:
+            badge_text = "PLAN FRONTAL / CORONAL"
+            badge_col = "#047857"
+            badge_bg = "#ECFDF5"
+            badge_border = "#A7F3D0"
+        else:
+            badge_text = f"COUPE {i+1}"
+            badge_col = "#1D4ED8"
+            badge_bg = "#EFF6FF"
+            badge_border = "#93C5FD"
+
+        bbox_badge = fonts["badge"].getbbox(badge_text)
+        b_w = (bbox_badge[2] - bbox_badge[0]) + 18
+        b_x = p_x + pan_w - b_w - 12
+        draw.rounded_rectangle([(b_x, pan_y + 12), (b_x + b_w, pan_y + 34)], radius=6, fill=badge_bg, outline=badge_border, width=1)
+        draw.text((b_x + 9, pan_y + 16), badge_text, fill=badge_col, font=fonts["badge"])
+
+        # Image Crop & Display
         p_idx = p_info.get("page_index", 0)
+        c_w, c_h = pan_w - 16, pan_h - 58
+        im_x, im_y = p_x + 8, pan_y + 50
+        
         if p_idx < len(rendered_pages):
-            src_img = Image.open(rendered_pages[p_idx])
-            sw, sh = src_img.size
-            cb = p_info.get("crop_box", [0, 0, 1000, 1000])
-            ymin = int(cb[0] * sh / 1000.0)
-            xmin = int(cb[1] * sw / 1000.0)
-            ymax = int(cb[2] * sh / 1000.0)
-            xmax = int(cb[3] * sw / 1000.0)
+            try:
+                src_img = Image.open(rendered_pages[p_idx])
+                sw, sh = src_img.size
+                cb = p_info.get("crop_box", [0, 0, 1000, 1000])
+                ymin = int(cb[0] * sh / 1000.0)
+                xmin = int(cb[1] * sw / 1000.0)
+                ymax = int(cb[2] * sh / 1000.0)
+                xmax = int(cb[3] * sw / 1000.0)
 
-            xmin = max(0, min(xmin, sw - 10))
-            ymin = max(0, min(ymin, sh - 10))
-            xmax = max(xmin + 10, min(xmax, sw))
-            ymax = max(ymin + 10, min(ymax, sh))
+                xmin = max(0, min(xmin, sw - 10))
+                ymin = max(0, min(ymin, sh - 10))
+                xmax = max(xmin + 10, min(xmax, sw))
+                ymax = max(ymin + 10, min(ymax, sh))
 
-            crop = src_img.crop((xmin, ymin, xmax, ymax))
-            
-            # Subtle contrast enhancement to emphasize bone/tissue interfaces
-            enhancer = ImageEnhance.Contrast(crop)
-            crop = enhancer.enhance(1.12)
-            
-            crop_resized = crop.resize((panel_w - 16, panel_h - 85), Image.Resampling.LANCZOS)
-            canvas.paste(crop_resized, (p_x + 8, panel_y + 75))
+                crop = src_img.crop((xmin, ymin, xmax, ymax))
+                enhancer = ImageEnhance.Contrast(crop)
+                crop = enhancer.enhance(1.10)
 
-            img_x_offset = p_x + 8
-            img_y_offset = panel_y + 75
-            img_w = panel_w - 16
-            img_h = panel_h - 85
-
-            for ann in p_info.get("annotations", []):
-                t_pt = ann.get("target_point", [500, 500])
-                tx = img_x_offset + int(t_pt[1] * img_w / 1000.0)
-                ty = img_y_offset + int(t_pt[0] * img_h / 1000.0)
+                max_w = pan_w - 16
+                max_h = pan_h - 58
+                scale = min(max_w / max(1, crop.width), max_h / max(1, crop.height))
+                c_w = max(10, int(crop.width * scale))
+                c_h = max(10, int(crop.height * scale))
+                crop_resized = crop.resize((c_w, c_h), Image.Resampling.LANCZOS)
                 
-                cat = ann.get("category", "acute_lesion")
-                if cat == "acute_lesion":
-                    color = ALERT_RED
-                    bg_col = ALERT_BG
-                elif cat == "integrity":
-                    color = SUCCESS_GREEN
-                    bg_col = SUCCESS_BG
-                elif cat == "chronic_remodeling":
-                    color = OCHRE_TERRA
-                    bg_col = OCHRE_BG
-                else:
-                    color = SLATE_BLUE
-                    bg_col = SLATE_BG
+                im_x = p_x + (pan_w - c_w) // 2
+                im_y = pan_y + 50 + (max_h - c_h) // 2
+                canvas.paste(crop_resized, (im_x, im_y))
+            except Exception as e:
+                pass
 
-                draw.ellipse([tx - 16, ty - 16, tx + 16, ty + 16], outline=color, width=3)
-                draw.ellipse([tx - 3, ty - 3, tx + 3, ty + 3], fill=color)
+        # Targets on Image
+        anns = p_info.get("annotations", [])[:3]
+        for ann_idx, ann in enumerate(anns):
+            num_str = str(ann_idx + 1)
+            cat = ann.get("category", "acute_lesion")
+            if cat == "acute_lesion":
+                col_hex = "#AF2D14"
+            elif cat == "integrity":
+                col_hex = "#236E41"
+            elif cat == "chronic_remodeling":
+                col_hex = "#BD613C"
+            else:
+                col_hex = "#1A535C"
 
-                callout_entry = {
-                    "title": ann.get("title", ""),
-                    "subtitle": ann.get("subtitle", ""),
-                    "target_x": tx,
-                    "target_y": ty,
-                    "color": color,
-                    "bg_color": bg_col,
-                    "panel_index": i
-                }
+            t_pt = ann.get("target_point", [500, 500])
+            tx = im_x + int(t_pt[1] * c_w / 1000.0)
+            ty = im_y + int(t_pt[0] * c_h / 1000.0)
 
-                if i == 0 or (i == 1 and len(left_callouts) < 3):
-                    left_callouts.append(callout_entry)
-                else:
-                    right_callouts.append(callout_entry)
+            tx = max(im_x + 18, min(tx, im_x + c_w - 18))
+            ty = max(im_y + 18, min(ty, im_y + c_h - 18))
 
-    y_step_l = int((panel_h - 100) / max(1, len(left_callouts)))
-    for idx, c in enumerate(left_callouts):
-        cy = panel_y + 80 + idx * y_step_l
-        pill_rect = draw_pill(draw, 45, cy, c["title"], c["subtitle"],
-                              bg_color=c["bg_color"], title_color=c["color"], sub_color=c["color"],
-                              border_color=c["color"], fonts=fonts)
-        draw_arrow_pointer(draw, (pill_rect[2], pill_rect[1] + 24), (c["target_x"], c["target_y"]), c["color"], width=3)
+            r1, r2 = 14, 6
+            draw.ellipse([(tx - r1, ty - r1), (tx + r1, ty + r1)], outline=col_hex, width=2)
+            draw.ellipse([(tx - r2, ty - r2), (tx + r2, ty + r2)], fill=col_hex)
 
-    y_step_r = int((panel_h - 100) / max(1, len(right_callouts)))
-    for idx, c in enumerate(right_callouts):
-        cy = panel_y + 80 + idx * y_step_r
-        pill_rect = draw_pill(draw, canvas_w - 380, cy, c["title"], c["subtitle"],
-                              bg_color=c["bg_color"], title_color=c["color"], sub_color=c["color"],
-                              border_color=c["color"], fonts=fonts)
-        draw_arrow_pointer(draw, (pill_rect[0], pill_rect[1] + 24), (c["target_x"], c["target_y"]), c["color"], width=3)
+            off_x = -26 if tx > (im_x + c_w // 2) else 26
+            off_y = -22 if ty > (im_y + c_h // 2) else 22
+            bx, by = tx + off_x, ty + off_y
+            draw.line([(tx + (r1 if off_x > 0 else -r1), ty), (bx, by)], fill=col_hex, width=2)
+            draw.rounded_rectangle([(bx - 11, by - 10), (bx + 11, by + 10)], radius=5, fill=col_hex)
+            draw.text((bx - 4, by - 7), num_str, fill="#FFFFFF", font=fonts["num"])
 
-    # Footer Banner
-    footer_rect = [40, canvas_h - 130, canvas_w - 40, canvas_h - 20]
-    draw.rounded_rectangle(footer_rect, radius=12, fill=(255, 255, 255), outline=BORDER_COLOR, width=2)
+        # Dedicated Didactic Cards directly beneath each panel (Zero Crossing Lines)
+        card_y_start = pan_y + pan_h + 12
+        card_h = 72
+        card_gap = 8
+        max_chars = 52 if num_panels >= 3 else 82
+
+        for ann_idx, ann in enumerate(anns):
+            cy = card_y_start + ann_idx * (card_h + card_gap)
+            num_str = str(ann_idx + 1)
+            cat = ann.get("category", "acute_lesion")
+            if cat == "acute_lesion":
+                col_hex = "#AF2D14"
+            elif cat == "integrity":
+                col_hex = "#236E41"
+            elif cat == "chronic_remodeling":
+                col_hex = "#BD613C"
+            else:
+                col_hex = "#1A535C"
+
+            draw.rounded_rectangle([(p_x, cy), (p_x + pan_w, cy + card_h)], radius=10, fill="#FFFFFF", outline="#E2E8F0", width=1)
+            draw.rounded_rectangle([(p_x + 12, cy + 12), (p_x + 36, cy + 36)], radius=6, fill=col_hex)
+            draw.text((p_x + 20, cy + 17), num_str, fill="#FFFFFF", font=fonts["num"])
+            
+            title_text = ann.get("title", "")
+            draw.text((p_x + 44, cy + 12), title_text[:50], fill="#1E293B", font=fonts["card_title"])
+
+            desc_lines = wrap_text_lines(ann.get("subtitle", ""), max_chars=max_chars)[:2]
+            for l_idx, dl in enumerate(desc_lines):
+                draw.text((p_x + 44, cy + 34 + l_idx * 16), dl, fill="#64748B", font=fonts["card_desc"])
+
+    # 3. Bottom Summary Card (SYNTHÈSE DU COMPTE-RENDU RADIOLOGIQUE & ANALYSE CLINIQUE TDT)
+    syn_y = 852
+    syn_h = canvas_h - syn_y - 20
+    draw.rounded_rectangle([(margin_x, syn_y), (canvas_w - margin_x, syn_y + syn_h)], radius=12, fill="#FFFFFF", outline="#CBD5E1", width=1)
     
-    footer_title = f"SYNTHÈSE DU COMPTE-RENDU RADIOLOGIQUE ({physician or 'Radiologue Référent'}) :"
-    draw.text((65, canvas_h - 118), footer_title, font=fonts["legend_bold"], fill=ALERT_RED)
-    
+    badge_title = f"SYNTHÈSE DU COMPTE-RENDU RADIOLOGIQUE ({physician or 'Radiologue Référent'}) & ANALYSE TDT"
+    draw.rounded_rectangle([(margin_x + 15, syn_y + 12), (margin_x + 560, syn_y + 36)], radius=6, fill="#EFF6FF", outline="#93C5FD", width=1)
+    draw.text((margin_x + 25, syn_y + 16), badge_title, fill="#1D4ED8", font=fonts["syn_badge"])
+
     conc = analysis.get("conclusion_summary", "Examen sans anomalie majeure.")
-    lines = conc.split("\n")
-    if len(lines) == 1 and len(lines[0]) > 130:
-        mid = lines[0].rfind(" ", 0, 130)
-        if mid != -1:
-            lines = [lines[0][:mid], lines[0][mid+1:]]
-
-    draw.text((65, canvas_h - 88), lines[0] if len(lines) > 0 else conc, font=fonts["legend"], fill=TEXT_MAIN)
-    if len(lines) > 1:
-        draw.text((65, canvas_h - 58), lines[1], font=fonts["legend"], fill=TEXT_MUTED)
+    conc_lines = wrap_text_lines(conc, max_chars=170)[:4]
+    for c_idx, cl in enumerate(conc_lines):
+        draw.text((margin_x + 25, syn_y + 46 + c_idx * 22), cl, fill="#334155", font=fonts["syn_body"])
 
     canvas.save(output_path, quality=95)
 
