@@ -1,119 +1,105 @@
 "use client";
-/* eslint-disable @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Mic, Square, Loader2, Volume2, Globe, Trash2, Wifi, WifiOff, Maximize2, Minimize2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { Mic, Square, Loader2, Volume2, VolumeX, Globe2, Sparkles, Check, Send } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/db";
-import { useRealtime } from "@/hooks/use-realtime";
 
-type ChatMessage = {
+interface BilingualRecorderProps {
+    onRecordingComplete?: (audioBlob: Blob, result: Record<string, string>) => Promise<void> | void;
+    onConversationComplete?: (transcriptText: string) => Promise<void> | void;
+    attachedFiles?: File[];
+    isProcessing?: boolean;
+}
+
+interface Message {
     id: string;
-    sender: 'therapeut' | 'patient';
-    speakerName: string;
-    transcription: string;
-    translation: string;
-    patientLangCode: string;
-    patientLangTts: string;
-    isStreaming?: boolean;
-};
+    speaker: 'therapeut' | 'patient';
+    originalText: string;
+    translatedText: string;
+    timestamp: Date;
+}
 
-const PRACTITIONER_NAME = "Guillaume Philippe";
-
-const LANGUAGES = [
-    { code: 'Anglais', label: 'Anglais (EN)', tts: 'en-US', flag: '🇬🇧' },
-    { code: 'Espagnol', label: 'Espagnol (ES)', tts: 'es-ES', flag: '🇪🇸' },
-    { code: 'Allemand', label: 'Allemand (DE)', tts: 'de-DE', flag: '🇩🇪' },
-    { code: 'Italien', label: 'Italien (IT)', tts: 'it-IT', flag: '🇮🇹' },
-    { code: 'Portugais', label: 'Portugais (BR)', tts: 'pt-BR', flag: '🇵🇹' },
-    { code: 'Arabe', label: 'Arabe (AR)', tts: 'ar-SA', flag: '🇸🇦' },
-    { code: 'Russe', label: 'Russe (RU)', tts: 'ru-RU', flag: '🇷🇺' },
-    { code: 'Turc', label: 'Turc (TR)', tts: 'tr-TR', flag: '🇹🇷' },
-    { code: 'Chinois', label: 'Chinois (ZH)', tts: 'zh-CN', flag: '🇨🇳' },
-    { code: 'Japonais', label: 'Japonais (JA)', tts: 'ja-JP', flag: '🇯🇵' },
-    { code: 'Polonais', label: 'Polonais (PL)', tts: 'pl-PL', flag: '🇵🇱' },
-    { code: 'Hindi', label: 'Hindi (HI)', tts: 'hi-IN', flag: '🇮🇳' },
+export const SUPPORTED_LANGUAGES = [
+    { code: 'en-US', name: 'Anglais', flag: '🇬🇧', label: 'EN' },
+    { code: 'es-ES', name: 'Espagnol', flag: '🇪🇸', label: 'ES' },
+    { code: 'de-DE', name: 'Allemand', flag: '🇩🇪', label: 'DE' },
+    { code: 'it-IT', name: 'Italien', flag: '🇮🇹', label: 'IT' },
+    { code: 'pt-PT', name: 'Portugais', flag: '🇵🇹', label: 'PT' },
+    { code: 'ru-RU', name: 'Russe', flag: '🇷🇺', label: 'RU' },
+    { code: 'zh-CN', name: 'Chinois (Mandarin)', flag: '🇨🇳', label: 'ZH' },
+    { code: 'ja-JP', name: 'Japonais', flag: '🇯🇵', label: 'JA' },
+    { code: 'ko-KR', name: 'Coréen', flag: '🇰🇷', label: 'KO' },
+    { code: 'ar-SA', name: 'Arabe', flag: '🇸🇦', label: 'AR' },
 ];
 
-export default function BilingualRecorder({
-    onRecordingComplete,
-    attachedFiles = []
-}: {
-    onRecordingComplete: (audioBlob: Blob, data: Record<string, string>) => void;
-    attachedFiles?: File[];
-}) {
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
-    const [patientLang, setPatientLang] = useState(LANGUAGES[0]);
-    const [patientName, setPatientName] = useState<string>("Patient Anglais");
-    const [isRecording, setIsRecording] = useState(false);
-    const [recordingRole, setRecordingRole] = useState<'therapeut' | 'patient' | null>(null);
+type TranslationMode = 'conversation' | 'realtime';
+type TTSMode = 'all' | 'patient_only' | 'mute';
+
+export function BilingualRecorder({ onRecordingComplete, onConversationComplete, attachedFiles = [], isProcessing = false }: BilingualRecorderProps) {
+    const [targetLanguage, setTargetLanguage] = useState<string>('en-US');
+    const [translationMode, setTranslationMode] = useState<TranslationMode>('conversation');
+    const [ttsMode, setTtsMode] = useState<TTSMode>('all');
+    const [speechRate, setSpeechRate] = useState<number>(1.0);
+
+    const [activeSpeaker, setActiveSpeaker] = useState<'therapeut' | 'patient' | null>(null);
+    const [isHandsFreeActive, setIsHandsFreeActive] = useState(false);
+    const [handsFreeStatus, setHandsFreeStatus] = useState<'idle' | 'listening' | 'speaking_detected' | 'translating' | 'tts_playing'>('idle');
+    const [vadLevel, setVadLevel] = useState<number>(0);
+
     const [isTranslating, setIsTranslating] = useState(false);
-    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [isGeneratingSynthesis, setIsGeneratingSynthesis] = useState(false);
+    const [messages, setMessages] = useState<Message[]>([]);
     const [draftExists, setDraftExists] = useState(false);
-    const [draftRole, setDraftRole] = useState<'therapeut' | 'patient' | null>(null);
-    const [translationMode, setTranslationMode] = useState<'conversation' | 'realtime'>('conversation');
-    const [realtimeRole, setRealtimeRole] = useState<'therapeut' | 'patient' | 'bidirectional' | null>(null);
-    const realtimeMessageIdRef = useRef<string | null>(null);
-    const [chatExpanded, setChatExpanded] = useState(false);
-    const [sessionSeconds, setSessionSeconds] = useState(0);
+    const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
-    const sessionTimerRef = useRef<NodeJS.Timeout | null>(null);
-    const wakeLockRef = useRef<any>(null);
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-    const audioChunksRef = useRef<BlobPart[]>([]);
-    const scrollRef = useRef<HTMLDivElement>(null);
-    const recordStartTimeRef = useRef<Date | null>(null);
-    const mimeTypeRef = useRef<string>('audio/webm');
-    const streamRef = useRef<MediaStream | null>(null);
     const { toast } = useToast();
-    const { connect, disconnect, isConnected, isConnecting } = useRealtime();
 
-    const requestWakeLock = async () => {
-        try {
-            if ('wakeLock' in navigator) {
-                wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
-            }
-        } catch (err) {
-            console.log('WakeLock not supported or disabled', err);
-        }
+    // Refs for Manual Push-to-Talk recording
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioChunksRef = useRef<Blob[]>([]);
+    const streamRef = useRef<MediaStream | null>(null);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    // Refs for Hands-Free Automatic VAD mode
+    const handsFreeActiveRef = useRef<boolean>(false);
+    const handsFreeStreamRef = useRef<MediaStream | null>(null);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const analyserRef = useRef<AnalyserNode | null>(null);
+    const vadRafRef = useRef<number | null>(null);
+    const segmentRecorderRef = useRef<MediaRecorder | null>(null);
+    const segmentChunksRef = useRef<Blob[]>([]);
+    const hasSpeechInSegmentRef = useRef<boolean>(false);
+    const speechStartMsRef = useRef<number>(0);
+    const lastSpeechMsRef = useRef<number>(0);
+    const segmentStartMsRef = useRef<number>(0);
+    const isProcessingSegmentRef = useRef<boolean>(false);
+    const isPlayingTTSRef = useRef<boolean>(false);
+    const mimeTypeRef = useRef<string>('audio/webm');
+
+    // Keep latest state in refs for async callbacks
+    const targetLanguageRef = useRef(targetLanguage);
+    useEffect(() => { targetLanguageRef.current = targetLanguage; }, [targetLanguage]);
+
+    const ttsModeRef = useRef(ttsMode);
+    useEffect(() => { ttsModeRef.current = ttsMode; }, [ttsMode]);
+
+    const speechRateRef = useRef(speechRate);
+    useEffect(() => { speechRateRef.current = speechRate; }, [speechRate]);
+
+    const selectedLang = SUPPORTED_LANGUAGES.find(l => l.code === targetLanguage) || SUPPORTED_LANGUAGES[0];
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
 
-    const releaseWakeLock = () => {
-        if (wakeLockRef.current) {
-            wakeLockRef.current.release().catch(console.error);
-            wakeLockRef.current = null;
-        }
-    };
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages, isTranslating]);
 
-    const startSessionTimer = () => {
-        if (!sessionTimerRef.current) {
-            sessionTimerRef.current = setInterval(() => {
-                setSessionSeconds(prev => prev + 1);
-            }, 1000);
-        }
-    };
-
-    const stopSessionTimer = () => {
-        if (sessionTimerRef.current) {
-            clearInterval(sessionTimerRef.current);
-            sessionTimerRef.current = null;
-        }
-    };
-
-    const formatSessionTime = (seconds: number) => {
-        const hrs = Math.floor(seconds / 3600);
-        const mins = Math.floor((seconds % 3600) / 60);
-        const secs = seconds % 60;
-        if (hrs > 0) {
-            return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-        }
-        return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-    };
-
-    // Pre-load voices on mount to ensure premium voices are available
+    // Preload browser TTS voices (Chrome/Safari populate voices asynchronously)
     useEffect(() => {
         if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
             window.speechSynthesis.getVoices();
@@ -124,187 +110,552 @@ export default function BilingualRecorder({
     }, []);
 
     useEffect(() => {
-        // Verify if a draft exists on mount
         const checkDraft = async () => {
             const draft = await db.drafts.get('bilingual');
-            if (draft && draft.audioChunks.length > 0) {
+            if (draft && draft.messages && draft.messages.length > 0) {
                 setDraftExists(true);
-                if (draft.bilingualRole) setDraftRole(draft.bilingualRole);
             }
         };
         checkDraft();
 
-        // CLEANUP DU MICROPHONE SI ON CHANGE D'ONGLET
         return () => {
-            stopSessionTimer();
-            releaseWakeLock();
+            stopHandsFreeSession();
             if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
                 mediaRecorderRef.current.stop();
             }
             if (streamRef.current) {
-                streamRef.current.getTracks().forEach(track => track.stop());
+                streamRef.current.getTracks().forEach((track) => track.stop());
+            }
+            if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
             }
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-
-    useEffect(() => {
-        // Auto-scroll to bottom of chat
-        if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-        }
-    }, [messages]);
 
     const recoverDraft = async () => {
         const draft = await db.drafts.get('bilingual');
-        if (draft && draft.audioChunks.length > 0 && draft.bilingualRole) {
-            const audioBlob = new Blob(draft.audioChunks, { type: draft.mimeType || 'audio/webm' });
-            const success = await handleTranslation(audioBlob, draft.bilingualRole);
-            if (success) {
-                await db.drafts.delete('bilingual');
-                setDraftExists(false);
-                setDraftRole(null);
-                toast({
-                    title: "Brouillon récupéré",
-                    description: "Le segment audio interrompu a été traduit.",
-                });
-            } else {
-                toast({
-                    title: "Erreur",
-                    description: "La traduction du brouillon a de nouveau échoué.",
-                    variant: "destructive",
-                });
-            }
+        if (draft && draft.messages) {
+            setMessages(draft.messages);
+            setDraftExists(false);
+            toast({
+                title: "Conversation récupérée",
+                description: `${draft.messages.length} échanges ont été restaurés.`,
+            });
         }
     };
 
     const discardDraft = async () => {
         await db.drafts.delete('bilingual');
         setDraftExists(false);
-        setDraftRole(null);
         toast({
             title: "Brouillon supprimé",
-            description: "Le segment audio inachevé a été effacé.",
+            description: "La conversation inachevée a été effacée.",
         });
     };
 
-    // ========== REALTIME MODE (push-to-talk + conversation continue) ==========
-    const startRealtimeSession = useCallback(async (role: 'therapeut' | 'patient' | 'bidirectional') => {
-        if ('speechSynthesis' in window) {
-            const u = new SpeechSynthesisUtterance('');
-            u.volume = 0;
-            window.speechSynthesis.speak(u);
+    // Déverrouillage synchrone de la synthèse vocale pour iOS / Safari
+    const unlockSpeechSynthesis = () => {
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+            try {
+                const unlockUtterance = new SpeechSynthesisUtterance('');
+                unlockUtterance.volume = 0;
+                window.speechSynthesis.speak(unlockUtterance);
+                if (window.speechSynthesis.paused) {
+                    window.speechSynthesis.resume();
+                }
+            } catch (e) {
+                console.warn("SpeechSynthesis unlock warning:", e);
+            }
+        }
+    };
+
+    const stopSpeaking = useCallback(() => {
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+        }
+        isPlayingTTSRef.current = false;
+        setIsPlayingAudio(false);
+    }, []);
+
+    const speakText = useCallback((text: string, langCode: string): Promise<void> => {
+        return new Promise((resolve) => {
+            if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text.trim()) {
+                resolve();
+                return;
+            }
+
+            try {
+                window.speechSynthesis.cancel();
+                if (window.speechSynthesis.paused) {
+                    window.speechSynthesis.resume();
+                }
+
+                const cleanText = text
+                    .replace(/[*#_~`]/g, '')
+                    .replace(/\[.*?\]/g, '')
+                    .trim();
+
+                if (!cleanText) {
+                    resolve();
+                    return;
+                }
+
+                const utterance = new SpeechSynthesisUtterance(cleanText);
+                utterance.lang = langCode;
+                utterance.rate = speechRateRef.current;
+
+                const voices = window.speechSynthesis.getVoices();
+                const langPrefix = langCode.split('-')[0].toLowerCase();
+                const matchingVoices = voices.filter(v => v.lang.toLowerCase().startsWith(langPrefix));
+
+                if (matchingVoices.length > 0) {
+                    const premiumVoice =
+                        matchingVoices.find(v =>
+                            v.name.includes('Premium') ||
+                            v.name.includes('Enhanced') ||
+                            v.name.includes('Natural') ||
+                            v.name.includes('Google') ||
+                            v.name.includes('Thomas') ||
+                            v.name.includes('Amélie') ||
+                            v.name.includes('Audrey') ||
+                            v.name.includes('Samantha') ||
+                            v.name.includes('Daniel') ||
+                            v.name.includes('Kyoko') ||
+                            v.name.includes('Yuna') ||
+                            v.name.includes('Tingting') ||
+                            v.name.includes('Milena') ||
+                            v.name.includes(' Monica') ||
+                            v.name.includes('Paulina')
+                        ) || matchingVoices[0];
+
+                    utterance.voice = premiumVoice;
+                }
+
+                // Safety timeout in case onend doesn't fire on some mobile browsers
+                const maxDurationMs = Math.max(4000, Math.min(30000, cleanText.length * 120));
+                const safetyTimer = setTimeout(() => {
+                    isPlayingTTSRef.current = false;
+                    setIsPlayingAudio(false);
+                    resolve();
+                }, maxDurationMs);
+
+                utterance.onstart = () => {
+                    isPlayingTTSRef.current = true;
+                    setIsPlayingAudio(true);
+                };
+                utterance.onend = () => {
+                    clearTimeout(safetyTimer);
+                    isPlayingTTSRef.current = false;
+                    setIsPlayingAudio(false);
+                    resolve();
+                };
+                utterance.onerror = () => {
+                    clearTimeout(safetyTimer);
+                    isPlayingTTSRef.current = false;
+                    setIsPlayingAudio(false);
+                    resolve();
+                };
+
+                window.speechSynthesis.speak(utterance);
+            } catch (e) {
+                console.error("TTS error:", e);
+                isPlayingTTSRef.current = false;
+                setIsPlayingAudio(false);
+                resolve();
+            }
+        });
+    }, []);
+
+    const getBestMimeType = (): string => {
+        if (typeof MediaRecorder === 'undefined') return 'audio/webm';
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) return 'audio/webm;codecs=opus';
+        if (MediaRecorder.isTypeSupported('audio/webm')) return 'audio/webm';
+        if (MediaRecorder.isTypeSupported('audio/mp4')) return 'audio/mp4';
+        return '';
+    };
+
+    // Envoi d'un segment audio à /api/translate (supporte 'therapeut', 'patient', et 'bidirectional')
+    const processAudioSegment = useCallback(async (audioBlob: Blob, speakerRole: 'therapeut' | 'patient' | 'bidirectional') => {
+        if (audioBlob.size < 600) return;
+
+        setIsTranslating(true);
+        if (handsFreeActiveRef.current) {
+            setHandsFreeStatus('translating');
         }
 
-        const messageId = Date.now().toString();
-        realtimeMessageIdRef.current = messageId;
-        setRealtimeRole(role);
-        startSessionTimer();
-        requestWakeLock();
-
-        const senderRole = role === 'bidirectional' ? 'therapeut' : role;
-        const currentSpeaker = senderRole === 'therapeut' ? PRACTITIONER_NAME : (patientName || 'Patient');
-        setMessages(prev => [...prev, {
-            id: messageId,
-            sender: senderRole,
-            speakerName: currentSpeaker,
-            transcription: '',
-            translation: '',
-            patientLangCode: patientLang.code,
-            patientLangTts: patientLang.tts,
-            isStreaming: true,
-        }]);
+        const currentLangObj = SUPPORTED_LANGUAGES.find(l => l.code === targetLanguageRef.current) || SUPPORTED_LANGUAGES[0];
+        const tempId = Date.now().toString() + "_" + Math.random().toString(36).substring(2, 6);
 
         try {
-            await connect(role, patientLang.code, {
-                onSpeechStart: () => {},
-                onSpeechStop: () => {},
-                onTranscript: (text: string) => {
-                    const currentId = realtimeMessageIdRef.current;
-                    if (currentId) {
-                        setMessages(prev => prev.map(m =>
-                            m.id === currentId ? { ...m, transcription: text } : m
-                        ));
+            const formData = new FormData();
+            formData.append("audio", audioBlob);
+            formData.append("speaker", speakerRole);
+            formData.append("targetLanguage", currentLangObj.name);
+
+            const response = await fetch("/api/translate", {
+                method: "POST",
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.error || "Erreur lors de la traduction");
+            }
+
+            if (!response.body) throw new Error("Aucun flux de données reçu");
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let done = false;
+            let fullText = "";
+            let messageCreated = false;
+            let resolvedSpeaker: 'therapeut' | 'patient' = speakerRole === 'patient' ? 'patient' : 'therapeut';
+
+            while (!done) {
+                const { value, done: readerDone } = await reader.read();
+                done = readerDone;
+                if (value) {
+                    fullText += decoder.decode(value, { stream: true });
+
+                    if (fullText.includes("[SILENCE]")) {
+                        break;
                     }
-                },
-                onTranslation: (text: string) => {
-                    const currentId = realtimeMessageIdRef.current;
-                    if (currentId) {
-                        setMessages(prev => prev.map(m =>
-                            m.id === currentId ? { ...m, translation: text, isStreaming: false } : m
-                        ));
+
+                    // Extract [SPEAKER] if present
+                    const speakerMatch = fullText.match(/\[SPEAKER\]\s*(therapeut|patient)/i);
+                    if (speakerMatch) {
+                        resolvedSpeaker = speakerMatch[1].toLowerCase() === 'patient' ? 'patient' : 'therapeut';
                     }
-                    // In bidirectional mode, prepare next message for the next utterance
-                    if (role === 'bidirectional') {
-                        const nextId = Date.now().toString();
-                        realtimeMessageIdRef.current = nextId;
-                        setMessages(prev => [...prev, {
-                            id: nextId,
-                            sender: 'therapeut',
-                            speakerName: PRACTITIONER_NAME,
-                            transcription: '',
-                            translation: '',
-                            patientLangCode: patientLang.code,
-                            patientLangTts: patientLang.tts,
-                            isStreaming: true,
-                        }]);
+
+                    const transIndex = fullText.indexOf("[TRANSCRIPTION]");
+                    const translIndex = fullText.indexOf("[TRANSLATION]");
+
+                    let currentTranscription = "";
+                    let currentTranslation = "";
+
+                    if (transIndex !== -1 && translIndex !== -1) {
+                        currentTranscription = fullText.substring(transIndex + "[TRANSCRIPTION]".length, translIndex).trim();
+                        currentTranslation = fullText.substring(translIndex + "[TRANSLATION]".length).trim();
+                    } else if (transIndex !== -1) {
+                        currentTranscription = fullText.substring(transIndex + "[TRANSCRIPTION]".length).trim();
                     }
-                },
-                onDone: () => {
-                    if (role !== 'bidirectional') {
-                        const currentId = realtimeMessageIdRef.current;
-                        if (currentId) {
-                            setMessages(prev => prev.map(m =>
-                                m.id === currentId ? { ...m, isStreaming: false } : m
+
+                    if (currentTranscription || currentTranslation) {
+                        if (!messageCreated) {
+                            messageCreated = true;
+                            setMessages(prev => [
+                                ...prev,
+                                {
+                                    id: tempId,
+                                    speaker: resolvedSpeaker,
+                                    originalText: currentTranscription || "...",
+                                    translatedText: currentTranslation || "...",
+                                    timestamp: new Date()
+                                }
+                            ]);
+                        } else {
+                            setMessages(prev => prev.map(msg =>
+                                msg.id === tempId
+                                    ? {
+                                        ...msg,
+                                        speaker: resolvedSpeaker,
+                                        originalText: currentTranscription || "...",
+                                        translatedText: currentTranslation || "..."
+                                    }
+                                    : msg
                             ));
                         }
                     }
-                },
-                onError: (error: string) => {
-                    console.error('Realtime error:', error);
-                    toast({ title: 'Erreur Realtime', description: error, variant: 'destructive' });
-                },
-            });
-        } catch (error) {
-            console.warn('WebRTC failed:', error);
-            setMessages(prev => prev.filter(m => m.id !== messageId));
-            setRealtimeRole(null);
-            realtimeMessageIdRef.current = null;
-            setTranslationMode('realtime');
-            toast({ title: 'Erreur Connexion', description: 'WebRTC indisponible.' });
-            if (role !== 'bidirectional') startRecording(role);
-        }
-    }, [connect, patientLang, patientName, toast]);
-
-    const stopRealtimeSession = useCallback(() => {
-        disconnect();
-        stopSessionTimer();
-        releaseWakeLock();
-        const msgId = realtimeMessageIdRef.current;
-        if (msgId) {
-            // Remove empty trailing message
-            setMessages(prev => {
-                const last = prev.find(m => m.id === msgId);
-                if (last && !last.transcription && !last.translation) {
-                    return prev.filter(m => m.id !== msgId);
                 }
-                return prev.map(m => m.id === msgId ? { ...m, isStreaming: false } : m);
-            });
-        }
-        setRealtimeRole(null);
-        realtimeMessageIdRef.current = null;
-    }, [disconnect]);
+            }
 
-    // ========== CLASSIC RECORDING MODE (SSE FALLBACK) ==========
-    const startRecording = async (role: 'therapeut' | 'patient') => {
-        // Unlock iOS Audio: Siri/Web Speech API blocks audio after async fetches
-        if ('speechSynthesis' in window) {
-            const unlockUtterance = new SpeechSynthesisUtterance('');
-            unlockUtterance.volume = 0;
-            window.speechSynthesis.speak(unlockUtterance);
+            // Si l'extrait était du silence pur, ne rien afficher
+            if (fullText.includes("[SILENCE]")) {
+                if (messageCreated) {
+                    setMessages(prev => prev.filter(m => m.id !== tempId));
+                }
+                return;
+            }
+
+            const finalTransIndex = fullText.indexOf("[TRANSCRIPTION]");
+            const finalTranslIndex = fullText.indexOf("[TRANSLATION]");
+            let finalTranscription = "";
+            let finalTranslation = "";
+
+            if (finalTransIndex !== -1 && finalTranslIndex !== -1) {
+                finalTranscription = fullText.substring(finalTransIndex + "[TRANSCRIPTION]".length, finalTranslIndex).trim();
+                finalTranslation = fullText.substring(finalTranslIndex + "[TRANSLATION]".length).trim();
+            }
+
+            if (!finalTranscription && !finalTranslation) {
+                if (messageCreated) {
+                    setMessages(prev => prev.filter(m => m.id !== tempId));
+                }
+                return;
+            }
+
+            // Sauvegarder dans IndexedDB
+            setMessages(prev => {
+                const updated = prev.map(msg =>
+                    msg.id === tempId
+                        ? { ...msg, speaker: resolvedSpeaker, originalText: finalTranscription, translatedText: finalTranslation }
+                        : msg
+                );
+                db.drafts.put({
+                    id: 'bilingual',
+                    mode: 'bilingual',
+                    audioChunks: [],
+                    mimeType: 'text/plain',
+                    messages: updated,
+                    startedAt: updated[0]?.timestamp || new Date(),
+                    lastUpdatedAt: new Date()
+                }).catch(console.error);
+                return updated;
+            });
+
+            // Lecture vocale automatique selon ttsMode
+            const currentTtsMode = ttsModeRef.current;
+            const shouldSpeak =
+                currentTtsMode === 'all' ||
+                (currentTtsMode === 'patient_only' && resolvedSpeaker === 'therapeut');
+
+            if (shouldSpeak && finalTranslation) {
+                const targetLangCode = resolvedSpeaker === 'therapeut' ? targetLanguageRef.current : 'fr-FR';
+                if (handsFreeActiveRef.current) {
+                    setHandsFreeStatus('tts_playing');
+                }
+                await speakText(finalTranslation, targetLangCode);
+            }
+
+        } catch (error: unknown) {
+            console.error("Translation error:", error);
+            setMessages(prev => prev.filter(msg => msg.id !== tempId));
+            toast({
+                title: "Erreur de traduction",
+                description: error instanceof Error ? error.message : "Impossible de traduire l'audio.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsTranslating(false);
+            if (handsFreeActiveRef.current) {
+                setHandsFreeStatus('listening');
+            }
+        }
+    }, [speakText, toast]);
+
+    // ============================================================================
+    // MODE 1 : MAINS LIBRES AUTOMATIQUE (VAD + Détection Automatique de Langue)
+    // ============================================================================
+    const startNewHandsFreeSegment = useCallback(() => {
+        if (!handsFreeActiveRef.current || !handsFreeStreamRef.current) return;
+        if (segmentRecorderRef.current && segmentRecorderRef.current.state !== 'inactive') {
+            return;
         }
 
         try {
-            // Nettoyage sécurité avant d'ouvrir un nouveau flux
+            const mime = mimeTypeRef.current;
+            const options: MediaRecorderOptions = mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : {};
+            const recorder = new MediaRecorder(handsFreeStreamRef.current, options);
+            segmentChunksRef.current = [];
+            hasSpeechInSegmentRef.current = false;
+            segmentStartMsRef.current = Date.now();
+
+            recorder.ondataavailable = (ev) => {
+                if (ev.data && ev.data.size > 0) {
+                    segmentChunksRef.current.push(ev.data);
+                }
+            };
+
+            recorder.onstop = async () => {
+                const hadSpeech = hasSpeechInSegmentRef.current;
+                const chunks = [...segmentChunksRef.current];
+                segmentChunksRef.current = [];
+                hasSpeechInSegmentRef.current = false;
+
+                if (hadSpeech && chunks.length > 0 && handsFreeActiveRef.current) {
+                    const blob = new Blob(chunks, { type: mime || 'audio/webm' });
+                    if (blob.size >= 800) {
+                        isProcessingSegmentRef.current = true;
+                        await processAudioSegment(blob, 'bidirectional');
+                        isProcessingSegmentRef.current = false;
+                    }
+                }
+
+                // Relancer immédiatement l'écoute du segment suivant si le mode Mains Libres est toujours actif
+                if (handsFreeActiveRef.current) {
+                    startNewHandsFreeSegment();
+                }
+            };
+
+            segmentRecorderRef.current = recorder;
+            recorder.start(250);
+            setHandsFreeStatus('listening');
+        } catch (err) {
+            console.error("Failed to start hands-free segment recorder:", err);
+        }
+    }, [processAudioSegment]);
+
+    const startHandsFreeSession = async () => {
+        try {
+            unlockSpeechSynthesis();
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            const audioCtx = new AudioContextClass();
+            audioContextRef.current = audioCtx;
+            if (audioCtx.state === 'suspended') {
+                await audioCtx.resume().catch(console.error);
+            }
+
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                }
+            });
+            handsFreeStreamRef.current = stream;
+            mimeTypeRef.current = getBestMimeType();
+
+            const source = audioCtx.createMediaStreamSource(stream);
+            const analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 512;
+            analyser.smoothingTimeConstant = 0.5;
+            source.connect(analyser);
+            analyserRef.current = analyser;
+
+            handsFreeActiveRef.current = true;
+            setIsHandsFreeActive(true);
+            setHandsFreeStatus('listening');
+
+            startNewHandsFreeSegment();
+
+            const freqData = new Uint8Array(analyser.frequencyBinCount);
+            const SPEECH_THRESHOLD = 22; // Sensibilité vocale calibrée
+            const SILENCE_DURATION_MS = 1350; // 1.35s de silence déclenche la traduction
+            const MAX_SEGMENT_SPEECH_MS = 24000; // Sécurité 24s max par phrase
+            const IDLE_RESET_MS = 9000; // Nettoyage du buffer toutes les 9s de silence
+
+            const monitorVad = () => {
+                if (!handsFreeActiveRef.current || !analyserRef.current) return;
+                vadRafRef.current = requestAnimationFrame(monitorVad);
+
+                // Ne pas écouter pendant que le haut-parleur lit la traduction ou qu'une traduction est en cours
+                if (isPlayingTTSRef.current || isProcessingSegmentRef.current) {
+                    setVadLevel(0);
+                    return;
+                }
+
+                analyserRef.current.getByteFrequencyData(freqData);
+
+                // Moyenne d'énergie sur la bande fréquentielle de la voix humaine
+                let sum = 0;
+                const voiceBins = Math.min(80, freqData.length);
+                for (let i = 2; i < voiceBins; i++) {
+                    sum += freqData[i];
+                }
+                const avgEnergy = sum / (voiceBins - 2);
+                const normalizedLevel = Math.min(100, Math.round((avgEnergy / 80) * 100));
+                setVadLevel(normalizedLevel);
+
+                const now = Date.now();
+                const recorder = segmentRecorderRef.current;
+
+                if (avgEnergy > SPEECH_THRESHOLD) {
+                    if (!hasSpeechInSegmentRef.current) {
+                        hasSpeechInSegmentRef.current = true;
+                        speechStartMsRef.current = now;
+                        setHandsFreeStatus('speaking_detected');
+                    }
+                    lastSpeechMsRef.current = now;
+
+                    // Si la personne parle sans pause depuis > 24s, envoyer le segment
+                    if (now - speechStartMsRef.current > MAX_SEGMENT_SPEECH_MS && recorder && recorder.state === 'recording') {
+                        recorder.stop();
+                    }
+                } else {
+                    if (hasSpeechInSegmentRef.current) {
+                        // Une prise de parole est en cours : vérifier si le silence dépasse 1.35s
+                        const speechDuration = lastSpeechMsRef.current - speechStartMsRef.current;
+                        if (now - lastSpeechMsRef.current > SILENCE_DURATION_MS) {
+                            if (speechDuration >= 350 && recorder && recorder.state === 'recording') {
+                                recorder.stop();
+                            } else {
+                                // Bruit trop bref (< 350ms), ignorer
+                                hasSpeechInSegmentRef.current = false;
+                                setHandsFreeStatus('listening');
+                            }
+                        }
+                    } else {
+                        // Aucun son détecté depuis 9 secondes : purger le buffer silencieux
+                        if (now - segmentStartMsRef.current > IDLE_RESET_MS && recorder && recorder.state === 'recording') {
+                            recorder.stop();
+                        }
+                    }
+                }
+            };
+
+            vadRafRef.current = requestAnimationFrame(monitorVad);
+
+            toast({
+                title: "🎙️ Mode Mains Libres activé",
+                description: `Parlez en Français ou en ${selectedLang.name} : la détection et la traduction sont automatiques.`,
+            });
+        } catch (err) {
+            console.error("Erreur démarrage Mains Libres:", err);
+            toast({
+                title: "Erreur Microphone",
+                description: "Impossible d'accéder au microphone. Vérifiez les autorisations du navigateur.",
+                variant: "destructive",
+            });
+            stopHandsFreeSession();
+        }
+    };
+
+    const flushCurrentHandsFreeSegment = () => {
+        if (segmentRecorderRef.current && segmentRecorderRef.current.state === 'recording') {
+            hasSpeechInSegmentRef.current = true;
+            segmentRecorderRef.current.stop();
+        }
+    };
+
+    const stopHandsFreeSession = useCallback(() => {
+        handsFreeActiveRef.current = false;
+        setIsHandsFreeActive(false);
+        setHandsFreeStatus('idle');
+        setVadLevel(0);
+
+        if (vadRafRef.current) {
+            cancelAnimationFrame(vadRafRef.current);
+            vadRafRef.current = null;
+        }
+        if (segmentRecorderRef.current && segmentRecorderRef.current.state !== 'inactive') {
+            hasSpeechInSegmentRef.current = false;
+            try { segmentRecorderRef.current.stop(); } catch { /* ignore */ }
+        }
+        segmentRecorderRef.current = null;
+
+        if (handsFreeStreamRef.current) {
+            handsFreeStreamRef.current.getTracks().forEach(t => t.stop());
+            handsFreeStreamRef.current = null;
+        }
+        if (audioContextRef.current) {
+            audioContextRef.current.close().catch(() => {});
+            audioContextRef.current = null;
+        }
+        analyserRef.current = null;
+        stopSpeaking();
+    }, [stopSpeaking]);
+
+    // ============================================================================
+    // MODE 2 : MANUEL PUSH-TO-TALK (Guillaume FR / Patient Étranger)
+    // ============================================================================
+    const startManualRecording = async (speaker: 'therapeut' | 'patient') => {
+        try {
+            stopSpeaking();
+            unlockSpeechSynthesis();
+
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach(track => track.stop());
             }
@@ -313,674 +664,506 @@ export default function BilingualRecorder({
                 audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: true
+                    autoGainControl: true,
                 }
             });
             streamRef.current = stream;
 
-            // Safari iOS fallback logic
-            let options = { mimeType: 'audio/webm' };
-            if (!MediaRecorder.isTypeSupported('audio/webm')) {
-                options = { mimeType: 'audio/mp4' };
-            }
-            mimeTypeRef.current = options.mimeType;
+            const mime = getBestMimeType();
+            const options: MediaRecorderOptions = mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : {};
 
             const mediaRecorder = new MediaRecorder(stream, options);
             mediaRecorderRef.current = mediaRecorder;
             audioChunksRef.current = [];
-            recordStartTimeRef.current = new Date();
 
-            // Clear any previous draft
-            await db.drafts.delete('bilingual');
-            setDraftExists(false);
-            setDraftRole(null);
-
-            mediaRecorder.ondataavailable = async (event) => {
+            mediaRecorder.ondataavailable = (event) => {
                 if (event.data.size > 0) {
                     audioChunksRef.current.push(event.data);
-
-                    // Sauvegarde continue
-                    await db.drafts.put({
-                        id: 'bilingual',
-                        mode: 'bilingual',
-                        audioChunks: audioChunksRef.current as Blob[],
-                        mimeType: mimeTypeRef.current,
-                        startedAt: recordStartTimeRef.current || new Date(),
-                        lastUpdatedAt: new Date(),
-                        bilingualRole: role
-                    });
                 }
             };
 
             mediaRecorder.onstop = async () => {
-                const finalMimeType = options.mimeType;
+                const finalMimeType = mime || 'audio/webm';
                 const audioBlob = new Blob(audioChunksRef.current, { type: finalMimeType });
-
-                // Couper le matériel micro IMMÉDIATEMENT même si l'API traduit en arrière plan
                 if (streamRef.current) {
-                    streamRef.current.getTracks().forEach(track => track.stop());
+                    streamRef.current.getTracks().forEach((track) => track.stop());
                     streamRef.current = null;
                 }
-
-                if (audioBlob.size > 0) {
-                    handleTranslation(audioBlob, role).then(async (success) => {
-                        // Clear draft only on successful translation
-                        if (success) {
-                            await db.drafts.delete('bilingual');
-                        }
-                    }).catch(console.error);
-                }
+                await processAudioSegment(audioBlob, speaker);
             };
 
-            // Collect data every 1 second to safeguard against memory loss
-            mediaRecorder.start(1000);
-            setRecordingRole(role);
-            setIsRecording(true);
-            startSessionTimer();
-            requestWakeLock();
+            mediaRecorder.start(250);
+            setActiveSpeaker(speaker);
         } catch (error) {
-            console.error("Erreur d'accès au microphone: ", error);
+            console.error("Error accessing microphone:", error);
             toast({
                 title: "Erreur Microphone",
-                description: "Veuillez autoriser l'accès au microphone.",
-                variant: "destructive"
+                description: "Impossible d'accéder au microphone.",
+                variant: "destructive",
             });
         }
     };
 
-    const stopRecording = async () => {
-        if (mediaRecorderRef.current && isRecording) {
+    const stopManualRecording = () => {
+        unlockSpeechSynthesis();
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
             mediaRecorderRef.current.stop();
-            setIsRecording(false);
-            setRecordingRole(null);
-            releaseWakeLock();
+            setActiveSpeaker(null);
         }
     };
 
-    const handleTranslation = async (audioBlob: Blob, role: 'therapeut' | 'patient'): Promise<boolean> => {
-        setIsTranslating(true);
-        const messageId = Date.now().toString();
-        const currentSpeaker = role === 'therapeut' ? PRACTITIONER_NAME : (patientName || 'Patient');
-
-        try {
-            const base64Audio = await new Promise<string>((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                    const base64 = (reader.result as string).split(',')[1];
-                    resolve(base64);
-                };
-                reader.readAsDataURL(audioBlob);
-            });
-
-            const res = await fetch('/api/translate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ audio: base64Audio, mimeType: audioBlob.type, speaker: role, targetLanguage: patientLang.code })
-            });
-
-            if (!res.ok) throw new Error("Erreur de traduction");
-
-            // Créer le message immédiatement en état streaming
-            const streamingMessage: ChatMessage = {
-                id: messageId,
-                sender: role,
-                speakerName: currentSpeaker,
-                transcription: '',
-                translation: '',
-                patientLangCode: patientLang.code,
-                patientLangTts: patientLang.tts,
-                isStreaming: true,
-            };
-            setMessages(prev => [...prev, streamingMessage]);
-
-            // Lire le flux SSE progressivement
-            const reader = res.body!.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-
-                // Parser les événements SSE complets (séparés par \n\n)
-                const events = buffer.split('\n\n');
-                buffer = events.pop() || ''; // Garder le dernier fragment incomplet
-
-                for (const event of events) {
-                    const dataLine = event.trim();
-                    if (!dataLine.startsWith('data: ')) continue;
-
-                    try {
-                        const data = JSON.parse(dataLine.slice(6));
-
-                        if (data.type === 'transcription') {
-                            // Afficher la transcription immédiatement
-                            setMessages(prev => prev.map(m =>
-                                m.id === messageId ? { ...m, transcription: data.text } : m
-                            ));
-                        } else if (data.type === 'translation_chunk') {
-                            // Afficher la traduction progressive en temps réel sans déclencher de TTS
-                            setMessages(prev => prev.map(m =>
-                                m.id === messageId ? { ...m, translation: data.text } : m
-                            ));
-                        } else if (data.type === 'translation') {
-                            // Afficher la traduction finale et lancer le TTS
-                            setMessages(prev => prev.map(m =>
-                                m.id === messageId ? { ...m, translation: data.text, isStreaming: false } : m
-                            ));
-                            speakText(data.text, role === 'therapeut' ? patientLang.tts : 'fr-FR');
-                        } else if (data.type === 'error') {
-                            throw new Error(data.text);
-                        }
-                    } catch (parseErr) {
-                        // Ignorer les événements mal formés
-                        if (parseErr instanceof SyntaxError) continue;
-                        throw parseErr;
-                    }
-                }
-            }
-
-            // S'assurer que le message n'est plus en état streaming
-            setMessages(prev => prev.map(m =>
-                m.id === messageId ? { ...m, isStreaming: false } : m
-            ));
-
-            return true;
-
-        } catch (e) {
-            console.error(e);
-            setMessages(prev => prev.filter(m => m.id !== messageId || m.transcription));
-            toast({
-                title: "Erreur",
-                description: "La traduction a échoué. L'audio a été conservé en brouillon.",
-                variant: "destructive"
-            });
-            return false;
-        } finally {
-            setIsTranslating(false);
-        }
-    };
-
-    const getBestVoice = (lang: string) => {
-        const voices = window.speechSynthesis.getVoices();
-        const targetLangVoices = voices.filter(v => v.lang.toLowerCase().startsWith(lang.substring(0, 2).toLowerCase()));
-
-        let bestVoice = targetLangVoices.find(v =>
-            v.name.includes('Siri') ||
-            v.name.includes('Premium') ||
-            v.name.includes('Enhanced')
-        );
-
-        if (!bestVoice) {
-            if (lang.startsWith('fr')) bestVoice = targetLangVoices.find(v => v.name.includes('Amelie') || v.name.includes('Thomas') || v.name.includes('Marie') || v.name.includes('Audrey'));
-            else if (lang.startsWith('en')) bestVoice = targetLangVoices.find(v => v.name.includes('Samantha') || v.name.includes('Karen') || v.name.includes('Daniel') || v.name.includes('Moira'));
-        }
-
-        if (!bestVoice && targetLangVoices.length > 0) {
-            bestVoice = targetLangVoices.find(v => v.localService) || targetLangVoices[0];
-        }
-
-        return bestVoice;
-    };
-
-    const speakText = (text: string, lang: string) => {
-        if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = lang;
-
-            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
-            if (isIOS) {
-                utterance.rate = 1.05;
-                utterance.pitch = 1.0;
-                utterance.volume = 1.0;
-                const voice = getBestVoice(lang);
-                if (voice) {
-                    utterance.voice = voice;
-                }
-            } else {
-                utterance.rate = 0.95;
-            }
-
-            window.speechSynthesis.speak(utterance);
-        }
-    };
-
-    const synthesizeConsultation = async () => {
+    // ============================================================================
+    // CLÔTURE & GÉNÉRATION DU BILAN CLINIQUE
+    // ============================================================================
+    const finishSession = async () => {
         if (messages.length === 0) return;
 
-        setIsAnalyzing(true);
-        toast({
-            title: "Génération en cours...",
-            description: "L'IA analyse votre conversation bilingue" + (attachedFiles.length > 0 ? " et les documents fournis." : "."),
-        });
+        if (isHandsFreeActive) {
+            stopHandsFreeSession();
+        }
+        if (activeSpeaker !== null) {
+            stopManualRecording();
+        }
 
+        setIsGeneratingSynthesis(true);
         try {
-            const validMessages = messages.filter(m => m.transcription || m.translation);
-            if (validMessages.length === 0) {
-                toast({ title: "Aucun contenu", description: "Aucune transcription à analyser.", variant: "destructive" });
-                setIsAnalyzing(false);
-                return;
+            const fullTranscript = messages.map(m => {
+                const role = m.speaker === 'therapeut' ? 'Guillaume Philippe (FR)' : `Patient (${selectedLang.name})`;
+                const frText = m.speaker === 'therapeut' ? m.originalText : m.translatedText;
+                const foreignText = m.speaker === 'therapeut' ? m.translatedText : m.originalText;
+                return `**${role}** : ${frText}\n*(${selectedLang.label}: ${foreignText})*`;
+            }).join("\n\n");
+
+            if (onConversationComplete) {
+                await onConversationComplete(fullTranscript);
+            } else {
+                const formData = new FormData();
+                formData.append("transcript", fullTranscript);
+                formData.append("targetLanguage", selectedLang.name);
+
+                if (attachedFiles && attachedFiles.length > 0) {
+                    attachedFiles.forEach((file) => {
+                        formData.append("files", file);
+                    });
+                }
+
+                const response = await fetch("/api/analyze-transcript", {
+                    method: "POST",
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    throw new Error(errData.error || "Erreur lors de la génération de la synthèse");
+                }
+
+                const result = await response.json();
+                const textBlob = new Blob([fullTranscript], { type: 'text/plain; charset=utf-8' });
+
+                if (onRecordingComplete) {
+                    await onRecordingComplete(textBlob, result);
+                }
             }
 
-            const activePatientName = patientName.trim() || `Patient (${patientLang.code})`;
-            const fullTranscript = validMessages.map(m =>
-                `${m.sender === 'therapeut' ? `**${PRACTITIONER_NAME} (Thérapeute) :**` : `**${activePatientName} :**`} ${m.transcription}\n*(Traduction : ${m.translation})*`
-            ).join('\n\n');
+            await db.drafts.delete('bilingual');
+            setDraftExists(false);
+            setMessages([]);
 
-            const formData = new FormData();
-            formData.append("transcript", fullTranscript);
-            formData.append("patientName", activePatientName);
-            attachedFiles.forEach(file => {
-                formData.append("files", file);
-            });
-
-            const response = await fetch('/api/analyze-transcript', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (!response.ok) throw new Error("Erreur d'analyse");
-
-            const data = await response.json();
-            if (!data.patientName || data.patientName.includes("Anonyme")) {
-                data.patientName = activePatientName;
-            }
-
-            await onRecordingComplete(new Blob(), data);
-
-        } catch (e) {
-            console.error(e);
+        } catch (error: unknown) {
+            console.error("Synthesis error:", error);
             toast({
-                title: "Erreur IA",
-                description: "Impossible de générer le bilan.",
-                variant: "destructive"
+                title: "Erreur Synthèse",
+                description: error instanceof Error ? error.message : "Impossible de générer le bilan final.",
+                variant: "destructive",
             });
         } finally {
-            setIsAnalyzing(false);
+            setIsGeneratingSynthesis(false);
         }
     };
 
+    const isBusy = isTranslating || isGeneratingSynthesis || isProcessing;
+
     return (
-        <div className="flex flex-col space-y-4">
+        <Card className="w-full max-w-4xl mx-auto border-[#bd613c]/30 shadow-sm bg-white overflow-hidden flex flex-col min-h-[520px]">
+            <CardHeader className="bg-[#ebd9c8]/30 border-b border-[#bd613c]/10 pb-3 px-3 sm:px-6">
+                <div className="flex flex-col gap-3">
+                    {/* Ligne 1 : Titre + Sélecteur de Langue */}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                            <Globe2 className="w-5 h-5 text-[#bd613c]" />
+                            <CardTitle className="font-bebas tracking-wide text-xl sm:text-2xl text-[#bd613c] uppercase">
+                                Traducteur Bilingue Vocal
+                            </CardTitle>
+                        </div>
 
-            {/* 1. Header d'identification & Sélection de langue */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {/* Praticien */}
-                <div className="flex items-center gap-2.5 p-2 bg-[#ebd9c8]/20 border border-[#ebd9c8]/60 rounded-xl">
-                    <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-[#bd613c]/60 shadow-sm shrink-0 bg-[#4a3f35]">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img 
-                            src="/images/guillaume_philippe.jpg" 
-                            alt={PRACTITIONER_NAME}
-                            className="w-full h-full object-cover"
-                        />
-                    </div>
-                    <div className="flex flex-col min-w-0">
-                        <span className="text-[10px] uppercase tracking-wider text-[#8c7b6c] font-semibold">Praticien</span>
-                        <span className="text-xs font-bold text-[#4a3f35] flex items-center gap-1 truncate">
-                            <span>🇫🇷</span> {PRACTITIONER_NAME}
-                        </span>
-                    </div>
-                </div>
-
-                {/* Patient & Langue */}
-                <div className="flex items-center gap-2.5 p-2 bg-white border border-[#e8dfd5] rounded-xl shadow-sm">
-                    <div className="w-8 h-8 rounded-full bg-[#bd613c] text-white flex items-center justify-center text-sm font-bold shrink-0 shadow-sm">
-                        {patientLang.flag}
-                    </div>
-                    <div className="flex flex-col flex-1 min-w-0">
-                        <span className="text-[10px] uppercase tracking-wider text-[#8c7b6c] font-semibold">Patient & Langue</span>
-                        <div className="flex items-center gap-1.5">
-                            <input
-                                type="text"
-                                value={patientName}
-                                onChange={(e) => setPatientName(e.target.value)}
-                                placeholder="Nom du patient..."
-                                className="text-xs font-semibold text-[#4a3f35] bg-transparent border-none outline-none focus:ring-0 p-0 w-28 truncate"
-                            />
+                        <div className="flex items-center gap-1.5 bg-white px-3 py-1 rounded-full border border-[#bd613c]/30 shadow-2xs">
+                            <span className="text-sm">{selectedLang.flag}</span>
                             <select
-                                className="bg-[#ebd9c8]/25 border border-[#ebd9c8] text-[#4a3f35] font-medium text-[11px] rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-[#bd613c]"
-                                value={patientLang.code}
-                                onChange={(e) => {
-                                    const found = LANGUAGES.find(l => l.code === e.target.value) || LANGUAGES[0];
-                                    setPatientLang(found);
-                                    if (patientName === "Patient Anglais" || patientName.startsWith("Patient ")) {
-                                        setPatientName(`Patient ${found.code}`);
-                                    }
-                                }}
-                                disabled={isRecording || isTranslating || isAnalyzing}
+                                value={targetLanguage}
+                                onChange={(e) => setTargetLanguage(e.target.value)}
+                                disabled={isHandsFreeActive || activeSpeaker !== null || isBusy}
+                                className="text-xs sm:text-sm bg-transparent border-none text-[#4a3f35] font-semibold focus:outline-none cursor-pointer pr-1"
                             >
-                                {LANGUAGES.map(l => (
-                                    <option key={l.code} value={l.code}>{l.flag} {l.label}</option>
+                                {SUPPORTED_LANGUAGES.map(lang => (
+                                    <option key={lang.code} value={lang.code}>
+                                        {lang.flag} {lang.name}
+                                    </option>
                                 ))}
                             </select>
                         </div>
                     </div>
-                </div>
-            </div>
 
-            {/* 2. Bandeau Moteurs IA Actifs */}
-            <div className="flex items-center justify-between px-3 py-1.5 bg-gradient-to-r from-amber-500/10 via-[#ebd9c8]/30 to-purple-500/10 border border-[#ebd9c8]/50 rounded-lg text-[11px] text-[#4a3f35]">
-                <span className="flex items-center gap-1.5 font-medium">
-                    <span className="text-amber-600">⚡</span> <strong>Gemini Live</strong> <span className="text-[#8c7b6c] hidden sm:inline">(Audio-to-Audio)</span>
-                </span>
-                <span className="text-[#8c7b6c] font-mono">•</span>
-                <span className="flex items-center gap-1.5 font-medium">
-                    <span className="text-purple-600">✨</span> <strong>Gemini 3.5</strong> <span className="text-[#8c7b6c] hidden sm:inline">(Retranscription Clinique)</span>
-                </span>
-            </div>
-
-            {/* 3. CONTRÔLES & DÉMARRAGE DE LA CONSULTATION (AU-DESSUS DU CHAT) */}
-            <div className="flex flex-col gap-3 p-3.5 bg-white/80 border border-[#e8dfd5] rounded-2xl shadow-sm">
-                <div className="flex flex-col items-center gap-1.5">
-                    <div className="flex justify-center items-center gap-1 p-1 bg-[#ebd9c8]/25 rounded-full border border-[#e8dfd5]">
-                        {(['conversation', 'realtime'] as const).map(mode => (
+                    {/* Ligne 2 : Mode de capture (Mains Libres vs Push-to-Talk) + Options Vocales (TTS & Vitesse) */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#bd613c]/10">
+                        {/* Sélecteur de mode */}
+                        <div className="flex bg-[#ebd9c8]/50 p-0.5 rounded-full border border-[#bd613c]/20">
                             <button
-                                key={mode}
-                                onClick={() => setTranslationMode(mode)}
-                                className={`text-xs px-4 py-1.5 rounded-full font-medium transition-all ${
-                                    translationMode === mode
-                                        ? 'bg-[#bd613c] text-white shadow-sm font-semibold'
-                                        : 'text-[#8c7b6c] hover:text-[#4a3f35] hover:bg-[#ebd9c8]/40'
+                                type="button"
+                                onClick={() => {
+                                    if (activeSpeaker !== null) stopManualRecording();
+                                    setTranslationMode('conversation');
+                                }}
+                                disabled={isBusy}
+                                className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                                    translationMode === 'conversation'
+                                        ? 'bg-[#bd613c] text-white shadow-xs'
+                                        : 'text-[#4a3f35]/70 hover:text-[#4a3f35]'
                                 }`}
-                                disabled={isRecording || isConnected || isConnecting}
                             >
-                                {mode === 'conversation' ? '🎙️ Mains Libres (Automatique)' : '⚡ Manuel (Push-to-Talk)'}
+                                🎙️ Mains Libres (Auto)
                             </button>
-                        ))}
-                    </div>
-                    <p className="text-[11px] text-[#8c7b6c] text-center italic max-w-md">
-                        {translationMode === 'conversation' && "Mains Libres : posez le téléphone, écoute et traduction automatiques en continu pendant toute la séance (1h+)."}
-                        {translationMode === 'realtime' && "Manuel Push-to-Talk : cliquez pour parler, traduction vocale instantanée à chaque prise de parole."}
-                    </p>
-                </div>
-
-                {/* Mode Mains Libres : Bouton Majeur Raffiné */}
-                {translationMode === 'conversation' && (
-                    <Button
-                        size="lg"
-                        variant={realtimeRole === 'bidirectional' ? 'destructive' : 'default'}
-                        className={`w-full h-20 rounded-xl flex items-center justify-center gap-3 transition-all duration-300 shadow-md ${
-                            realtimeRole === 'bidirectional' 
-                                ? 'bg-red-600 hover:bg-red-700 animate-pulse text-white border-none' 
-                                : 'bg-gradient-to-r from-[#4a3f35] via-[#594b40] to-[#4a3f35] hover:from-[#3a3129] hover:to-[#3a3129] text-white border border-[#ebd9c8]/30'
-                        }`}
-                        onClick={() => {
-                            if (isConnected && realtimeRole === 'bidirectional') return stopRealtimeSession();
-                            return startRealtimeSession('bidirectional');
-                        }}
-                        disabled={isAnalyzing || isConnecting}
-                    >
-                        {isConnecting ? (
-                            <Loader2 className="w-6 h-6 animate-spin text-[#ebd9c8]" />
-                        ) : realtimeRole === 'bidirectional' ? (
-                            <Square className="w-6 h-6 text-white" />
-                        ) : (
-                            <div className="w-10 h-10 rounded-full bg-[#bd613c] flex items-center justify-center text-white shadow-inner shrink-0">
-                                <Globe className="w-5 h-5" />
-                            </div>
-                        )}
-                        <div className="flex flex-col items-start text-left">
-                            <span className="font-bebas text-lg sm:text-xl tracking-wide leading-tight">
-                                {isConnecting 
-                                    ? 'CONNEXION EN COURS…' 
-                                    : realtimeRole === 'bidirectional' 
-                                    ? 'ARRÊTER LA SÉANCE MAINS LIBRES' 
-                                    : 'DÉMARRER LA SÉANCE MAINS LIBRES (1H+)'
-                                }
-                            </span>
-                            <span className="text-[11px] opacity-80 font-normal">
-                                {realtimeRole === 'bidirectional' 
-                                    ? 'Écoute active continue • Appuyez pour stopper'
-                                    : `🇫🇷 ${PRACTITIONER_NAME} ↔ ${patientLang.flag} ${patientName || 'Patient'}`
-                                }
-                            </span>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (isHandsFreeActive) stopHandsFreeSession();
+                                    setTranslationMode('realtime');
+                                }}
+                                disabled={isBusy}
+                                className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                                    translationMode === 'realtime'
+                                        ? 'bg-[#bd613c] text-white shadow-xs'
+                                        : 'text-[#4a3f35]/70 hover:text-[#4a3f35]'
+                                }`}
+                            >
+                                ⚡ Manuel (Push-to-Talk)
+                            </button>
                         </div>
-                    </Button>
+
+                        {/* Options Vocales (Sortie Audio TTS + Vitesse) */}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <div className="flex items-center gap-1 bg-white px-2.5 py-1 rounded-full border border-[#bd613c]/20 text-xs">
+                                {ttsMode === 'mute' ? (
+                                    <VolumeX className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                ) : (
+                                    <Volume2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                )}
+                                <select
+                                    value={ttsMode}
+                                    onChange={(e) => {
+                                        const val = e.target.value as TTSMode;
+                                        setTtsMode(val);
+                                        if (val === 'mute') stopSpeaking();
+                                    }}
+                                    className="bg-transparent border-none text-[#4a3f35] font-medium focus:outline-none cursor-pointer text-[11px] sm:text-xs"
+                                    title="Mode de lecture vocale automatique"
+                                >
+                                    <option value="all">🔊 Voix : Tout lire (FR ⇄ {selectedLang.label})</option>
+                                    <option value="patient_only">🗣️ Voix : Lire au patient ({selectedLang.label})</option>
+                                    <option value="mute">🔇 Voix : Muet (Texte seul)</option>
+                                </select>
+                            </div>
+
+                            {ttsMode !== 'mute' && (
+                                <div className="flex items-center bg-white px-2 py-1 rounded-full border border-[#bd613c]/20 text-[11px]">
+                                    <select
+                                        value={speechRate}
+                                        onChange={(e) => setSpeechRate(parseFloat(e.target.value))}
+                                        className="bg-transparent border-none text-[#4a3f35] font-medium focus:outline-none cursor-pointer"
+                                        title="Vitesse de la voix"
+                                    >
+                                        <option value={0.85}>0.85x (Doux)</option>
+                                        <option value={1.0}>1.0x (Normal)</option>
+                                        <option value={1.15}>1.15x (Rapide)</option>
+                                    </select>
+                                </div>
+                            )}
+
+                            {isPlayingAudio && (
+                                <button
+                                    type="button"
+                                    onClick={stopSpeaking}
+                                    className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition-colors cursor-pointer"
+                                >
+                                    ⏹️ Stop Voix
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </CardHeader>
+
+            {/* Fil de discussion Bilingue */}
+            <div className="flex-1 p-3 sm:p-5 overflow-y-auto space-y-3 bg-[#FAF7F2]/50 max-h-[340px] min-h-[220px]">
+                {draftExists && messages.length === 0 && !isHandsFreeActive && activeSpeaker === null && (
+                    <div className="w-full p-3.5 mb-3 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xs">
+                        <div className="flex items-center gap-2.5">
+                            <span className="text-xl">⚠️</span>
+                            <div className="text-left">
+                                <h4 className="font-semibold text-amber-900 text-xs sm:text-sm">Conversation bilingue non terminée</h4>
+                                <p className="text-[11px] text-amber-700">Voulez-vous restaurer les échanges précédents ?</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                            <Button variant="outline" size="sm" onClick={discardDraft} className="text-xs border-amber-300 text-amber-800 hover:bg-amber-100 h-8">
+                                Ignorer
+                            </Button>
+                            <Button size="sm" onClick={recoverDraft} className="text-xs bg-amber-600 hover:bg-amber-700 text-white h-8">
+                                Restaurer
+                            </Button>
+                        </div>
+                    </div>
                 )}
 
-                {/* Mode Manuel (Push-to-Talk) : Deux Boutons Alternés */}
-                {translationMode === 'realtime' && (
-                    <div className="grid grid-cols-2 gap-3">
-                        <Button
-                            size="lg"
-                            variant={(recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? 'destructive' : 'default'}
-                            className={`h-20 text-base font-bebas tracking-wide flex flex-col items-center justify-center gap-1.5 ${
-                                (recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? 'animate-pulse' : 'bg-[#4a3f35] hover:bg-[#3a3129]'
+                {messages.length === 0 && !isTranslating && (
+                    <div className="h-44 flex flex-col items-center justify-center text-slate-400 text-center px-4">
+                        <Sparkles className="w-8 h-8 mb-2 opacity-50 text-[#bd613c]" />
+                        <p className="text-sm font-medium text-[#4a3f35]/80">
+                            {translationMode === 'conversation'
+                                ? `Mode Mains Libres : Cliquez sur « Démarrer » puis parlez librement en Français ou en ${selectedLang.name}.`
+                                : `Mode Manuel : Cliquez sur « Guillaume (FR) » ou « Patient (${selectedLang.label}) » pour enregistrer et traduire.`}
+                        </p>
+                        <p className="text-xs text-[#8c7b6d] mt-1">
+                            La traduction s&apos;affiche en direct et est parlée à voix haute automatiquement.
+                        </p>
+                    </div>
+                )}
+
+                {messages.map((msg) => {
+                    const isTherapeut = msg.speaker === 'therapeut';
+                    const originalLangCode = isTherapeut ? 'fr-FR' : targetLanguage;
+                    const translatedLangCode = isTherapeut ? targetLanguage : 'fr-FR';
+
+                    return (
+                        <div
+                            key={msg.id}
+                            className={`flex flex-col max-w-[88%] rounded-2xl p-3.5 shadow-2xs ${
+                                isTherapeut
+                                    ? 'bg-[#ebd9c8]/40 text-[#4a3f35] self-start mr-auto rounded-tl-none border border-[#bd613c]/15'
+                                    : 'bg-[#bd613c] text-white self-end ml-auto rounded-tr-none'
                             }`}
-                            onClick={() => {
-                                if (isRecording && recordingRole === 'therapeut') return stopRecording();
-                                if (isConnected && realtimeRole === 'therapeut') return stopRealtimeSession();
-                                return startRealtimeSession('therapeut');
-                            }}
-                            disabled={isAnalyzing || isConnecting || (isRecording && recordingRole !== 'therapeut') || (isConnected && realtimeRole !== 'therapeut')}
                         >
-                            {isConnecting && realtimeRole === 'therapeut' ? <Loader2 className="w-5 h-5 animate-spin" /> : (recordingRole === 'therapeut' || realtimeRole === 'therapeut') ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                            <span className="text-center truncate px-1 flex items-center justify-center gap-1.5">
-                                <span className="w-4 h-4 rounded-full overflow-hidden inline-block shrink-0 border border-white/40">
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src="/images/guillaume_philippe.jpg" alt="GP" className="w-full h-full object-cover" />
-                                </span>
+                            <div className="flex items-center justify-between gap-3 mb-1 opacity-85 text-[11px] font-bold uppercase tracking-wider">
                                 <span>
-                                    {isConnecting 
-                                        ? 'Connexion...' 
-                                        : (recordingRole === 'therapeut' || realtimeRole === 'therapeut') 
-                                        ? "Arrêter" 
-                                        : "Guillaume (FR)"
-                                    }
+                                    {isTherapeut ? '🇫🇷 Guillaume (FR → ' + selectedLang.label + ')' : `${selectedLang.flag} Patient (${selectedLang.label} → FR)`}
                                 </span>
-                            </span>
-                        </Button>
-
-                        <Button
-                            size="lg"
-                            variant={(recordingRole === 'patient' || realtimeRole === 'patient') ? 'destructive' : 'outline'}
-                            className={`h-20 text-base font-bebas tracking-wide flex flex-col items-center justify-center gap-1.5 border-2 ${
-                                (recordingRole === 'patient' || realtimeRole === 'patient') ? 'animate-pulse' : 'border-[#4a3f35] text-[#4a3f35] hover:bg-[#e8dfd5]'
-                            }`}
-                            onClick={() => {
-                                if (isRecording && recordingRole === 'patient') return stopRecording();
-                                if (isConnected && realtimeRole === 'patient') return stopRealtimeSession();
-                                return startRealtimeSession('patient');
-                            }}
-                            disabled={isAnalyzing || isConnecting || (isRecording && recordingRole !== 'patient') || (isConnected && realtimeRole !== 'patient')}
-                        >
-                            {isConnecting && realtimeRole === 'patient' ? <Loader2 className="w-5 h-5 animate-spin" /> : (recordingRole === 'patient' || realtimeRole === 'patient') ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                            <span className="text-center truncate px-1">
-                                {isConnecting 
-                                    ? 'Connexion...' 
-                                    : (recordingRole === 'patient' || realtimeRole === 'patient') 
-                                    ? "Stop" 
-                                    : `${patientName || 'Patient'} (${patientLang.code.substring(0, 2).toUpperCase()})`
-                                }
-                            </span>
-                        </Button>
-                    </div>
-                )}
-
-                {/* Indicateur de durée de consultation en direct (1h+ supporté) */}
-                {(isConnected || isRecording || sessionSeconds > 0) && (
-                    <div className="flex items-center justify-between px-3 py-1 bg-[#ebd9c8]/30 rounded-lg text-[11px] text-[#4a3f35]">
-                        <span className="flex items-center gap-1.5 font-mono font-bold text-[#bd613c]">
-                            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                            ⏱️ {formatSessionTime(sessionSeconds)}
-                        </span>
-                        <span className="text-[10px] text-[#8c7b6c] italic">
-                            Session continue (1h+) • Écran maintenu allumé • Sauvegarde auto
-                        </span>
-                    </div>
-                )}
-            </div>
-
-            {/* 4. Alerte brouillon si présent */}
-            {draftExists && !isRecording && (
-                <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3.5 rounded-xl text-center w-full mb-0 shadow-sm">
-                    <p className="text-xs font-medium mb-2.5">⚠️ Un segment d&apos;enregistrement de {draftRole === 'therapeut' ? PRACTITIONER_NAME : (patientName || 'discours patient')} n&apos;a pas été finalisé.</p>
-                    <div className="flex justify-center gap-2.5">
-                        <Button variant="outline" size="sm" onClick={discardDraft} className="text-amber-700 border-amber-300 hover:bg-amber-100 text-xs h-7">
-                            Ignorer
-                        </Button>
-                        <Button size="sm" onClick={recoverDraft} className="bg-amber-600 hover:bg-amber-700 text-white text-xs h-7">
-                            Traduire & ajouter
-                        </Button>
-                    </div>
-                </div>
-            )}
-
-            {/* 5. Chat Area & Retranscription Parallèle */}
-            <Card className={`bg-white/85 backdrop-blur-sm border-[#e8dfd5] shadow-lg flex flex-col relative transition-all duration-300 ${chatExpanded ? 'fixed inset-0 z-50 rounded-none min-h-0 h-full bg-white' : 'flex-1 min-h-[360px]'}`}>
-                <div className={`absolute z-10 flex items-center gap-1 ${chatExpanded ? 'top-[env(safe-area-inset-top,12px)] right-4 pt-2' : 'top-2 right-2'}`}>
-                    {messages.length > 0 && !chatExpanded && (
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setMessages([])}
-                            className="text-[#bd613c] hover:bg-[#bd613c]/10 hover:text-[#bd613c] bg-white/50 rounded-full h-8 w-8"
-                            title="Effacer la discussion"
-                        >
-                            <Trash2 className="w-4 h-4" />
-                        </Button>
-                    )}
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setChatExpanded(!chatExpanded)}
-                        className="text-[#bd613c] hover:bg-[#bd613c]/10 bg-white/50 rounded-full h-8 w-8"
-                        title={chatExpanded ? 'Réduire' : 'Agrandir'}
-                    >
-                        {chatExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-                    </Button>
-                </div>
-
-                <CardContent className={`p-4 flex-1 h-full ${chatExpanded ? 'pt-14' : ''}`}>
-                    <ScrollArea className={`${chatExpanded ? 'h-[calc(100dvh-90px)]' : 'h-[340px]'} pr-3 w-full`} ref={scrollRef}>
-                        {messages.length === 0 ? (
-                            <div className="h-full flex flex-col items-center justify-center text-[#8c7b6c] space-y-3 py-10">
-                                <Globe className="w-12 h-12 opacity-25 text-[#bd613c]" />
-                                <div className="text-center">
-                                    <p className="font-bebas text-xl text-[#4a3f35] tracking-wide">
-                                        Consultation Bilingue Prête
-                                    </p>
-                                    <p className="text-xs text-[#8c7b6c] font-light max-w-sm mt-1">
-                                        {PRACTITIONER_NAME} (FR) ↔ {patientName || 'Patient'} ({patientLang.label})<br />
-                                        La retranscription et la traduction audio s&apos;afficheront en direct ici.
-                                    </p>
+                                <div className="flex items-center gap-1.5">
+                                    <button
+                                        type="button"
+                                        onClick={() => speakText(msg.translatedText, translatedLangCode)}
+                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors cursor-pointer ${
+                                            isTherapeut
+                                                ? 'bg-white/80 text-[#bd613c] hover:bg-white border border-[#bd613c]/20'
+                                                : 'bg-white/20 text-white hover:bg-white/30'
+                                        }`}
+                                        title="Réécouter la traduction à voix haute"
+                                    >
+                                        <Volume2 className="w-3 h-3" /> Écouter
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => speakText(msg.originalText, originalLangCode)}
+                                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] opacity-75 hover:opacity-100 transition-opacity cursor-pointer ${
+                                            isTherapeut ? 'text-[#5a4e44]' : 'text-white/90'
+                                        }`}
+                                        title="Écouter la phrase originale"
+                                    >
+                                        Orig.
+                                    </button>
                                 </div>
                             </div>
-                        ) : (
-                            <div className="space-y-4">
-                                {messages.map((msg) => (
-                                    <div key={msg.id} className={`flex flex-col ${msg.sender === 'therapeut' ? 'items-end' : 'items-start'}`}>
-                                        {/* Header du locuteur */}
-                                        <div className="flex items-center gap-1.5 mb-1 px-1">
-                                            {msg.sender === 'therapeut' ? (
-                                                <div className="w-4 h-4 rounded-full overflow-hidden border border-[#bd613c]/50 shrink-0">
-                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                    <img src="/images/guillaume_philippe.jpg" alt="GP" className="w-full h-full object-cover" />
-                                                </div>
-                                            ) : (
-                                                <span className="text-xs">{patientLang.flag}</span>
-                                            )}
-                                            <span className="text-[11px] font-bold text-[#4a3f35]">
-                                                {msg.sender === 'therapeut' ? `🇫🇷 ${PRACTITIONER_NAME}` : `${patientLang.flag} ${patientName || 'Patient'}`}
-                                            </span>
-                                            <span className="text-[10px] text-[#8c7b6c]">
-                                                {msg.sender === 'therapeut' ? '(Français)' : `(${msg.patientLangCode})`}
-                                            </span>
-                                        </div>
 
-                                        {/* Bloc Parallèle : Retranscription + Traduction */}
-                                        <div className={`w-full max-w-[92%] sm:max-w-[85%] p-3 rounded-2xl shadow-sm space-y-2.5 transition-all duration-300 ${
-                                            msg.sender === 'therapeut' 
-                                                ? 'bg-[#4a3f35]/5 border border-[#4a3f35]/15 rounded-tr-sm' 
-                                                : 'bg-[#ebd9c8]/25 border border-[#ebd9c8]/60 rounded-tl-sm'
-                                        }`}>
-                                            {/* 1. Retranscription Originale (Gemini 3.5) */}
-                                            <div className="bg-white/90 p-2.5 rounded-xl border border-[#ebd9c8]/50">
-                                                <div className="text-[9px] uppercase font-bold text-[#8c7b6c] mb-1 flex items-center justify-between">
-                                                    <span>📝 Retranscription originale</span>
-                                                    <span className="text-[9px] px-1.5 py-0.2 bg-purple-100 text-purple-700 font-mono rounded font-medium">Gemini 3.5</span>
-                                                </div>
-                                                {msg.transcription ? (
-                                                    <p className="text-xs sm:text-sm text-[#2b241e] italic leading-relaxed">
-                                                        &ldquo;{msg.transcription}&rdquo;
-                                                    </p>
-                                                ) : msg.isStreaming ? (
-                                                    <p className="text-xs text-[#8c7b6c] italic flex items-center gap-1.5">
-                                                        <Loader2 className="w-3 h-3 animate-spin text-[#bd613c]" />
-                                                        Écoute et retranscription en direct…
-                                                    </p>
-                                                ) : null}
-                                            </div>
+                            {/* Texte original */}
+                            <p className={`text-xs mb-1.5 italic ${isTherapeut ? 'text-[#4a3f35]/75' : 'text-white/80'}`}>
+                                &ldquo;{msg.originalText}&rdquo;
+                            </p>
 
-                                            {/* 2. Traduction en Parallèle (Gemini Live) */}
-                                            <div className={`p-2.5 rounded-xl flex items-start justify-between gap-2.5 ${
-                                                msg.sender === 'therapeut'
-                                                    ? 'bg-[#4a3f35] text-[#fdfbf6]'
-                                                    : 'bg-[#bd613c] text-white'
-                                            }`}>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="text-[9px] uppercase font-bold opacity-80 mb-1 flex items-center gap-1">
-                                                        <span>🔊 Traduction en direct</span>
-                                                        <span className="text-[8px] px-1 py-0.2 bg-white/20 rounded font-mono font-medium">Gemini Live</span>
-                                                    </div>
-                                                    {msg.isStreaming && msg.transcription && !msg.translation ? (
-                                                        <p className="text-xs opacity-90 flex items-center gap-1.5">
-                                                            <span className="inline-flex gap-0.5">
-                                                                <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                                                                <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                                                                <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                                                            </span>
-                                                            Génération de la voix traduite…
-                                                        </p>
-                                                    ) : msg.translation ? (
-                                                        <p className="text-xs sm:text-sm font-semibold leading-relaxed">
-                                                            {msg.translation}
-                                                        </p>
-                                                    ) : null}
-                                                </div>
+                            {/* Traduction mise en avant */}
+                            <p className={`text-sm sm:text-base font-semibold leading-snug pt-1.5 border-t ${
+                                isTherapeut ? 'border-[#bd613c]/15 text-[#bd613c]' : 'border-white/20 text-white'
+                            }`}>
+                                {msg.translatedText}
+                            </p>
+                        </div>
+                    );
+                })}
 
-                                                {msg.translation && (
-                                                    <Button
-                                                        size="icon"
-                                                        variant="ghost"
-                                                        onClick={() => speakText(msg.translation, msg.sender === 'therapeut' ? msg.patientLangTts : 'fr-FR')}
-                                                        className="shrink-0 h-7 w-7 rounded-full hover:bg-white/20 text-white"
-                                                        title="Réécouter à voix haute"
-                                                    >
-                                                        <Volume2 className="w-4 h-4" />
-                                                    </Button>
-                                                )}
-                                            </div>
-                                        </div>
+                {isTranslating && (
+                    <div className="flex items-center gap-2 text-[#bd613c] text-xs font-medium p-2.5 bg-white/80 rounded-xl w-fit shadow-2xs border border-[#ebd9c8] animate-pulse">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Traduction médicale en cours...
+                    </div>
+                )}
+                <div ref={messagesEndRef} />
+            </div>
+
+            {/* Contrôles d'enregistrement en bas */}
+            <CardContent className="p-3 sm:p-5 bg-white border-t border-[#bd613c]/10 flex flex-col gap-3">
+                {translationMode === 'conversation' ? (
+                    <div className="w-full flex flex-col items-center gap-2.5">
+                        {isHandsFreeActive && (
+                            <div className="w-full flex flex-col sm:flex-row items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-[#FAF7F2] border border-[#ebd9c8]">
+                                <div className="flex items-center gap-2.5">
+                                    <span className={`w-2.5 h-2.5 rounded-full ${
+                                        handsFreeStatus === 'speaking_detected'
+                                            ? 'bg-emerald-500 animate-ping'
+                                            : handsFreeStatus === 'translating'
+                                            ? 'bg-amber-500 animate-pulse'
+                                            : handsFreeStatus === 'tts_playing'
+                                            ? 'bg-blue-500 animate-pulse'
+                                            : 'bg-emerald-500'
+                                    }`} />
+                                    <span className="text-xs font-semibold text-[#4a3f35]">
+                                        {handsFreeStatus === 'speaking_detected' && "🗣️ Parole détectée (traduction dès la fin de phrase)..."}
+                                        {handsFreeStatus === 'translating' && "⏳ Traduction IA en cours..."}
+                                        {handsFreeStatus === 'tts_playing' && "🔊 Lecture vocale de la traduction (micro en pause anti-écho)..."}
+                                        {handsFreeStatus === 'listening' && `👂 En écoute automatique (Français ⇄ ${selectedLang.name})...`}
+                                    </span>
+                                </div>
+
+                                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                                    {/* Jauge visuelle de niveau vocal */}
+                                    <div className="w-20 h-2 bg-stone-200 rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full bg-emerald-500 transition-all duration-75"
+                                            style={{ width: `${vadLevel}%` }}
+                                        />
                                     </div>
-                                ))}
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={flushCurrentHandsFreeSegment}
+                                        disabled={isTranslating || isPlayingAudio}
+                                        className="h-7 px-2.5 text-[11px] border-[#bd613c]/30 text-[#bd613c] hover:bg-[#ebd9c8]/30"
+                                        title="Forcer la traduction immédiate de la phrase en cours"
+                                    >
+                                        <Send className="w-3 h-3 mr-1" /> Traduire maintenant
+                                    </Button>
+                                </div>
                             </div>
                         )}
-                    </ScrollArea>
-                </CardContent>
-            </Card>
 
-            {/* 6. Bouton de finalisation du Bilan TDT */}
-            {messages.length > 0 && (
-                <Button
-                    onClick={synthesizeConsultation}
-                    disabled={isAnalyzing || isRecording || isTranslating || isConnected || isConnecting}
-                    className="w-full py-5 text-lg font-bebas tracking-widest bg-[#bd613c] hover:bg-[#a05232] text-white transition-all duration-300 shadow-xl"
-                >
-                    {isAnalyzing ? (
-                        <>
-                            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                            Génération du Bilan TDT pour {patientName || 'le Patient'}...
-                        </>
-                    ) : `Terminer et créer le Bilan pour ${patientName || 'le Patient'}`}
-                </Button>
-            )}
+                        <Button
+                            type="button"
+                            onClick={() => {
+                                if (isHandsFreeActive) {
+                                    stopHandsFreeSession();
+                                } else {
+                                    startHandsFreeSession();
+                                }
+                            }}
+                            disabled={isGeneratingSynthesis}
+                            className={`w-full h-14 sm:h-16 rounded-2xl flex items-center justify-center gap-3 transition-all text-white shadow-md cursor-pointer ${
+                                isHandsFreeActive
+                                    ? 'bg-red-500 hover:bg-red-600'
+                                    : 'bg-emerald-600 hover:bg-emerald-700'
+                            }`}
+                        >
+                            {isHandsFreeActive ? (
+                                <>
+                                    <Square className="w-5 h-5 fill-current" />
+                                    <div className="flex flex-col items-start text-left">
+                                        <span className="font-bold text-sm sm:text-base tracking-wide">ARRÊTER L&apos;ÉCOUTE MAINS LIBRES</span>
+                                        <span className="text-[11px] opacity-90 font-normal">Cliquez pour mettre en pause la traduction automatique</span>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <Mic className="w-6 h-6" />
+                                    <div className="flex flex-col items-start text-left">
+                                        <span className="font-bold text-sm sm:text-base tracking-wide">DÉMARRER LA SÉANCE MAINS LIBRES</span>
+                                        <span className="text-[11px] opacity-90 font-normal">Détection vocale automatique Français ⇄ {selectedLang.name}</span>
+                                    </div>
+                                </>
+                            )}
+                        </Button>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-2 gap-3 w-full">
+                        {/* Bouton Praticien (FR -> Langue étrangère) */}
+                        <Button
+                            type="button"
+                            onClick={() => activeSpeaker === 'therapeut' ? stopManualRecording() : startManualRecording('therapeut')}
+                            disabled={(activeSpeaker !== null && activeSpeaker !== 'therapeut') || isBusy}
+                            className={`h-16 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+                                activeSpeaker === 'therapeut'
+                                    ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse shadow-inner'
+                                    : 'bg-[#ebd9c8]/60 hover:bg-[#ebd9c8] text-[#4a3f35] border border-[#bd613c]/20'
+                            }`}
+                        >
+                            {activeSpeaker === 'therapeut' ? (
+                                <>
+                                    <Square className="w-5 h-5 fill-current" />
+                                    <span className="text-xs font-bold">Arrêter & Traduire ({selectedLang.label})</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Mic className="w-5 h-5 text-[#bd613c]" />
+                                    <span className="text-xs sm:text-sm font-bold">🇫🇷 Guillaume (FR)</span>
+                                    <span className="text-[10px] opacity-75">Traduit vers {selectedLang.name}</span>
+                                </>
+                            )}
+                        </Button>
 
-        </div>
+                        {/* Bouton Patient (Langue étrangère -> FR) */}
+                        <Button
+                            type="button"
+                            onClick={() => activeSpeaker === 'patient' ? stopManualRecording() : startManualRecording('patient')}
+                            disabled={(activeSpeaker !== null && activeSpeaker !== 'patient') || isBusy}
+                            className={`h-16 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+                                activeSpeaker === 'patient'
+                                    ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse shadow-inner'
+                                    : 'bg-[#bd613c] hover:bg-[#a65332] text-white shadow-sm'
+                            }`}
+                        >
+                            {activeSpeaker === 'patient' ? (
+                                <>
+                                    <Square className="w-5 h-5 fill-current" />
+                                    <span className="text-xs font-bold">Arrêter & Traduire (FR)</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Mic className="w-5 h-5" />
+                                    <span className="text-xs sm:text-sm font-bold">{selectedLang.flag} Patient ({selectedLang.label})</span>
+                                    <span className="text-[10px] opacity-85">Traduit vers Français</span>
+                                </>
+                            )}
+                        </Button>
+                    </div>
+                )}
+
+                {/* Bouton de clôture et génération du Bilan */}
+                {messages.length > 0 && (
+                    <Button
+                        type="button"
+                        onClick={finishSession}
+                        disabled={isBusy}
+                        className="w-full h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm transition-all cursor-pointer"
+                    >
+                        {isGeneratingSynthesis ? (
+                            <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Génération du Bilan en Français...
+                            </>
+                        ) : (
+                            <>
+                                <Check className="w-4 h-4 mr-2" /> Terminer et créer le Bilan ({messages.length} échange{messages.length > 1 ? 's' : ''})
+                            </>
+                        )}
+                    </Button>
+                )}
+            </CardContent>
+        </Card>
     );
 }
+
+export default BilingualRecorder;
+

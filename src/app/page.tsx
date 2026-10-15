@@ -509,28 +509,61 @@ export default function Home() {
   };
 
   const handleBilingualComplete = async (audioBlob: Blob, result: Record<string, string>) => {
-    const defaultName = result.patientName && result.patientName.trim() !== "" ? result.patientName : "Patient(e) Anglophone";
+    try {
+      const langLabel = result.targetLanguage || "Bilingue";
+      const defaultName = result.patientName && result.patientName.trim() !== ""
+        ? result.patientName
+        : `Patient(e) (${langLabel})`;
 
-    // On insère les données traduites directement
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+      const { data: { user } } = await supabase.auth.getUser();
 
-    await supabase.from('consultations').insert({
-      user_id: user.id,
-      date: new Date().toISOString(),
-      patient_name: defaultName,
-      synthese: result.synthese,
-      transcription: result.transcription,
-      resume: result.resume,
-      created_at: new Date().toISOString(),
-    });
+      const { data: newConsultation, error: insertError } = await supabase.from('consultations').insert({
+        user_id: user?.id || "00000000-0000-0000-0000-000000000000",
+        date: new Date().toISOString(),
+        patient_name: defaultName,
+        synthese: result.synthese || "",
+        transcription: result.transcription || "",
+        resume: result.resume || "",
+        created_at: new Date().toISOString(),
+      }).select().single();
 
-    setAttachedFiles([]); // On vide les fichiers après succès
+      if (insertError || !newConsultation) {
+        throw new Error("Impossible d'enregistrer le bilan bilingue : " + (insertError?.message || ""));
+      }
 
-    toast({
-      title: "Bilan terminé",
-      description: "Le bilan bilingue a été généré avec succès.",
-    });
+      // Sauvegarder la transcription bilingue dans tdt_uploads
+      const txtFileName = `audio_${Date.now()}_${newConsultation.id}.txt`;
+      const { error: uploadErr } = await supabase.storage
+        .from('tdt_uploads')
+        .upload(txtFileName, audioBlob, { contentType: 'text/plain; charset=utf-8' });
+
+      if (!uploadErr) {
+        await supabase.from('consultations').update({ audio_path: txtFileName }).eq('id', newConsultation.id);
+      }
+
+      // Sauvegarder les éventuels fichiers attachés
+      for (const file of attachedFiles) {
+        const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+        const fileName = `doc_${Date.now()}_${newConsultation.id}_${safeName}`;
+        await supabase.storage.from('tdt_uploads').upload(fileName, file, { contentType: file.type });
+      }
+
+      setAttachedFiles([]);
+
+      toast({
+        title: "✅ Bilan bilingue enregistré",
+        description: `Dossier créé : ${defaultName}`,
+      });
+
+      router.push(`/consultation/${newConsultation.id}`);
+    } catch (err: any) {
+      console.error("Erreur handleBilingualComplete:", err);
+      toast({
+        title: "Erreur d'enregistrement",
+        description: err?.message || "Impossible de sauvegarder le bilan bilingue.",
+        variant: "destructive"
+      });
+    }
   };
 
   const handleDelete = async (id: string) => {

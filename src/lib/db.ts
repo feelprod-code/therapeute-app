@@ -20,6 +20,13 @@ export interface DraftRecording {
     startedAt: Date;
     lastUpdatedAt: Date;
     bilingualRole?: 'therapeut' | 'patient'; // Uniquement pour le mode bilingue si besoin
+    messages?: Array<{
+        id: string;
+        speaker: 'therapeut' | 'patient';
+        originalText: string;
+        translatedText: string;
+        timestamp: Date;
+    }>;
 }
 
 const db = new Dexie('TherapeuteDB') as Dexie & {

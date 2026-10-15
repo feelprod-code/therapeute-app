@@ -108,11 +108,17 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
     };
 
     useEffect(() => {
-        // Verify if a draft exists on mount
+        // Verify if a valid draft (>= 1 KB) exists on mount
         const checkDraft = async () => {
             const draft = await db.drafts.get('standard');
             if (draft && draft.audioChunks.length > 0) {
-                setDraftExists(true);
+                const totalBytes = draft.audioChunks.reduce((acc, c) => acc + (c?.size || 0), 0);
+                if (totalBytes >= 1000) {
+                    setDraftExists(true);
+                } else {
+                    await db.drafts.delete('standard');
+                    setDraftExists(false);
+                }
             }
         };
         checkDraft();
@@ -133,6 +139,11 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
         const draft = await db.drafts.get('standard');
         if (draft && draft.audioChunks.length > 0) {
             const audioBlob = new Blob(draft.audioChunks, { type: draft.mimeType || 'audio/webm' });
+            if (audioBlob.size < 1000) {
+                await db.drafts.delete('standard');
+                setDraftExists(false);
+                return;
+            }
             const success = await onRecordingComplete(audioBlob);
             if (success) {
                 await db.drafts.delete('standard');
@@ -224,15 +235,17 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
             mediaRecorder.ondataavailable = async (event) => {
                 if (event.data.size > 0) {
                     audioChunksRef.current.push(event.data);
-                    // Sauvegarde continue
-                    await db.drafts.put({
-                        id: 'standard',
-                        mode: 'standard',
-                        audioChunks: audioChunksRef.current,
-                        mimeType: mimeTypeRef.current,
-                        startedAt: recordStartTimeRef.current || new Date(),
-                        lastUpdatedAt: new Date()
-                    });
+                    // Sauvegarde continue uniquement tant que l'enregistrement est actif
+                    if (mediaRecorder.state === 'recording' || mediaRecorder.state === 'paused') {
+                        await db.drafts.put({
+                            id: 'standard',
+                            mode: 'standard',
+                            audioChunks: [...audioChunksRef.current],
+                            mimeType: mimeTypeRef.current,
+                            startedAt: recordStartTimeRef.current || new Date(),
+                            lastUpdatedAt: new Date()
+                        });
+                    }
                 }
             };
 
@@ -246,10 +259,11 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                     streamRef.current = null;
                 }
 
-                if (audioBlob.size === 0) {
+                if (audioBlob.size < 1000) {
+                    await db.drafts.delete('standard');
                     toast({
-                        title: "Erreur audio",
-                        description: "L'enregistrement a retourné un fichier vide. Vérifiez les accès micro Safari.",
+                        title: "Enregistrement trop court",
+                        description: "L'enregistrement est vide ou trop court (< 1 seconde).",
                         variant: "destructive",
                     });
                     return;
@@ -265,7 +279,6 @@ export function AudioRecorder({ onRecordingComplete, isProcessing = false }: Aud
                     if (success !== false) {
                         // Supprimer le brouillon SEULEMENT une fois l'enregistrement terminé avec succès
                         await db.drafts.delete('standard');
-                        // setDraftExists n'est plus appelé ici pour éviter des warnings si le composant a démonté
                     } else {
                         toast({
                             title: "Erreur détectée",

@@ -153,6 +153,42 @@ export function ensureLastNameFirst(fullName: string): string {
   return trimmed;
 }
 
+const INVALID_NAME_WORDS = new Set([
+  'ca', 'ça', 'marche', 'oui', 'non', 'bonjour', 'bonsoir', 'salut', 'merci',
+  'daccord', 'accord', 'alors', 'euh', 'heu', 'hmm', 'mhm', 'ben', 'bah', 'bon',
+  'voila', 'voilà', 'comment', 'docteur', 'patient', 'patiente', 'anonyme',
+  'inconnu', 'inconnue', 'renseigne', 'renseigné', 'renseignee', 'renseignée',
+  'precise', 'précisé', 'precisee', 'précisée', 'aucun', 'aucune', 'null', 'undefined',
+  'je', 'tu', 'il', 'elle', 'on', 'nous', 'vous', 'ils', 'elles', 'cest', 'est',
+  'suis', 'ai', 'avais', 'fait', 'faire', 'mal', 'douleur', 'droite', 'gauche',
+  'madame', 'monsieur', 'mademoiselle', 'mme', 'mr', 'mlle', 'dr'
+]);
+
+export function isPlausiblePersonName(candidate: string): boolean {
+  if (!candidate) return false;
+  const cleaned = candidate
+    .replace(/^(?:madame|monsieur|mademoiselle|m\.|mme|mlle|dr\.?)\s+/i, '')
+    .trim();
+  if (cleaned.length < 2 || cleaned.length > 60) return false;
+  // Reject if contains digits or sentence punctuation
+  if (/[0-9?!;:()[\]{}/\\]/.test(cleaned)) return false;
+
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 4) return false;
+
+  for (const w of words) {
+    const norm = w
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z]/g, '');
+    if (!norm || INVALID_NAME_WORDS.has(norm)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function extractPatientNameFromText(rawText: string): string {
   if (!rawText || !rawText.trim()) return "";
   const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -161,11 +197,11 @@ export function extractPatientNameFromText(rawText: string): string {
   // Pattern 1: Civility header on separate line (Madame / Monsieur / M. / Mme)
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const isCivility = /^(madame|monsieur|m\.|mme|mlle|patient\s*:?|patiente\s*:?)$/i.test(line);
+    const isCivility = /^(madame|monsieur|m\.|mme|mlle)$/i.test(line);
     if (isCivility && i + 2 < lines.length) {
-      const next1 = lines[i + 1].replace(/^[^\w\sÀ-ÖØ-öø-ÿ]+|[^\w\sÀ-ÖØ-öø-ÿ]+$/g, '').trim();
-      const next2 = lines[i + 2].replace(/^[^\w\sÀ-ÖØ-öø-ÿ]+|[^\w\sÀ-ÖØ-öø-ÿ]+$/g, '').trim();
-      if (next1 && next2 && !next1.includes(':') && !next2.includes(':')) {
+      const next1 = lines[i + 1].replace(/^[^\w\sÀ-ÖØ-öø-ÿ-]+|[^\w\sÀ-ÖØ-öø-ÿ-]+$/g, '').trim();
+      const next2 = lines[i + 2].replace(/^[^\w\sÀ-ÖØ-öø-ÿ-]+|[^\w\sÀ-ÖØ-öø-ÿ-]+$/g, '').trim();
+      if (next1 && next2 && !next1.includes(':') && !next2.includes(':') && isPlausiblePersonName(`${next1} ${next2}`)) {
         return ensureLastNameFirst(`${next1} ${next2}`);
       }
     }
@@ -178,28 +214,33 @@ export function extractPatientNameFromText(rawText: string): string {
     if (
       lines.length >= 3 &&
       (lines[2].toLowerCase().includes('né') || /^[fm],?\s*\d{2}[\/-]\d{2}[\/-]\d{4}/i.test(lines[2]) || /^[fm],?\s*\d+/i.test(lines[2]) || /^\d{2}[\/-]\d{2}[\/-]\d{4}/.test(lines[2])) &&
-      !line0.includes(':') && !line1.includes(':')
+      !line0.includes(':') && !line1.includes(':') &&
+      isPlausiblePersonName(`${line0} ${line1}`)
     ) {
       return ensureLastNameFirst(`${line0} ${line1}`);
     }
   }
 
-  // Pattern 3: Key-value lines (Nom : ..., Prénom : ...)
+  // Pattern 3: Explicit Key-value lines (Nom : ..., Prénom : ..., Nom / Prénom : ...)
+  // IMPORTANT: Never match bare "Patient:" or "Patiente:" as those are dialogue speaker tags!
   let foundLastName = "";
   let foundFirstName = "";
   for (const line of lines) {
-    const lastNameMatch = line.match(/^(?:nom|nom\s+(?:de\s+)?naissance|nom\s+d'usage|nom\s+marital)\s*:\s*([^,\n]+)/i);
+    const cleanLine = line.replace(/^[-*•\s]+/, '').replace(/\*\*/g, '');
+    const lastNameMatch = cleanLine.match(/^(?:nom|nom\s+(?:de\s+)?naissance|nom\s+d'usage|nom\s+marital|nom\s+de\s+famille)\s*:\s*([^,\n]+)/i);
     if (lastNameMatch && !foundLastName) {
-      foundLastName = lastNameMatch[1].trim();
+      const val = lastNameMatch[1].trim();
+      if (isPlausiblePersonName(val)) foundLastName = val;
     }
-    const firstNameMatch = line.match(/^(?:prénom|prenom)\s*:\s*([^,\n]+)/i);
+    const firstNameMatch = cleanLine.match(/^(?:prénom|prenom)\s*:\s*([^,\n]+)/i);
     if (firstNameMatch && !foundFirstName) {
-      foundFirstName = firstNameMatch[1].trim();
+      const val = firstNameMatch[1].trim();
+      if (isPlausiblePersonName(val)) foundFirstName = val;
     }
-    const fullMatch = line.match(/^(?:nom\s*[\/&]\s*pr[ée]nom|nom\s+et\s+pr[ée]nom|patient(?:e)?)\s*:\s*([^,\n]+)/i);
+    const fullMatch = cleanLine.match(/^(?:nom\s*[\/&]\s*pr[ée]nom|nom\s+et\s+pr[ée]nom|nom\s+du\s+patient|nom\s+de\s+la\s+patiente|identit[ée]\s+du\s+patient)\s*:\s*([^,\n(]+)/i);
     if (fullMatch) {
       const candidate = fullMatch[1].trim();
-      if (candidate && !/^(non\s+pr[ée]cis[ée]|anonyme)/i.test(candidate)) {
+      if (isPlausiblePersonName(candidate)) {
         return ensureLastNameFirst(candidate);
       }
     }
@@ -212,16 +253,28 @@ export function extractPatientNameFromText(rawText: string): string {
     return foundLastName.toUpperCase();
   }
 
-  // Pattern 4: Inline civility or "Patient(e) [Nom Prénom]" at start of text
+  // Pattern 4: Inline civility at start of text (excluding dialogue "Patiente: ...")
   const firstLine = lines[0];
-  const inlineMatch = firstLine.match(/^(?:patient(?:e)?|madame|monsieur|m\.|mme)\s+([A-ZÀ-ÖØ-öø-ÿ\s-]+?)(?:,|\.|\s+\d|\s+né|\s+a\s+\d|\s+consulte|$)/i);
-  if (inlineMatch && inlineMatch[1].trim().length > 2) {
-    const candidate = inlineMatch[1].trim();
-    if (!/^(anonyme|non\s+pr[ée]cis[ée])$/i.test(candidate)) {
+  if (!/^(?:patient(?:e)?|th[ée]rapeute)\s*:/i.test(firstLine)) {
+    const inlineMatch = firstLine.match(/^(?:madame|monsieur|m\.|mme)\s+([A-ZÀ-ÖØ-öø-ÿ\s-]+?)(?:,|\.|\s+\d|\s+né|\s+a\s+\d|\s+consulte|$)/i);
+    if (inlineMatch && inlineMatch[1].trim().length > 2) {
+      const candidate = inlineMatch[1].trim();
+      if (isPlausiblePersonName(candidate)) {
+        return ensureLastNameFirst(candidate);
+      }
+    }
+  }
+
+  // Pattern 5: Spoken surname in dialogue ("C'était à quel nom ... ? C'était Portman")
+  const spokenNameMatch = rawText.match(/(?:à\s+quel\s+nom[^?]*\?\s*(?:c'[ée]tait\s+|au\s+nom\s+de\s+)?|mon\s+nom\s+(?:de\s+famille\s+)?c'est\s+|je\s+m'appelle\s+)([A-ZÀ-ÖØ-Ý][a-zà-öø-ÿA-ZÀ-ÖØ-Ý-]+(?:\s+[A-ZÀ-ÖØ-Ý][a-zà-öø-ÿA-ZÀ-ÖØ-Ý-]+)?)/i);
+  if (spokenNameMatch && spokenNameMatch[1]) {
+    const candidate = spokenNameMatch[1].trim();
+    if (isPlausiblePersonName(candidate)) {
       return ensureLastNameFirst(candidate);
     }
   }
 
   return "";
 }
+
 

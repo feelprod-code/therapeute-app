@@ -7,7 +7,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { ensureLastNameFirst, extractPatientNameFromText } from '@/lib/utils';
+import { ensureLastNameFirst, extractPatientNameFromText, isPlausiblePersonName } from '@/lib/utils';
 import { processMedicalPdf, processMedicalDocument, MedicalImagingResult } from '@/lib/medical-imaging';
 
 const execAsync = promisify(exec);
@@ -258,6 +258,13 @@ export async function POST(req: Request) {
 
             processedAudioBuffer = audioBuffer;
             if (!finalMimeType.startsWith('text/')) {
+                if (audioBuffer.length < 1000) {
+                    console.error(`[API] Fichier audio rejeté car trop court ou corrompu (${audioBuffer.length} octets): ${audioFile.fileName}`);
+                    return NextResponse.json(
+                        { error: `Enregistrement audio vide ou trop court (${audioBuffer.length} octets).` },
+                        { status: 400 }
+                    );
+                }
                 processedAudioBuffer = await fixAudioBufferWithFfmpeg(audioBuffer, finalMimeType);
             }
 
@@ -449,13 +456,23 @@ export async function POST(req: Request) {
                     model: 'gemini-2.5-flash',
                     contents: [
                         { fileData: { fileUri: audioUpload.uri, mimeType: audioUpload.mimeType } },
-                        { text: "Retranscris l'intégralité exacte, mot à mot (verbatim) de cet enregistrement audio médical en français. Retranscris CHAQUE MOT prononcé par le patient et le thérapeute, avec les hésitations, sans aucun résumé, sans omission et sans couper." }
+                        { text: "Retranscris l'intégralité exacte, mot à mot (verbatim) de cet enregistrement audio médical. Retranscris CHAQUE MOT prononcé par le patient et le thérapeute sans aucun résumé, sans omission et sans couper. Si le patient ou le thérapeute parle dans une langue étrangère (anglais, espagnol, italien, japonais, russe, etc.) ou avec un fort accent étranger, retranscris la phrase originale ET ajoute immédiatement sa traduction fidèle en français entre crochets [Traduction FR : ...]." }
                     ],
                     config: {
                         maxOutputTokens: 65536
                     }
                 });
                 directAudioTranscription = transcribeRes.text?.trim() || "";
+                if (
+                    directAudioTranscription.includes("je n'ai pas la capacité d'écouter") ||
+                    directAudioTranscription.includes("Exemple de ce à quoi ressemblerait une telle transcription")
+                ) {
+                    console.error("[API PASS 1] Hallucination Gemini détectée sur un audio illisible/vide.");
+                    return NextResponse.json(
+                        { error: "L'enregistrement audio est vide ou inaudible." },
+                        { status: 400 }
+                    );
+                }
                 console.log(`[API PASS 1] Transcription audio réussie (${directAudioTranscription.length} caractères).`);
             } catch (err) {
                 console.error("[API PASS 1] Erreur transcription audio dédiée :", err);
@@ -517,14 +534,14 @@ Ton objectif est de mettre à jour la synthèse PRÉCÉDENTE en FUSIONNANT de ma
         const systemPrompt = `Tu es un assistant médical clinique expert (ostéopathie, biokinergie, thérapie manuelle). Ton rôle est d'analyser l'intégralité de la transcription de l'interrogatoire patient (et/ou des documents) et de produire un bilan médical exhaustif, riche et rigoureusement structuré.${contextInstruction}
 Tu dois IMPÉRATIVEMENT répondre avec un objet JSON strictement formaté comme ceci :
 {
-  "patientName": "Nom et Prénom trouvés (ex: 'PETIT TOYOZATO Eri' ou 'DONNADIEU Nathalie')",
+  "patientName": "Nom et Prénom trouvés (ex: 'PETIT TOYOZATO Eri' ou 'PORTMAN Madame')",
   "consultationDate": "Date trouvée dans le texte (ex: 2024-10-14). Si aucune date précise n'est mentionnée, renvoie null ou une chaîne vide.",
   "resume": "Le résumé global et évolutif intégrant le bilan initial et les suivis datés (avec imagerie clé en markdown pur si présente, lieux de fracture, notes psy et synthèse clinique).",
   "synthese": "La synthèse médicale formatée en Markdown"
 }
 
 Règles impératives et absolues :
-1. "patientName" : Extrait scrupuleusement le NOM (en MAJUSCULES) suivi du Prénom (ex: "PETIT TOYOZATO Eri", "SOULE Laura"). Si le texte commence par une civilité (Madame, Monsieur), des lignes avec Nom, Prénom, Nom de naissance, analyse scrupuleusement ces lignes. Ne renvoie JAMAIS "Anonyme", "Patient Anonyme" ou chaîne vide si un nom ou prénom est mentionné ou discernable dans le texte ou les documents !
+1. "patientName" : Extrait scrupuleusement le NOM (en MAJUSCULES) suivi du Prénom (ex: "PETIT TOYOZATO Eri", "SOULE Laura"). Si seul le nom de famille est mentionné dans le dialogue (ex: "C'était à quel nom ? C'était Portman", ou via le nom de son enfant "Dimitri Portman"), renvoie ce nom de famille en majuscules (ex: "PORTMAN Madame" ou "PORTMAN"). ATTENTION : Ne prends JAMAIS une réplique de dialogue (comme "ça marche", "oui", "bonjour") pour un nom de patient !
 2. "consultationDate" : Si le texte mentionne EXPLICITEMENT la date de la séance (ex: "bilan du 14 octobre", "vu le 12/03/2021"), extrait-la au format string ISO AAAA-MM-JJ. Si AUCUNE date n'est prononcée ou écrite dans les documents, tu DOIS IMPÉRATIVEMENT renvoyer une chaîne vide "". Ne déduis PAS la date et ne mets JAMAIS la date d'aujourd'hui par défaut dans ce champ JSON.
 3. "resume" : Remplacer la transcription par un texte lisible en un coup d'oeil intégrant le bilan initial et toutes les séances de suivi avec leurs dates respectives, les constats radiologiques (fractures, cals osseux, discarthrose) et le volet psycho-émotionnel.
 4. "synthese" : RÈGLE D'EXHAUSTIVITÉ CLINIQUE SANS REMPLISSAGE SPÉCULATIF :
@@ -641,78 +658,74 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
             synthesisParts.push({ text: attachedDocsContext });
         }
 
-        synthesisParts.push({ text: systemPrompt });
-
         console.log(`[API PASS 2] Génération de la synthèse clinique exhaustive (budget: 65536 tokens)...`);
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: [
-                {
-                    role: 'user',
-                    parts: synthesisParts
+        let jsonResult: any = null;
+        for (let pass2Attempt = 1; pass2Attempt <= 2; pass2Attempt++) {
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: [
+                    {
+                        role: 'user',
+                        parts: synthesisParts
+                    }
+                ],
+                config: {
+                    systemInstruction: systemPrompt,
+                    responseMimeType: 'application/json',
+                    maxOutputTokens: 65536,
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            patientName: {
+                                type: Type.STRING,
+                                description: "Nom et Prénom trouvés (ou chaîne vide si aucun)"
+                            },
+                            consultationDate: {
+                                type: Type.STRING,
+                                description: "Date trouvée dans le texte (ex: 2024-10-14). Si aucune date précise n'est mentionnée, renvoie null ou une chaîne vide."
+                            },
+                            resume: {
+                                type: Type.STRING,
+                                description: "Le résumé global et évolutif de la consultation. Il DOIT STRICTEMENT DÉBUTER par le Motif de consultation, les Symptômes exprimés et la Demande du patient (### 📋 Motif de Consultation, Symptômes Exprimés & Demande du Patient). Ensuite seulement, si des examens d'imagerie médicale sont présents, insérer la section d'imagerie (### 🎯 Examens d'Imagerie & Planches Didactiques) avec la planche didactique maîtresse en Markdown pur (![Titre](url.png)), suivi du récapitulatif des repères didactiques et de la synthèse clinique ostéopathique TDT."
+                            },
+                            synthese: {
+                                type: Type.STRING,
+                                description: "La synthèse médicale complète formatée en Markdown jusqu'à la fin de la section Antécédents"
+                            }
+                        },
+                        required: ["patientName", "consultationDate", "resume", "synthese"]
+                    }
                 }
-            ],
-            config: {
-                systemInstruction: systemPrompt,
-                responseMimeType: 'application/json',
-                maxOutputTokens: 65536,
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        patientName: {
-                            type: Type.STRING,
-                            description: "Nom et Prénom trouvés (ou chaîne vide si aucun)"
-                        },
-                        consultationDate: {
-                            type: Type.STRING,
-                            description: "Date trouvée dans le texte (ex: 2024-10-14). Si aucune date précise n'est mentionnée, renvoie null ou une chaîne vide."
-                        },
-                        resume: {
-                            type: Type.STRING,
-                            description: "Le résumé global et évolutif de la consultation. Il DOIT STRICTEMENT DÉBUTER par le Motif de consultation, les Symptômes exprimés et la Demande du patient (### 📋 Motif de Consultation, Symptômes Exprimés & Demande du Patient). Ensuite seulement, si des examens d'imagerie médicale sont présents, insérer la section d'imagerie (### 🎯 Examens d'Imagerie & Planches Didactiques) avec la planche didactique maîtresse en Markdown pur (![Titre](url.png)), suivi du récapitulatif des repères didactiques et de la synthèse clinique ostéopathique TDT."
-                        },
-                        synthese: {
-                            type: Type.STRING,
-                            description: "La synthèse médicale formatée en Markdown"
-                        }
-                    },
-                    required: ["patientName", "consultationDate", "resume", "synthese"]
-                }
+            });
+
+            const texteResponse = response.text;
+            if (!texteResponse) {
+                if (pass2Attempt === 2) throw new Error("L'API Gemini a retourné une réponse vide.");
+                continue;
             }
-        });
 
-        const texteResponse = response.text;
+            const cleanJson = texteResponse
+                .replace(/\`\`\`json\n/g, '')
+                .replace(/\`\`\`\n?/g, '')
+                .trim();
 
-        if (!texteResponse) {
-            throw new Error("L'API Gemini a retourné une réponse vide.");
-        }
-
-        const cleanJson = texteResponse
-            .replace(/\`\`\`json\n/g, '')
-            .replace(/\`\`\`\n?/g, '')
-            .trim();
-
-        let jsonResult;
-        try {
-            jsonResult = JSON.parse(cleanJson);
-        } catch (e) {
-            console.error("[API] JSON Parse Erreur standard. Longueur :", cleanJson.length, "Message :", e instanceof Error ? e.message : e);
             try {
-                await fs.writeFile(path.join(process.cwd(), 'debug_invalid_json.json'), cleanJson, 'utf-8');
-                console.log("[API] JSON invalide écrit dans debug_invalid_json.json pour inspection.");
-            } catch (err) {
-                console.error("[API] Impossible d'écrire le JSON de debug :", err);
+                jsonResult = JSON.parse(cleanJson);
+            } catch (e) {
+                console.error(`[API] JSON Parse Erreur standard (tentative ${pass2Attempt}). Longueur :`, cleanJson.length, "Message :", e instanceof Error ? e.message : e);
+                const rescued = extractKeyValues(cleanJson);
+                if (rescued) {
+                    console.log("[API] Sauvetage JSON réussi avec succès !");
+                    jsonResult = rescued;
+                } else if (pass2Attempt === 2) {
+                    throw e;
+                }
             }
 
-            console.log("[API] Tentative de sauvetage du JSON via extraction robuste...");
-            const rescued = extractKeyValues(cleanJson);
-            if (rescued) {
-                console.log("[API] Sauvetage JSON réussi avec succès !");
-                jsonResult = rescued;
-            } else {
-                console.error("[API] Le sauvetage JSON a échoué.");
-                throw e; // Renvoyer l'erreur d'origine
+            if (jsonResult && jsonResult.synthese && jsonResult.synthese.includes('### Antécédents')) {
+                break;
             }
+            console.warn(`[API PASS 2] Synthèse potentiellement tronquée (tentative ${pass2Attempt}), nouvelle génération...`);
         }
 
         // Fusion de la transcription de l'audio avec celle des documents extraits sur le serveur
@@ -738,14 +751,15 @@ TRÈS IMPORTANT : Produis uniquement un objet JSON valide conforme au schéma.`;
             jsonResult.transcription = previousContext.transcription + separator + (jsonResult.transcription || "");
         }
 
-        // Validation stricte du nom du patient (rejet des faux positifs de dialogue comme "Hmm.", "Oui", "Non", etc.)
+        // Validation stricte du nom du patient (rejet des faux positifs de dialogue comme "Hmm.", "Oui", "Non", "ça marche", etc.)
         const isInvalidPatientName = (name?: string) => {
             if (!name) return true;
+            if (!isPlausiblePersonName(name)) return true;
             const clean = name.trim().toLowerCase().replace(/[^a-zà-öø-ÿ]/g, '');
             if (clean.length < 3) return true;
             const invalidTokens = [
                 'hmm', 'mhm', 'oui', 'non', 'bonjour', 'merci', 'patient', 'patiente',
-                'patientanonyme', 'anonyme', 'inconnu', 'nonprecise', 'nonrenseigne', 'null', 'undefined'
+                'camarche', 'çamarche', 'patientanonyme', 'anonyme', 'inconnu', 'nonprecise', 'nonrenseigne', 'null', 'undefined'
             ];
             return invalidTokens.includes(clean) || clean.startsWith('patientanonyme');
         };

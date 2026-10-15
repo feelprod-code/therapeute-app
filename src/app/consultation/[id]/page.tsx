@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AudioRecorder } from "@/components/AudioRecorder";
+import { BilingualRecorder } from "@/components/BilingualRecorder";
 import { useToast } from "@/hooks/use-toast";
 import { useVoiceDictation } from "@/hooks/use-voice-dictation";
 import imageCompression from 'browser-image-compression';
@@ -268,6 +269,7 @@ export default function ConsultationDetail() {
 
   // Nouveaux états pour le suivi chronologique
   const [appendMode, setAppendMode] = useState<'bilan' | 'suivi'>('suivi');
+  const [modalRecorderType, setModalRecorderType] = useState<'standard' | 'bilingual'>('standard');
   const fileInputRefBilan = useRef<HTMLInputElement>(null);
   const fileInputRefSuivi = useRef<HTMLInputElement>(null);
   const fileInputRefImage = useRef<HTMLInputElement>(null);
@@ -1139,6 +1141,90 @@ export default function ConsultationDetail() {
     }
   };
 
+  const handleAppendBilingualRecording = async (transcriptText: string) => {
+    if (!transcriptText || !transcriptText.trim()) return;
+    setIsAppending(true);
+    setIsRecordingModalOpen(false);
+
+    try {
+      const fileName = `bilingue_${Date.now()}_${params.id}.txt`;
+      const textBlob = new Blob([transcriptText], { type: 'text/plain;charset=utf-8' });
+      await supabase.storage.from('tdt_uploads').upload(fileName, textBlob, {
+        contentType: 'text/plain;charset=utf-8',
+      });
+
+      if (appendMode === 'bilan') {
+        toast({ title: "Mise à jour bilingue en cours...", description: "L'IA analyse et intègre la session bilingue au bilan..." });
+        const response = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            newText: transcriptText,
+            previousContext: {
+              synthese: data.synthese,
+              transcription: data.transcription,
+              patientName: data.patient_name || data.patientName || ""
+            }
+          })
+        });
+
+        if (!response.ok) throw new Error("Erreur lors de la mise à jour bilingue par l'IA.");
+        const result = await response.json();
+
+        await saveSyntheseWithHistory(
+          result.synthese,
+          result.patientName || data.patient_name,
+          "Ajout de session bilingue au bilan",
+          transcriptText,
+          result.resume
+        );
+
+        const { data: updatedData } = await supabase.from('consultations').update({
+          transcription: result.transcription,
+          resume: result.resume,
+        }).eq('id', params.id).select().single();
+
+        if (updatedData) setData(updatedData);
+      } else {
+        toast({ title: "Analyse bilingue en cours...", description: "Création de la note de suivi chronologique..." });
+        const response = await fetch('/api/generate-follow-up', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            transcription: transcriptText,
+            previousSynthese: data.synthese
+          })
+        });
+
+        if (!response.ok) throw new Error("Erreur de génération du suivi bilingue.");
+        const { content } = await response.json();
+
+        const newFollowUp = {
+          id: crypto.randomUUID(),
+          date: new Date().toISOString(),
+          content: content,
+          transcription: transcriptText
+        };
+
+        const currentFollowUps = data.follow_ups || [];
+        const { data: updatedData, error: updateError } = await supabase.from('consultations').update({
+          follow_ups: [newFollowUp, ...currentFollowUps]
+        }).eq('id', params.id).select().single();
+
+        if (updateError) throw new Error("Erreur de sauvegarde dans la base de données.");
+        if (updatedData) setData(updatedData);
+      }
+
+      await fetchDocs();
+      toast({ title: "Dossier mis à jour", description: "La session bilingue a bien été intégrée au dossier." });
+    } catch (err) {
+      console.error(err);
+      toast({ title: "Erreur", description: "Impossible d'ajouter la session bilingue.", variant: "destructive" });
+    } finally {
+      setIsAppending(false);
+    }
+  };
+
   const handleAppendText = async () => {
     if (!textContent.trim()) return;
     setIsAppending(true);
@@ -1451,17 +1537,50 @@ export default function ConsultationDetail() {
 
       {/* Modal d'enregistrement audio */}
       <Dialog open={isRecordingModalOpen} onOpenChange={(open) => !open && !isAppending ? setIsRecordingModalOpen(false) : null}>
-        <DialogContent className="sm:max-w-2xl bg-white border-[#ebd9c8]/30">
+        <DialogContent className="sm:max-w-3xl bg-white border-[#ebd9c8]/30 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-bebas tracking-wide text-3xl text-[#bd613c] uppercase text-center">
               {appendMode === 'bilan' ? 'Mettre à jour le Bilan' : 'Nouvelle Séance de Suivi'}
             </DialogTitle>
           </DialogHeader>
+          <div className="flex justify-center mt-2">
+            <div className="inline-flex bg-[#fbf6ef] p-1 rounded-full border border-[#ebd9c8]/60 shadow-inner">
+              <button
+                type="button"
+                onClick={() => setModalRecorderType('standard')}
+                className={`px-5 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all ${
+                  modalRecorderType === 'standard'
+                    ? 'bg-[#bd613c] text-white shadow-sm'
+                    : 'text-[#8c7b6c] hover:text-[#4a3f35]'
+                }`}
+              >
+                🎙️ Audio Standard
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalRecorderType('bilingual')}
+                className={`px-5 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all ${
+                  modalRecorderType === 'bilingual'
+                    ? 'bg-[#bd613c] text-white shadow-sm'
+                    : 'text-[#8c7b6c] hover:text-[#4a3f35]'
+                }`}
+              >
+                🌐 Bilingue (Étranger)
+              </button>
+            </div>
+          </div>
           <div className="py-4">
-            <AudioRecorder
-              onRecordingComplete={handleAppendRecording}
-              isProcessing={isAppending}
-            />
+            {modalRecorderType === 'standard' ? (
+              <AudioRecorder
+                onRecordingComplete={handleAppendRecording}
+                isProcessing={isAppending}
+              />
+            ) : (
+              <BilingualRecorder
+                onConversationComplete={handleAppendBilingualRecording}
+                isProcessing={isAppending}
+              />
+            )}
           </div>
         </DialogContent>
       </Dialog>
