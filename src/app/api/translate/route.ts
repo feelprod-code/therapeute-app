@@ -1,7 +1,41 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import { NextResponse } from 'next/server';
 
 export const maxDuration = 60;
+
+// Expressions parasites typiques d'hallucination sur fond sonore / silence
+const HALLUCINATION_PATTERNS = [
+    /^thank you\.?$/i,
+    /^thanks for watching\.?$/i,
+    /^subtitles by/i,
+    /^sous-titres/i,
+    /^amara\.org/i,
+    /^you$/i,
+    /^bye\.?$/i,
+    /^merci\.?$/i,
+    /^\.+$/,
+];
+
+function normalizeForComparison(str: string): string {
+    return str
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9\s]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function isEchoOfLastTts(text: string, lastTts: string): boolean {
+    if (!text || !lastTts) return false;
+    const normText = normalizeForComparison(text);
+    const normLast = normalizeForComparison(lastTts);
+    if (!normText || !normLast) return false;
+    if (normText === normLast) return true;
+    if (normText.length >= 6 && normLast.includes(normText)) return true;
+    if (normLast.length >= 6 && normText.includes(normLast)) return true;
+    return false;
+}
 
 export async function POST(req: Request) {
     try {
@@ -13,15 +47,16 @@ export async function POST(req: Request) {
         const ai = new GoogleGenAI({ apiKey });
         const formData = await req.formData();
         const audioFile = formData.get('audio') as File | null;
-        const speaker = (formData.get('speaker') as string) || 'bidirectional'; // 'therapeut' | 'patient' | 'bidirectional'
+        const speakerMode = (formData.get('speaker') as string) || 'bidirectional'; // 'therapeut' | 'patient' | 'bidirectional'
         const targetLanguage = (formData.get('targetLanguage') as string) || 'Anglais';
+        const lastSpokenTts = ((formData.get('lastSpokenTts') as string) || '').trim();
 
         if (!audioFile) {
             return NextResponse.json({ error: "Aucun fichier audio fourni." }, { status: 400 });
         }
 
         const arrayBuffer = await audioFile.arrayBuffer();
-        if (arrayBuffer.byteLength < 500) {
+        if (arrayBuffer.byteLength < 800) {
             return new Response("[SILENCE]", {
                 headers: { 'Content-Type': 'text/plain; charset=utf-8' }
             });
@@ -35,97 +70,184 @@ export async function POST(req: Request) {
             mimeType = 'audio/mp4';
         }
 
-        let prompt = "";
-        if (speaker === 'bidirectional') {
-            prompt = `Tu es un interprète médical professionnel en temps réel lors d'une consultation d'ostéopathie / kinésithérapie entre le praticien (Guillaume Philippe, qui parle Français) et un patient étranger (qui parle ${targetLanguage} ou une autre langue étrangère).
-Écoute attentivement cet extrait audio :
-1. Si l'extrait ne contient aucune parole intelligible (uniquement du silence, un souffle, un bruit de fond ou un toussotement), réponds UNIQUEMENT par :
-[SILENCE]
+        const systemInstruction = `Tu es un interprète médical bilingue ultra-précis en cabinet d'ostéopathie et kinésithérapie entre :
+- Le praticien : Guillaume Philippe (qui parle TOUJOURS en Français)
+- Le patient étranger (qui parle en ${targetLanguage}).
 
-2. Si une personne parle :
-- Détermine qui parle :
-  * Si la personne parle principalement en Français, le locuteur est "therapeut", la transcription est en Français, et la traduction doit être en ${targetLanguage}.
-  * Si la personne parle en ${targetLanguage} (ou dans une langue étrangère autre que le français), le locuteur est "patient", la transcription est dans la langue parlée par le patient, et la traduction doit être en Français.
+RÈGLES CRITIQUES ABSOLUES :
+1. FILTRE ANTI-BRUIT : Si l'audio contient uniquement du silence, une respiration, un soupir, un toussotement, un frottement de table ou des mots incompréhensibles/isolés sans sens clinique, mets "isSilence": true.
+2. IDENTIFICATION DE LA LANGUE PARLÉE :
+   - Écoute dans quelle langue la personne s'exprime réellement dans l'audio.
+   - Si la personne parle en Français -> "spokenLanguageIsFrench": true.
+   - Si la personne parle en ${targetLanguage} (ou toute langue autre que le Français) -> "spokenLanguageIsFrench": false.
+3. DEUX CHAMPS DE SORTIE DISTINCTS ET OBLIGATOIRES :
+   - "frenchVersion" : DOIT TOUJOURS ÊTRE RÉDIGÉ EN FRANÇAIS. Si la patiente a parlé en ${targetLanguage}, traduis fidèlement et naturellement ses propos en Français ici. Ne mets JAMAIS d'anglais ou de ${targetLanguage} dans "frenchVersion".
+   - "foreignVersion" : DOIT TOUJOURS ÊTRE RÉDIGÉ EN ${targetLanguage.toUpperCase()}. Si le praticien a parlé en Français, traduis fidèlement et chaleureusement ses propos en ${targetLanguage} ici. Si la patiente a parlé en ${targetLanguage}, écris la transcription exacte de ses paroles en ${targetLanguage} ici.`;
 
-Réponds STRICTEMENT et UNIQUEMENT avec ce format exact, sans aucun texte avant ni après :
-[SPEAKER]
-(écris uniquement "therapeut" ou "patient")
-[TRANSCRIPTION]
-(les mots exacts prononcés dans la langue d'origine)
-[TRANSLATION]
-(la traduction médicale fluide et naturelle dans l'autre langue)`;
-        } else if (speaker === 'therapeut') {
-            prompt = `Tu es un interprète médical professionnel lors d'une consultation d'ostéopathie / kinésithérapie.
-Le praticien (Guillaume Philippe) parle en Français dans cet enregistrement.
-Si l'enregistrement ne contient aucune parole (silence ou bruit), réponds uniquement : [SILENCE]
-Sinon :
-1. Transcris exactement ce qu'il dit en Français.
-2. Traduis-le de manière naturelle, fluide et empathique en ${targetLanguage} pour le patient.
+        const userPrompt =
+            speakerMode === 'therapeut'
+                ? `Le praticien parle en Français. Transcris ses paroles dans "frenchVersion" et traduis-les en ${targetLanguage} dans "foreignVersion" ("spokenLanguageIsFrench": true).`
+                : speakerMode === 'patient'
+                ? `Le patient parle en ${targetLanguage}. Transcris ses paroles en ${targetLanguage} dans "foreignVersion" et traduis-les impérativement en Français dans "frenchVersion" ("spokenLanguageIsFrench": false).`
+                : `Mode Mains Libres Bidirectionnel : Détecte si la voix parle en Français ("spokenLanguageIsFrench": true) ou en ${targetLanguage} ("spokenLanguageIsFrench": false). Fournis obligatoirement "frenchVersion" (toujours en Français) et "foreignVersion" (toujours en ${targetLanguage}).`;
 
-Réponds STRICTEMENT avec ce format exact :
-[SPEAKER]
-therapeut
-[TRANSCRIPTION]
-(ton texte transcrit en français ici)
-[TRANSLATION]
-(ta traduction en ${targetLanguage} ici)`;
-        } else {
-            prompt = `Tu es un interprète médical professionnel lors d'une consultation d'ostéopathie / kinésithérapie.
-Le patient parle en ${targetLanguage} (ou dans sa langue maternelle étrangère) dans cet enregistrement.
-Si l'enregistrement ne contient aucune parole (silence ou bruit), réponds uniquement : [SILENCE]
-Sinon :
-1. Transcris exactement ce qu'il dit dans sa langue d'origine (${targetLanguage}).
-2. Traduis-le fidèlement et clairement en Français pour le praticien.
-
-Réponds STRICTEMENT avec ce format exact :
-[SPEAKER]
-patient
-[TRANSCRIPTION]
-(ton texte transcrit en ${targetLanguage} ici)
-[TRANSLATION]
-(ta traduction en français ici)`;
-        }
-
-        const responseStream = await ai.models.generateContentStream({
+        const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: [
                 {
                     role: 'user',
                     parts: [
                         { inlineData: { data: base64Audio, mimeType } },
-                        { text: prompt }
+                        { text: userPrompt }
                     ]
                 }
             ],
             config: {
-                temperature: 0.1,
-            }
+                systemInstruction,
+                temperature: 0.05,
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        isSilence: {
+                            type: Type.BOOLEAN,
+                            description: "True si silence, bruit de fond, respiration, toux ou extrait inintelligible.",
+                        },
+                        spokenLanguageIsFrench: {
+                            type: Type.BOOLEAN,
+                            description: "True UNIQUEMENT si la personne dans l'audio parle en Français. False si elle parle en Anglais ou autre langue étrangère.",
+                        },
+                        frenchVersion: {
+                            type: Type.STRING,
+                            description: "Le texte en FRANÇAIS uniquement (jamais en anglais).",
+                        },
+                        foreignVersion: {
+                            type: Type.STRING,
+                            description: `Le texte en ${targetLanguage} uniquement.`,
+                        },
+                    },
+                    required: ["isSilence", "spokenLanguageIsFrench", "frenchVersion", "foreignVersion"],
+                },
+            },
         });
 
-        const stream = new ReadableStream({
-            async start(controller) {
-                try {
-                    for await (const chunk of responseStream) {
-                        const text = chunk.text;
-                        if (text) {
-                            controller.enqueue(new TextEncoder().encode(text));
-                        }
-                    }
-                    controller.close();
-                } catch (err) {
-                    console.error("Erreur durant le stream Gemini /api/translate :", err);
-                    controller.error(err);
-                }
-            }
-        });
+        const rawJson = response.text || '{}';
+        let parsed: {
+            isSilence?: boolean;
+            spokenLanguageIsFrench?: boolean;
+            frenchVersion?: string;
+            foreignVersion?: string;
+        } = {};
 
-        return new Response(stream, {
+        try {
+            parsed = JSON.parse(rawJson);
+        } catch {
+            return new Response("[SILENCE]", {
+                headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+            });
+        }
+
+        let frenchVersion = (parsed.frenchVersion || '').trim();
+        let foreignVersion = (parsed.foreignVersion || '').trim();
+
+        if (parsed.isSilence || (!frenchVersion && !foreignVersion)) {
+            return new Response("[SILENCE]", {
+                headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+            });
+        }
+
+        // Déterminer le locuteur de manière déterministe
+        let resolvedSpeaker: 'therapeut' | 'patient';
+        if (speakerMode === 'therapeut') {
+            resolvedSpeaker = 'therapeut';
+        } else if (speakerMode === 'patient') {
+            resolvedSpeaker = 'patient';
+        } else {
+            resolvedSpeaker = parsed.spokenLanguageIsFrench ? 'therapeut' : 'patient';
+        }
+
+        let transcription = resolvedSpeaker === 'therapeut' ? frenchVersion : foreignVersion;
+        let translation = resolvedSpeaker === 'therapeut' ? foreignVersion : frenchVersion;
+
+        // Filtre anti-hallucination sur les phrases très courtes / parasites
+        if (
+            transcription.length < 2 ||
+            HALLUCINATION_PATTERNS.some(rx => rx.test(transcription.trim()))
+        ) {
+            return new Response("[SILENCE]", {
+                headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+            });
+        }
+
+        // Filtre anti-écho : si le micro a capté la voix du haut-parleur de la traduction précédente
+        if (
+            lastSpokenTts &&
+            (isEchoOfLastTts(transcription, lastSpokenTts) || isEchoOfLastTts(translation, lastSpokenTts))
+        ) {
+            return new Response("[SILENCE]", {
+                headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+            });
+        }
+
+        // GARDE-FOU ABSOLU : Si le locuteur est le patient (ex: patiente anglaise) et que la traduction
+        // est identique à la transcription (ou non traduite en français), forcer la traduction en Français !
+        if (
+            resolvedSpeaker === 'patient' &&
+            normalizeForComparison(translation) === normalizeForComparison(transcription)
+        ) {
+            const fixRes = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: [
+                    {
+                        role: 'user',
+                        parts: [
+                            {
+                                text: `Traduis immédiatement et uniquement cette phrase médicale de ${targetLanguage} vers le FRANÇAIS (ne réponds que par la traduction française, sans guillemets) :\n"${transcription}"`,
+                            },
+                        ],
+                    },
+                ],
+                config: { temperature: 0.1 },
+            });
+            const fixedFr = (fixRes.text || '').trim();
+            if (fixedFr) {
+                translation = fixedFr;
+            }
+        }
+
+        // Inversement, si Guillaume parle Français et que la traduction est restée en Français
+        if (
+            resolvedSpeaker === 'therapeut' &&
+            normalizeForComparison(translation) === normalizeForComparison(transcription)
+        ) {
+            const fixRes = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: [
+                    {
+                        role: 'user',
+                        parts: [
+                            {
+                                text: `Translate immediately and only this medical sentence from French into ${targetLanguage} (reply only with the ${targetLanguage} translation, no quotes):\n"${transcription}"`,
+                            },
+                        ],
+                    },
+                ],
+                config: { temperature: 0.1 },
+            });
+            const fixedForeign = (fixRes.text || '').trim();
+            if (fixedForeign) {
+                translation = fixedForeign;
+            }
+        }
+
+        const formattedOutput = `[SPEAKER]\n${resolvedSpeaker}\n[TRANSCRIPTION]\n${transcription}\n[TRANSLATION]\n${translation}`;
+
+        return new Response(formattedOutput, {
             headers: {
                 'Content-Type': 'text/plain; charset=utf-8',
                 'Cache-Control': 'no-cache',
-            }
+            },
         });
-
     } catch (error: unknown) {
         console.error("Erreur serveur API /translate :", error);
         const errorMessage = error instanceof Error ? error.message : "Erreur inconnue.";

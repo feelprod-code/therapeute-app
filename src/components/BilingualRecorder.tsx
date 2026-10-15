@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Mic, Square, Loader2, Volume2, VolumeX, Globe2, Sparkles, Check, Send } from "lucide-react";
+import { Mic, Square, Loader2, Volume2, VolumeX, Globe2, Sparkles, Check, Send, HeartHandshake } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
@@ -35,13 +35,27 @@ export const SUPPORTED_LANGUAGES = [
     { code: 'ar-SA', name: 'Arabe', flag: '🇸🇦', label: 'AR' },
 ];
 
+export const WARM_VOICE_PRESETS = [
+    { id: 'duo_warm', label: '✨ Duo Chaleureux (Sarah & Brian)' },
+    { id: 'sarah', label: '🌸 Sarah (Douce & Rassurante)' },
+    { id: 'bella', label: '☀️ Bella (Chaleureuse & Claire)' },
+    { id: 'lily', label: '🌿 Lily (Voix Veloutée)' },
+    { id: 'brian', label: '🪵 Brian (Posé & Réconfortant)' },
+    { id: 'george', label: '🎩 George (Chaleureux & Conteur)' },
+    { id: 'guillaume', label: '🎙️ Guillaume (Ma Voix Clonée)' },
+];
+
 type TranslationMode = 'conversation' | 'realtime';
 type TTSMode = 'all' | 'patient_only' | 'mute';
+
+// Silence de 850ms après la fin du haut-parleur avant de ré-ouvrir le micro (anti-écho absolu)
+const POST_TTS_COOLDOWN_MS = 850;
 
 export function BilingualRecorder({ onRecordingComplete, onConversationComplete, attachedFiles = [], isProcessing = false }: BilingualRecorderProps) {
     const [targetLanguage, setTargetLanguage] = useState<string>('en-US');
     const [translationMode, setTranslationMode] = useState<TranslationMode>('conversation');
     const [ttsMode, setTtsMode] = useState<TTSMode>('all');
+    const [voicePreset, setVoicePreset] = useState<string>('duo_warm');
     const [speechRate, setSpeechRate] = useState<number>(1.0);
 
     const [activeSpeaker, setActiveSpeaker] = useState<'therapeut' | 'patient' | null>(null);
@@ -72,12 +86,19 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
     const segmentRecorderRef = useRef<MediaRecorder | null>(null);
     const segmentChunksRef = useRef<Blob[]>([]);
     const hasSpeechInSegmentRef = useRef<boolean>(false);
+    const speechFramesCountRef = useRef<number>(0);
     const speechStartMsRef = useRef<number>(0);
     const lastSpeechMsRef = useRef<number>(0);
     const segmentStartMsRef = useRef<number>(0);
     const isProcessingSegmentRef = useRef<boolean>(false);
     const isPlayingTTSRef = useRef<boolean>(false);
+    const cooldownUntilMsRef = useRef<number>(0);
+    const lastSpokenTtsRef = useRef<string>('');
     const mimeTypeRef = useRef<string>('audio/webm');
+
+    // Lecteur Audio HTML5 partagé (déverrouillé au clic pour iOS/Safari/Chrome)
+    const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+    const currentAudioUrlRef = useRef<string | null>(null);
 
     // Keep latest state in refs for async callbacks
     const targetLanguageRef = useRef(targetLanguage);
@@ -85,6 +106,9 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
 
     const ttsModeRef = useRef(ttsMode);
     useEffect(() => { ttsModeRef.current = ttsMode; }, [ttsMode]);
+
+    const voicePresetRef = useRef(voicePreset);
+    useEffect(() => { voicePresetRef.current = voicePreset; }, [voicePreset]);
 
     const speechRateRef = useRef(speechRate);
     useEffect(() => { speechRateRef.current = speechRate; }, [speechRate]);
@@ -98,16 +122,6 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
     useEffect(() => {
         scrollToBottom();
     }, [messages, isTranslating]);
-
-    // Preload browser TTS voices (Chrome/Safari populate voices asynchronously)
-    useEffect(() => {
-        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-            window.speechSynthesis.getVoices();
-            window.speechSynthesis.onvoiceschanged = () => {
-                window.speechSynthesis.getVoices();
-            };
-        }
-    }, []);
 
     useEffect(() => {
         const checkDraft = async () => {
@@ -125,9 +139,6 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
             }
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach((track) => track.stop());
-            }
-            if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-                window.speechSynthesis.cancel();
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -154,118 +165,160 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         });
     };
 
-    // Déverrouillage synchrone de la synthèse vocale pour iOS / Safari
-    const unlockSpeechSynthesis = () => {
-        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-            try {
-                const unlockUtterance = new SpeechSynthesisUtterance('');
-                unlockUtterance.volume = 0;
-                window.speechSynthesis.speak(unlockUtterance);
-                if (window.speechSynthesis.paused) {
-                    window.speechSynthesis.resume();
-                }
-            } catch (e) {
-                console.warn("SpeechSynthesis unlock warning:", e);
+    // Coupe ou réactive physiquement les pistes du microphone Mains Libres (bouclier anti-écho matériel)
+    const setHandsFreeMicMuted = useCallback((muted: boolean) => {
+        if (handsFreeStreamRef.current) {
+            handsFreeStreamRef.current.getAudioTracks().forEach((track) => {
+                track.enabled = !muted;
+            });
+        }
+    }, []);
+
+    // Déverrouillage synchrone de l'élément Audio HTML5 pour iOS / Safari lors du clic utilisateur
+    const unlockAudioPlayback = () => {
+        if (typeof window === 'undefined') return;
+        try {
+            if (!audioPlayerRef.current) {
+                audioPlayerRef.current = new Audio();
             }
+            // Mini WAV silencieux valide pour débloquer l'autoplay sur iOS Safari
+            audioPlayerRef.current.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+            audioPlayerRef.current.volume = 0.01;
+            const playPromise = audioPlayerRef.current.play();
+            if (playPromise !== undefined) {
+                playPromise.then(() => {
+                    if (audioPlayerRef.current) {
+                        audioPlayerRef.current.pause();
+                        audioPlayerRef.current.volume = 1.0;
+                    }
+                }).catch(() => {});
+            }
+        } catch {
+            // ignore
         }
     };
 
     const stopSpeaking = useCallback(() => {
+        if (audioPlayerRef.current) {
+            try {
+                audioPlayerRef.current.pause();
+                audioPlayerRef.current.currentTime = 0;
+            } catch {
+                // ignore
+            }
+        }
+        if (currentAudioUrlRef.current) {
+            URL.revokeObjectURL(currentAudioUrlRef.current);
+            currentAudioUrlRef.current = null;
+        }
         if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
             window.speechSynthesis.cancel();
         }
         isPlayingTTSRef.current = false;
         setIsPlayingAudio(false);
+        cooldownUntilMsRef.current = Date.now() + POST_TTS_COOLDOWN_MS;
     }, []);
 
-    const speakText = useCallback((text: string, langCode: string): Promise<void> => {
-        return new Promise((resolve) => {
-            if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text.trim()) {
-                resolve();
-                return;
+    // Synthèse vocale humaine chaleureuse via /api/tts (ElevenLabs Flash v2.5 + secours Gemini Native Audio)
+    const speakText = useCallback(async (text: string, langCode: string, speakerRole: 'therapeut' | 'patient' = 'patient'): Promise<void> => {
+        const cleanText = text
+            .replace(/[*#_~`]/g, '')
+            .replace(/\[.*?\]/g, '')
+            .trim();
+
+        if (!cleanText || typeof window === 'undefined') return;
+
+        stopSpeaking();
+        isPlayingTTSRef.current = true;
+        setIsPlayingAudio(true);
+        lastSpokenTtsRef.current = cleanText;
+
+        // Couper physiquement le micro pendant que la voix parle
+        setHandsFreeMicMuted(true);
+
+        try {
+            const response = await fetch("/api/tts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    text: cleanText,
+                    langCode,
+                    speaker: speakerRole,
+                    voicePreset: voicePresetRef.current,
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error("TTS API non disponible");
             }
 
-            try {
-                window.speechSynthesis.cancel();
-                if (window.speechSynthesis.paused) {
-                    window.speechSynthesis.resume();
-                }
+            const audioBlob = await response.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            currentAudioUrlRef.current = audioUrl;
 
-                const cleanText = text
-                    .replace(/[*#_~`]/g, '')
-                    .replace(/\[.*?\]/g, '')
-                    .trim();
+            await new Promise<void>((resolve) => {
+                const audio = audioPlayerRef.current || new Audio();
+                audioPlayerRef.current = audio;
+                audio.src = audioUrl;
+                audio.volume = 1.0;
+                audio.playbackRate = speechRateRef.current;
 
-                if (!cleanText) {
+                const safetyTimeout = setTimeout(() => {
                     resolve();
-                    return;
-                }
+                }, 40000);
 
-                const utterance = new SpeechSynthesisUtterance(cleanText);
-                utterance.lang = langCode;
-                utterance.rate = speechRateRef.current;
-
-                const voices = window.speechSynthesis.getVoices();
-                const langPrefix = langCode.split('-')[0].toLowerCase();
-                const matchingVoices = voices.filter(v => v.lang.toLowerCase().startsWith(langPrefix));
-
-                if (matchingVoices.length > 0) {
-                    const premiumVoice =
-                        matchingVoices.find(v =>
-                            v.name.includes('Premium') ||
-                            v.name.includes('Enhanced') ||
-                            v.name.includes('Natural') ||
-                            v.name.includes('Google') ||
-                            v.name.includes('Thomas') ||
-                            v.name.includes('Amélie') ||
-                            v.name.includes('Audrey') ||
-                            v.name.includes('Samantha') ||
-                            v.name.includes('Daniel') ||
-                            v.name.includes('Kyoko') ||
-                            v.name.includes('Yuna') ||
-                            v.name.includes('Tingting') ||
-                            v.name.includes('Milena') ||
-                            v.name.includes(' Monica') ||
-                            v.name.includes('Paulina')
-                        ) || matchingVoices[0];
-
-                    utterance.voice = premiumVoice;
-                }
-
-                // Safety timeout in case onend doesn't fire on some mobile browsers
-                const maxDurationMs = Math.max(4000, Math.min(30000, cleanText.length * 120));
-                const safetyTimer = setTimeout(() => {
-                    isPlayingTTSRef.current = false;
-                    setIsPlayingAudio(false);
-                    resolve();
-                }, maxDurationMs);
-
-                utterance.onstart = () => {
-                    isPlayingTTSRef.current = true;
-                    setIsPlayingAudio(true);
-                };
-                utterance.onend = () => {
-                    clearTimeout(safetyTimer);
-                    isPlayingTTSRef.current = false;
-                    setIsPlayingAudio(false);
+                audio.onended = () => {
+                    clearTimeout(safetyTimeout);
                     resolve();
                 };
-                utterance.onerror = () => {
-                    clearTimeout(safetyTimer);
-                    isPlayingTTSRef.current = false;
-                    setIsPlayingAudio(false);
+                audio.onerror = () => {
+                    clearTimeout(safetyTimeout);
                     resolve();
                 };
 
-                window.speechSynthesis.speak(utterance);
-            } catch (e) {
-                console.error("TTS error:", e);
-                isPlayingTTSRef.current = false;
-                setIsPlayingAudio(false);
-                resolve();
+                const playPromise = audio.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch((err) => {
+                        console.warn("Audio play warning:", err);
+                        clearTimeout(safetyTimeout);
+                        resolve();
+                    });
+                }
+            });
+        } catch (err) {
+            console.warn("Repli sur synthèse locale suite à erreur réseau TTS:", err);
+            // Fallback ultime hors-ligne uniquement
+            if ('speechSynthesis' in window) {
+                await new Promise<void>((resolve) => {
+                    try {
+                        window.speechSynthesis.cancel();
+                        const utterance = new SpeechSynthesisUtterance(cleanText);
+                        utterance.lang = langCode;
+                        utterance.rate = speechRateRef.current;
+                        const timer = setTimeout(resolve, 15000);
+                        utterance.onend = () => { clearTimeout(timer); resolve(); };
+                        utterance.onerror = () => { clearTimeout(timer); resolve(); };
+                        window.speechSynthesis.speak(utterance);
+                    } catch {
+                        resolve();
+                    }
+                });
             }
-        });
-    }, []);
+        } finally {
+            if (currentAudioUrlRef.current) {
+                URL.revokeObjectURL(currentAudioUrlRef.current);
+                currentAudioUrlRef.current = null;
+            }
+            // Sas d'amortissement acoustique de 850ms après la fin du son avant de réouvrir le micro
+            cooldownUntilMsRef.current = Date.now() + POST_TTS_COOLDOWN_MS;
+            await new Promise((r) => setTimeout(r, POST_TTS_COOLDOWN_MS));
+            isPlayingTTSRef.current = false;
+            setIsPlayingAudio(false);
+            if (handsFreeActiveRef.current) {
+                setHandsFreeMicMuted(false);
+            }
+        }
+    }, [setHandsFreeMicMuted, stopSpeaking]);
 
     const getBestMimeType = (): string => {
         if (typeof MediaRecorder === 'undefined') return 'audio/webm';
@@ -277,11 +330,12 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
 
     // Envoi d'un segment audio à /api/translate (supporte 'therapeut', 'patient', et 'bidirectional')
     const processAudioSegment = useCallback(async (audioBlob: Blob, speakerRole: 'therapeut' | 'patient' | 'bidirectional') => {
-        if (audioBlob.size < 600) return;
+        if (audioBlob.size < 900) return;
 
         setIsTranslating(true);
         if (handsFreeActiveRef.current) {
             setHandsFreeStatus('translating');
+            setHandsFreeMicMuted(true);
         }
 
         const currentLangObj = SUPPORTED_LANGUAGES.find(l => l.code === targetLanguageRef.current) || SUPPORTED_LANGUAGES[0];
@@ -292,6 +346,9 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
             formData.append("audio", audioBlob);
             formData.append("speaker", speakerRole);
             formData.append("targetLanguage", currentLangObj.name);
+            if (lastSpokenTtsRef.current) {
+                formData.append("lastSpokenTts", lastSpokenTtsRef.current);
+            }
 
             const response = await fetch("/api/translate", {
                 method: "POST",
@@ -303,79 +360,19 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                 throw new Error(errData.error || "Erreur lors de la traduction");
             }
 
-            if (!response.body) throw new Error("Aucun flux de données reçu");
+            const fullText = await response.text();
 
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let done = false;
-            let fullText = "";
-            let messageCreated = false;
-            let resolvedSpeaker: 'therapeut' | 'patient' = speakerRole === 'patient' ? 'patient' : 'therapeut';
-
-            while (!done) {
-                const { value, done: readerDone } = await reader.read();
-                done = readerDone;
-                if (value) {
-                    fullText += decoder.decode(value, { stream: true });
-
-                    if (fullText.includes("[SILENCE]")) {
-                        break;
-                    }
-
-                    // Extract [SPEAKER] if present
-                    const speakerMatch = fullText.match(/\[SPEAKER\]\s*(therapeut|patient)/i);
-                    if (speakerMatch) {
-                        resolvedSpeaker = speakerMatch[1].toLowerCase() === 'patient' ? 'patient' : 'therapeut';
-                    }
-
-                    const transIndex = fullText.indexOf("[TRANSCRIPTION]");
-                    const translIndex = fullText.indexOf("[TRANSLATION]");
-
-                    let currentTranscription = "";
-                    let currentTranslation = "";
-
-                    if (transIndex !== -1 && translIndex !== -1) {
-                        currentTranscription = fullText.substring(transIndex + "[TRANSCRIPTION]".length, translIndex).trim();
-                        currentTranslation = fullText.substring(translIndex + "[TRANSLATION]".length).trim();
-                    } else if (transIndex !== -1) {
-                        currentTranscription = fullText.substring(transIndex + "[TRANSCRIPTION]".length).trim();
-                    }
-
-                    if (currentTranscription || currentTranslation) {
-                        if (!messageCreated) {
-                            messageCreated = true;
-                            setMessages(prev => [
-                                ...prev,
-                                {
-                                    id: tempId,
-                                    speaker: resolvedSpeaker,
-                                    originalText: currentTranscription || "...",
-                                    translatedText: currentTranslation || "...",
-                                    timestamp: new Date()
-                                }
-                            ]);
-                        } else {
-                            setMessages(prev => prev.map(msg =>
-                                msg.id === tempId
-                                    ? {
-                                        ...msg,
-                                        speaker: resolvedSpeaker,
-                                        originalText: currentTranscription || "...",
-                                        translatedText: currentTranslation || "..."
-                                    }
-                                    : msg
-                            ));
-                        }
-                    }
-                }
+            if (!fullText || fullText.includes("[SILENCE]")) {
+                return;
             }
 
-            // Si l'extrait était du silence pur, ne rien afficher
-            if (fullText.includes("[SILENCE]")) {
-                if (messageCreated) {
-                    setMessages(prev => prev.filter(m => m.id !== tempId));
-                }
-                return;
+            // Extraction robuste de [SPEAKER] (insensible aux guillemets, deux-points ou espaces)
+            let resolvedSpeaker: 'therapeut' | 'patient' =
+                speakerRole === 'patient' ? 'patient' : speakerRole === 'therapeut' ? 'therapeut' : 'patient';
+
+            const speakerMatch = fullText.match(/\[SPEAKER\][\s:*"'*-]*(therapeut|patient)/i);
+            if (speakerMatch) {
+                resolvedSpeaker = speakerMatch[1].toLowerCase() === 'therapeut' ? 'therapeut' : 'patient';
             }
 
             const finalTransIndex = fullText.indexOf("[TRANSCRIPTION]");
@@ -388,20 +385,21 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                 finalTranslation = fullText.substring(finalTranslIndex + "[TRANSLATION]".length).trim();
             }
 
-            if (!finalTranscription && !finalTranslation) {
-                if (messageCreated) {
-                    setMessages(prev => prev.filter(m => m.id !== tempId));
-                }
+            if (!finalTranscription || !finalTranslation) {
                 return;
             }
 
-            // Sauvegarder dans IndexedDB
+            // Sauvegarder dans l'état et dans IndexedDB
+            const newMessage: Message = {
+                id: tempId,
+                speaker: resolvedSpeaker,
+                originalText: finalTranscription,
+                translatedText: finalTranslation,
+                timestamp: new Date(),
+            };
+
             setMessages(prev => {
-                const updated = prev.map(msg =>
-                    msg.id === tempId
-                        ? { ...msg, speaker: resolvedSpeaker, originalText: finalTranscription, translatedText: finalTranslation }
-                        : msg
-                );
+                const updated = [...prev, newMessage];
                 db.drafts.put({
                     id: 'bilingual',
                     mode: 'bilingual',
@@ -414,18 +412,21 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                 return updated;
             });
 
-            // Lecture vocale automatique selon ttsMode
+            // Lecture vocale automatique avec voix chaleureuse selon ttsMode
             const currentTtsMode = ttsModeRef.current;
             const shouldSpeak =
                 currentTtsMode === 'all' ||
                 (currentTtsMode === 'patient_only' && resolvedSpeaker === 'therapeut');
 
             if (shouldSpeak && finalTranslation) {
+                // Si la patiente a parlé (resolvedSpeaker === 'patient') -> on lit la traduction en FRANÇAIS ('fr-FR') pour Guillaume !
+                // Si Guillaume a parlé (resolvedSpeaker === 'therapeut') -> on lit la traduction dans la langue du patient !
                 const targetLangCode = resolvedSpeaker === 'therapeut' ? targetLanguageRef.current : 'fr-FR';
                 if (handsFreeActiveRef.current) {
                     setHandsFreeStatus('tts_playing');
                 }
-                await speakText(finalTranslation, targetLangCode);
+                setIsTranslating(false);
+                await speakText(finalTranslation, targetLangCode, resolvedSpeaker);
             }
 
         } catch (error: unknown) {
@@ -439,26 +440,30 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         } finally {
             setIsTranslating(false);
             if (handsFreeActiveRef.current) {
+                setHandsFreeMicMuted(false);
                 setHandsFreeStatus('listening');
             }
         }
-    }, [speakText, toast]);
+    }, [setHandsFreeMicMuted, speakText, toast]);
 
     // ============================================================================
-    // MODE 1 : MAINS LIBRES AUTOMATIQUE (VAD + Détection Automatique de Langue)
+    // MODE 1 : MAINS LIBRES AUTOMATIQUE (VAD Calibré + Anti-Écho Matériel)
     // ============================================================================
     const startNewHandsFreeSegment = useCallback(() => {
         if (!handsFreeActiveRef.current || !handsFreeStreamRef.current) return;
+        if (isProcessingSegmentRef.current || isPlayingTTSRef.current) return;
         if (segmentRecorderRef.current && segmentRecorderRef.current.state !== 'inactive') {
             return;
         }
 
         try {
+            setHandsFreeMicMuted(false);
             const mime = mimeTypeRef.current;
             const options: MediaRecorderOptions = mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : {};
             const recorder = new MediaRecorder(handsFreeStreamRef.current, options);
             segmentChunksRef.current = [];
             hasSpeechInSegmentRef.current = false;
+            speechFramesCountRef.current = 0;
             segmentStartMsRef.current = Date.now();
 
             recorder.ondataavailable = (ev) => {
@@ -469,21 +474,23 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
 
             recorder.onstop = async () => {
                 const hadSpeech = hasSpeechInSegmentRef.current;
+                const framesCount = speechFramesCountRef.current;
                 const chunks = [...segmentChunksRef.current];
                 segmentChunksRef.current = [];
                 hasSpeechInSegmentRef.current = false;
+                speechFramesCountRef.current = 0;
 
-                if (hadSpeech && chunks.length > 0 && handsFreeActiveRef.current) {
+                if (hadSpeech && framesCount >= 12 && chunks.length > 0 && handsFreeActiveRef.current) {
                     const blob = new Blob(chunks, { type: mime || 'audio/webm' });
-                    if (blob.size >= 800) {
+                    if (blob.size >= 1200) {
                         isProcessingSegmentRef.current = true;
                         await processAudioSegment(blob, 'bidirectional');
                         isProcessingSegmentRef.current = false;
                     }
                 }
 
-                // Relancer immédiatement l'écoute du segment suivant si le mode Mains Libres est toujours actif
-                if (handsFreeActiveRef.current) {
+                // Relancer l'écoute du segment suivant uniquement après la fin complète de la traduction + TTS + Cooldown
+                if (handsFreeActiveRef.current && !isProcessingSegmentRef.current && !isPlayingTTSRef.current) {
                     startNewHandsFreeSegment();
                 }
             };
@@ -494,11 +501,11 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         } catch (err) {
             console.error("Failed to start hands-free segment recorder:", err);
         }
-    }, [processAudioSegment]);
+    }, [processAudioSegment, setHandsFreeMicMuted]);
 
     const startHandsFreeSession = async () => {
         try {
-            unlockSpeechSynthesis();
+            unlockAudioPlayback();
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -521,7 +528,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
             const source = audioCtx.createMediaStreamSource(stream);
             const analyser = audioCtx.createAnalyser();
             analyser.fftSize = 512;
-            analyser.smoothingTimeConstant = 0.5;
+            analyser.smoothingTimeConstant = 0.6;
             source.connect(analyser);
             analyserRef.current = analyser;
 
@@ -532,63 +539,73 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
             startNewHandsFreeSegment();
 
             const freqData = new Uint8Array(analyser.frequencyBinCount);
-            const SPEECH_THRESHOLD = 22; // Sensibilité vocale calibrée
-            const SILENCE_DURATION_MS = 1350; // 1.35s de silence déclenche la traduction
-            const MAX_SEGMENT_SPEECH_MS = 24000; // Sécurité 24s max par phrase
-            const IDLE_RESET_MS = 9000; // Nettoyage du buffer toutes les 9s de silence
+            const SPEECH_THRESHOLD = 35; // Seuil calibré pour ignorer la respiration et le bruit de cabinet
+            const MIN_SPEECH_DURATION_MS = 650; // Au moins 650ms de voix humaine soutenue
+            const SILENCE_DURATION_MS = 1750; // 1.75s de silence pour laisser finir la phrase naturellement
+            const MAX_SEGMENT_SPEECH_MS = 26000; // Sécurité 26s max par prise de parole
+            const IDLE_RESET_MS = 10000; // Nettoyage du buffer toutes les 10s de silence
 
             const monitorVad = () => {
                 if (!handsFreeActiveRef.current || !analyserRef.current) return;
                 vadRafRef.current = requestAnimationFrame(monitorVad);
 
-                // Ne pas écouter pendant que le haut-parleur lit la traduction ou qu'une traduction est en cours
-                if (isPlayingTTSRef.current || isProcessingSegmentRef.current) {
+                const now = Date.now();
+
+                // Ignorer strictement toute activité micro pendant la traduction, le TTS ou le sas anti-écho
+                if (
+                    isPlayingTTSRef.current ||
+                    isProcessingSegmentRef.current ||
+                    now < cooldownUntilMsRef.current
+                ) {
                     setVadLevel(0);
                     return;
                 }
 
                 analyserRef.current.getByteFrequencyData(freqData);
 
-                // Moyenne d'énergie sur la bande fréquentielle de la voix humaine
+                // Énergie moyenne sur la bande fondamentale de la voix humaine (150 Hz - 3200 Hz)
                 let sum = 0;
-                const voiceBins = Math.min(80, freqData.length);
-                for (let i = 2; i < voiceBins; i++) {
+                const startBin = 3;
+                const endBin = Math.min(70, freqData.length);
+                for (let i = startBin; i < endBin; i++) {
                     sum += freqData[i];
                 }
-                const avgEnergy = sum / (voiceBins - 2);
-                const normalizedLevel = Math.min(100, Math.round((avgEnergy / 80) * 100));
+                const avgEnergy = sum / (endBin - startBin);
+                const normalizedLevel = Math.min(100, Math.round((avgEnergy / 85) * 100));
                 setVadLevel(normalizedLevel);
 
-                const now = Date.now();
                 const recorder = segmentRecorderRef.current;
 
                 if (avgEnergy > SPEECH_THRESHOLD) {
+                    speechFramesCountRef.current += 1;
                     if (!hasSpeechInSegmentRef.current) {
                         hasSpeechInSegmentRef.current = true;
                         speechStartMsRef.current = now;
+                    }
+                    if (speechFramesCountRef.current >= 6) {
                         setHandsFreeStatus('speaking_detected');
                     }
                     lastSpeechMsRef.current = now;
 
-                    // Si la personne parle sans pause depuis > 24s, envoyer le segment
+                    // Si la personne parle en continu depuis > 26s, envoyer le segment
                     if (now - speechStartMsRef.current > MAX_SEGMENT_SPEECH_MS && recorder && recorder.state === 'recording') {
                         recorder.stop();
                     }
                 } else {
                     if (hasSpeechInSegmentRef.current) {
-                        // Une prise de parole est en cours : vérifier si le silence dépasse 1.35s
                         const speechDuration = lastSpeechMsRef.current - speechStartMsRef.current;
                         if (now - lastSpeechMsRef.current > SILENCE_DURATION_MS) {
-                            if (speechDuration >= 350 && recorder && recorder.state === 'recording') {
+                            if (speechDuration >= MIN_SPEECH_DURATION_MS && speechFramesCountRef.current >= 12 && recorder && recorder.state === 'recording') {
                                 recorder.stop();
                             } else {
-                                // Bruit trop bref (< 350ms), ignorer
+                                // Bruit bref (toux, frottement de table < 650ms) : on réinitialise sans envoyer
                                 hasSpeechInSegmentRef.current = false;
+                                speechFramesCountRef.current = 0;
                                 setHandsFreeStatus('listening');
                             }
                         }
                     } else {
-                        // Aucun son détecté depuis 9 secondes : purger le buffer silencieux
+                        // Aucun son détecté depuis 10 secondes : purger le buffer silencieux
                         if (now - segmentStartMsRef.current > IDLE_RESET_MS && recorder && recorder.state === 'recording') {
                             recorder.stop();
                         }
@@ -600,7 +617,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
 
             toast({
                 title: "🎙️ Mode Mains Libres activé",
-                description: `Parlez en Français ou en ${selectedLang.name} : la détection et la traduction sont automatiques.`,
+                description: `Parlez en Français ou en ${selectedLang.name} : détection anti-écho et voix chaleureuses actives.`,
             });
         } catch (err) {
             console.error("Erreur démarrage Mains Libres:", err);
@@ -616,6 +633,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
     const flushCurrentHandsFreeSegment = () => {
         if (segmentRecorderRef.current && segmentRecorderRef.current.state === 'recording') {
             hasSpeechInSegmentRef.current = true;
+            speechFramesCountRef.current = Math.max(speechFramesCountRef.current, 15);
             segmentRecorderRef.current.stop();
         }
     };
@@ -632,6 +650,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         }
         if (segmentRecorderRef.current && segmentRecorderRef.current.state !== 'inactive') {
             hasSpeechInSegmentRef.current = false;
+            speechFramesCountRef.current = 0;
             try { segmentRecorderRef.current.stop(); } catch { /* ignore */ }
         }
         segmentRecorderRef.current = null;
@@ -654,7 +673,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
     const startManualRecording = async (speaker: 'therapeut' | 'patient') => {
         try {
             stopSpeaking();
-            unlockSpeechSynthesis();
+            unlockAudioPlayback();
 
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach(track => track.stop());
@@ -705,7 +724,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
     };
 
     const stopManualRecording = () => {
-        unlockSpeechSynthesis();
+        unlockAudioPlayback();
         if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
             mediaRecorderRef.current.stop();
             setActiveSpeaker(null);
@@ -813,7 +832,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                         </div>
                     </div>
 
-                    {/* Ligne 2 : Mode de capture (Mains Libres vs Push-to-Talk) + Options Vocales (TTS & Vitesse) */}
+                    {/* Ligne 2 : Mode de capture (Mains Libres vs Push-to-Talk) + Voix Humaines Chaleureuses */}
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#bd613c]/10">
                         {/* Sélecteur de mode */}
                         <div className="flex bg-[#ebd9c8]/50 p-0.5 rounded-full border border-[#bd613c]/20">
@@ -849,7 +868,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                             </button>
                         </div>
 
-                        {/* Options Vocales (Sortie Audio TTS + Vitesse) */}
+                        {/* Options Vocales (Mode TTS + Choix Voix Chaleureuse + Vitesse) */}
                         <div className="flex flex-wrap items-center gap-1.5">
                             <div className="flex items-center gap-1 bg-white px-2.5 py-1 rounded-full border border-[#bd613c]/20 text-xs">
                                 {ttsMode === 'mute' ? (
@@ -867,25 +886,44 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                                     className="bg-transparent border-none text-[#4a3f35] font-medium focus:outline-none cursor-pointer text-[11px] sm:text-xs"
                                     title="Mode de lecture vocale automatique"
                                 >
-                                    <option value="all">🔊 Voix : Tout lire (FR ⇄ {selectedLang.label})</option>
-                                    <option value="patient_only">🗣️ Voix : Lire au patient ({selectedLang.label})</option>
-                                    <option value="mute">🔇 Voix : Muet (Texte seul)</option>
+                                    <option value="all">🔊 Lire tout (FR ⇄ {selectedLang.label})</option>
+                                    <option value="patient_only">🗣️ Lire au patient ({selectedLang.label})</option>
+                                    <option value="mute">🔇 Muet (Texte seul)</option>
                                 </select>
                             </div>
 
                             {ttsMode !== 'mute' && (
-                                <div className="flex items-center bg-white px-2 py-1 rounded-full border border-[#bd613c]/20 text-[11px]">
-                                    <select
-                                        value={speechRate}
-                                        onChange={(e) => setSpeechRate(parseFloat(e.target.value))}
-                                        className="bg-transparent border-none text-[#4a3f35] font-medium focus:outline-none cursor-pointer"
-                                        title="Vitesse de la voix"
-                                    >
-                                        <option value={0.85}>0.85x (Doux)</option>
-                                        <option value={1.0}>1.0x (Normal)</option>
-                                        <option value={1.15}>1.15x (Rapide)</option>
-                                    </select>
-                                </div>
+                                <>
+                                    {/* Sélecteur de Voix Humaine Chaleureuse */}
+                                    <div className="flex items-center gap-1 bg-white px-2.5 py-1 rounded-full border border-[#bd613c]/20 text-[11px] sm:text-xs">
+                                        <HeartHandshake className="w-3.5 h-3.5 text-[#bd613c] shrink-0" />
+                                        <select
+                                            value={voicePreset}
+                                            onChange={(e) => setVoicePreset(e.target.value)}
+                                            className="bg-transparent border-none text-[#4a3f35] font-semibold focus:outline-none cursor-pointer"
+                                            title="Choisir le timbre de voix humaine"
+                                        >
+                                            {WARM_VOICE_PRESETS.map(v => (
+                                                <option key={v.id} value={v.id}>
+                                                    {v.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div className="flex items-center bg-white px-2 py-1 rounded-full border border-[#bd613c]/20 text-[11px]">
+                                        <select
+                                            value={speechRate}
+                                            onChange={(e) => setSpeechRate(parseFloat(e.target.value))}
+                                            className="bg-transparent border-none text-[#4a3f35] font-medium focus:outline-none cursor-pointer"
+                                            title="Cadence de la voix"
+                                        >
+                                            <option value={0.9}>0.9x (Apaisé)</option>
+                                            <option value={1.0}>1.0x (Naturel)</option>
+                                            <option value={1.1}>1.1x (Dynamique)</option>
+                                        </select>
+                                    </div>
+                                </>
                             )}
 
                             {isPlayingAudio && (
@@ -933,7 +971,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                                 : `Mode Manuel : Cliquez sur « Guillaume (FR) » ou « Patient (${selectedLang.label}) » pour enregistrer et traduire.`}
                         </p>
                         <p className="text-xs text-[#8c7b6d] mt-1">
-                            La traduction s&apos;affiche en direct et est parlée à voix haute automatiquement.
+                            Voix humaines chaleureuses activées • Protection anti-écho automatique pendant la lecture.
                         </p>
                     </div>
                 )}
@@ -959,19 +997,19 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                                 <div className="flex items-center gap-1.5">
                                     <button
                                         type="button"
-                                        onClick={() => speakText(msg.translatedText, translatedLangCode)}
+                                        onClick={() => speakText(msg.translatedText, translatedLangCode, msg.speaker)}
                                         className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors cursor-pointer ${
                                             isTherapeut
                                                 ? 'bg-white/80 text-[#bd613c] hover:bg-white border border-[#bd613c]/20'
                                                 : 'bg-white/20 text-white hover:bg-white/30'
                                         }`}
-                                        title="Réécouter la traduction à voix haute"
+                                        title="Réécouter la traduction avec voix chaleureuse"
                                     >
                                         <Volume2 className="w-3 h-3" /> Écouter
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => speakText(msg.originalText, originalLangCode)}
+                                        onClick={() => speakText(msg.originalText, originalLangCode, msg.speaker)}
                                         className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] opacity-75 hover:opacity-100 transition-opacity cursor-pointer ${
                                             isTherapeut ? 'text-[#5a4e44]' : 'text-white/90'
                                         }`}
@@ -1023,8 +1061,8 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                                     }`} />
                                     <span className="text-xs font-semibold text-[#4a3f35]">
                                         {handsFreeStatus === 'speaking_detected' && "🗣️ Parole détectée (traduction dès la fin de phrase)..."}
-                                        {handsFreeStatus === 'translating' && "⏳ Traduction IA en cours..."}
-                                        {handsFreeStatus === 'tts_playing' && "🔊 Lecture vocale de la traduction (micro en pause anti-écho)..."}
+                                        {handsFreeStatus === 'translating' && "⏳ Traduction IA en cours (micro coupé)..."}
+                                        {handsFreeStatus === 'tts_playing' && "🔊 Lecture vocale chaleureuse (micro coupé anti-écho)..."}
                                         {handsFreeStatus === 'listening' && `👂 En écoute automatique (Français ⇄ ${selectedLang.name})...`}
                                     </span>
                                 </div>
@@ -1166,4 +1204,3 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
 }
 
 export default BilingualRecorder;
-
