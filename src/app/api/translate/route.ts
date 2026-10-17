@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { NextResponse } from 'next/server';
+import { generateWarmTtsAudio } from '@/lib/warm-tts';
 
 export const maxDuration = 60;
 
@@ -13,6 +14,7 @@ const HALLUCINATION_PATTERNS = [
     /^you$/i,
     /^bye\.?$/i,
     /^merci\.?$/i,
+    /^merci d'avoir regard/i,
     /^\.+$/,
 ];
 
@@ -39,16 +41,13 @@ function isEchoOfLastTts(text: string, lastTts: string): boolean {
 
 export async function POST(req: Request) {
     try {
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) {
-            return NextResponse.json({ error: "Clé API Gemini manquante." }, { status: 500 });
-        }
-
-        const ai = new GoogleGenAI({ apiKey });
         const formData = await req.formData();
         const audioFile = formData.get('audio') as File | null;
         const speakerMode = (formData.get('speaker') as string) || 'bidirectional'; // 'therapeut' | 'patient' | 'bidirectional'
         const targetLanguage = (formData.get('targetLanguage') as string) || 'Anglais';
+        const targetLangCode = (formData.get('targetLangCode') as string) || 'en-US';
+        const ttsMode = (formData.get('ttsMode') as string) || 'all';
+        const voicePreset = (formData.get('voicePreset') as string) || 'duo_warm';
         const lastSpokenTts = ((formData.get('lastSpokenTts') as string) || '').trim();
 
         if (!audioFile) {
@@ -62,115 +61,175 @@ export async function POST(req: Request) {
             });
         }
 
-        const base64Audio = Buffer.from(arrayBuffer).toString('base64');
-
-        // Nettoyer les paramètres additionnels (ex: ;codecs=opus) qui font échouer Gemini
         let mimeType = (audioFile.type || 'audio/webm').split(';')[0].trim();
         if (mimeType === 'audio/x-m4a') {
             mimeType = 'audio/mp4';
         }
 
-        const systemInstruction = `Tu es un interprète médical bilingue ultra-précis en cabinet d'ostéopathie et kinésithérapie entre :
-- Le praticien : Guillaume Philippe (qui parle TOUJOURS en Français)
-- Le patient étranger (qui parle en ${targetLanguage}).
+        let resolvedSpeaker: 'therapeut' | 'patient' = 'patient';
+        let transcription = '';
+        let translation = '';
+        let handledByGroq = false;
 
-RÈGLES CRITIQUES ABSOLUES :
-1. FILTRE ANTI-BRUIT : Si l'audio contient uniquement du silence, une respiration, un soupir, un toussotement, un frottement de table ou des mots incompréhensibles/isolés sans sens clinique, mets "isSilence": true.
-2. IDENTIFICATION DE LA LANGUE PARLÉE :
-   - Écoute dans quelle langue la personne s'exprime réellement dans l'audio.
-   - Si la personne parle en Français -> "spokenLanguageIsFrench": true.
-   - Si la personne parle en ${targetLanguage} (ou toute langue autre que le Français) -> "spokenLanguageIsFrench": false.
-3. DEUX CHAMPS DE SORTIE DISTINCTS ET OBLIGATOIRES :
-   - "frenchVersion" : DOIT TOUJOURS ÊTRE RÉDIGÉ EN FRANÇAIS. Si la patiente a parlé en ${targetLanguage}, traduis fidèlement et naturellement ses propos en Français ici. Ne mets JAMAIS d'anglais ou de ${targetLanguage} dans "frenchVersion".
-   - "foreignVersion" : DOIT TOUJOURS ÊTRE RÉDIGÉ EN ${targetLanguage.toUpperCase()}. Si le praticien a parlé en Français, traduis fidèlement et chaleureusement ses propos en ${targetLanguage} ici. Si la patiente a parlé en ${targetLanguage}, écris la transcription exacte de ses paroles en ${targetLanguage} ici.`;
+        // =========================================================================
+        // 1. MOTEUR ULTRA-RAPIDE (~500ms) : Groq Whisper-Large-v3-Turbo + GPT-OSS-120B
+        // =========================================================================
+        const groqKey = process.env.GROQ_API_KEY;
 
-        const userPrompt =
-            speakerMode === 'therapeut'
-                ? `Le praticien parle en Français. Transcris ses paroles dans "frenchVersion" et traduis-les en ${targetLanguage} dans "foreignVersion" ("spokenLanguageIsFrench": true).`
-                : speakerMode === 'patient'
-                ? `Le patient parle en ${targetLanguage}. Transcris ses paroles en ${targetLanguage} dans "foreignVersion" et traduis-les impérativement en Français dans "frenchVersion" ("spokenLanguageIsFrench": false).`
-                : `Mode Mains Libres Bidirectionnel : Détecte si la voix parle en Français ("spokenLanguageIsFrench": true) ou en ${targetLanguage} ("spokenLanguageIsFrench": false). Fournis obligatoirement "frenchVersion" (toujours en Français) et "foreignVersion" (toujours en ${targetLanguage}).`;
+        if (groqKey) {
+            try {
+                const ext = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('mpeg') ? 'mp3' : 'webm';
+                const whisperForm = new FormData();
+                whisperForm.append('file', new Blob([arrayBuffer], { type: mimeType }), `speech.${ext}`);
+                whisperForm.append('model', 'whisper-large-v3-turbo');
+                whisperForm.append('response_format', 'verbose_json');
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: [
-                {
-                    role: 'user',
-                    parts: [
-                        { inlineData: { data: base64Audio, mimeType } },
-                        { text: userPrompt }
-                    ]
+                const wRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${groqKey}` },
+                    body: whisperForm,
+                });
+
+                if (wRes.ok) {
+                    const wData = await wRes.json();
+                    const rawText = (wData.text || '').trim();
+                    const detectedLang = (wData.language || '').toLowerCase();
+                    const firstSeg = Array.isArray(wData.segments) && wData.segments[0] ? wData.segments[0] : null;
+                    const noSpeechProb = firstSeg && typeof firstSeg.no_speech_prob === 'number' ? firstSeg.no_speech_prob : 0;
+
+                    if (!rawText || noSpeechProb > 0.72 || HALLUCINATION_PATTERNS.some(rx => rx.test(rawText))) {
+                        return new Response("[SILENCE]", {
+                            headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+                        });
+                    }
+
+                    const isSpokenFrench =
+                        speakerMode === 'therapeut'
+                            ? true
+                            : speakerMode === 'patient'
+                            ? false
+                            : detectedLang === 'french' || detectedLang === 'fr';
+
+                    resolvedSpeaker = isSpokenFrench ? 'therapeut' : 'patient';
+                    transcription = rawText;
+
+                    // Filtre anti-écho immédiat avant même d'appeler le LLM
+                    if (lastSpokenTts && isEchoOfLastTts(transcription, lastSpokenTts)) {
+                        return new Response("[SILENCE]", {
+                            headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+                        });
+                    }
+
+                    const translationDirectionPrompt = isSpokenFrench
+                        ? `Translate this French medical consultation sentence into natural, warm, empathetic ${targetLanguage}. Output JSON {"translation": "..."} ONLY.`
+                        : `Traduis cette phrase de consultation médicale (${targetLanguage}) en FRANÇAIS naturel, fluide et précis. Ne répète JAMAIS l'anglais. Réponds UNIQUEMENT en JSON {"translation": "..."}.`;
+
+                    const llmRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                            Authorization: `Bearer ${groqKey}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            model: 'openai/gpt-oss-120b',
+                            temperature: 0.05,
+                            reasoning_effort: 'low',
+                            response_format: { type: 'json_object' },
+                            messages: [
+                                { role: 'system', content: translationDirectionPrompt },
+                                { role: 'user', content: transcription },
+                            ],
+                        }),
+                    });
+
+                    if (llmRes.ok) {
+                        const llmData = await llmRes.json();
+                        const content = llmData.choices?.[0]?.message?.content || '{}';
+                        const parsed = JSON.parse(content);
+                        if (parsed.translation && parsed.translation.trim()) {
+                            translation = parsed.translation.trim();
+                            handledByGroq = true;
+                        }
+                    }
                 }
-            ],
-            config: {
-                systemInstruction,
-                temperature: 0.05,
-                responseMimeType: 'application/json',
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        isSilence: {
-                            type: Type.BOOLEAN,
-                            description: "True si silence, bruit de fond, respiration, toux ou extrait inintelligible.",
+            } catch (groqErr) {
+                console.warn('[API /translate] Groq fast-path warning, falling back to Gemini:', groqErr);
+            }
+        }
+
+        // =========================================================================
+        // 2. MOTEUR DE SECOURS : Gemini 2.5 Flash avec thinkingBudget: 0 (Zéro latence de réflexion)
+        // =========================================================================
+        if (!handledByGroq) {
+            const apiKey = process.env.GEMINI_API_KEY;
+            if (!apiKey) {
+                return NextResponse.json({ error: "Clé API manquante." }, { status: 500 });
+            }
+
+            const ai = new GoogleGenAI({ apiKey });
+            const base64Audio = Buffer.from(arrayBuffer).toString('base64');
+
+            const systemInstruction = `Tu es un interprète médical bilingue ultra-précis entre Guillaume Philippe (praticien qui parle Français) et son patient étranger (qui parle ${targetLanguage}).
+1. Si silence/bruit/souffle -> "isSilence": true.
+2. Si la voix parle Français -> "spokenLanguageIsFrench": true. Si elle parle ${targetLanguage} -> "spokenLanguageIsFrench": false.
+3. "frenchVersion" : TOUJOURS EN FRANÇAIS.
+4. "foreignVersion" : TOUJOURS EN ${targetLanguage.toUpperCase()}.`;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: [
+                    {
+                        role: 'user',
+                        parts: [
+                            { inlineData: { data: base64Audio, mimeType } },
+                            { text: `Transcris et traduis entre Français et ${targetLanguage}.` }
+                        ]
+                    }
+                ],
+                config: {
+                    systemInstruction,
+                    temperature: 0.05,
+                    thinkingConfig: { thinkingBudget: 0 },
+                    responseMimeType: 'application/json',
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            isSilence: { type: Type.BOOLEAN },
+                            spokenLanguageIsFrench: { type: Type.BOOLEAN },
+                            frenchVersion: { type: Type.STRING },
+                            foreignVersion: { type: Type.STRING },
                         },
-                        spokenLanguageIsFrench: {
-                            type: Type.BOOLEAN,
-                            description: "True UNIQUEMENT si la personne dans l'audio parle en Français. False si elle parle en Anglais ou autre langue étrangère.",
-                        },
-                        frenchVersion: {
-                            type: Type.STRING,
-                            description: "Le texte en FRANÇAIS uniquement (jamais en anglais).",
-                        },
-                        foreignVersion: {
-                            type: Type.STRING,
-                            description: `Le texte en ${targetLanguage} uniquement.`,
-                        },
+                        required: ["isSilence", "spokenLanguageIsFrench", "frenchVersion", "foreignVersion"],
                     },
-                    required: ["isSilence", "spokenLanguageIsFrench", "frenchVersion", "foreignVersion"],
                 },
-            },
-        });
-
-        const rawJson = response.text || '{}';
-        let parsed: {
-            isSilence?: boolean;
-            spokenLanguageIsFrench?: boolean;
-            frenchVersion?: string;
-            foreignVersion?: string;
-        } = {};
-
-        try {
-            parsed = JSON.parse(rawJson);
-        } catch {
-            return new Response("[SILENCE]", {
-                headers: { 'Content-Type': 'text/plain; charset=utf-8' }
             });
+
+            const parsed = JSON.parse(response.text || '{}');
+            const frenchVersion = (parsed.frenchVersion || '').trim();
+            const foreignVersion = (parsed.foreignVersion || '').trim();
+
+            if (parsed.isSilence || (!frenchVersion && !foreignVersion)) {
+                return new Response("[SILENCE]", {
+                    headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+                });
+            }
+
+            resolvedSpeaker =
+                speakerMode === 'therapeut'
+                    ? 'therapeut'
+                    : speakerMode === 'patient'
+                    ? 'patient'
+                    : parsed.spokenLanguageIsFrench
+                    ? 'therapeut'
+                    : 'patient';
+
+            transcription = resolvedSpeaker === 'therapeut' ? frenchVersion : foreignVersion;
+            translation = resolvedSpeaker === 'therapeut' ? foreignVersion : frenchVersion;
         }
 
-        let frenchVersion = (parsed.frenchVersion || '').trim();
-        let foreignVersion = (parsed.foreignVersion || '').trim();
-
-        if (parsed.isSilence || (!frenchVersion && !foreignVersion)) {
-            return new Response("[SILENCE]", {
-                headers: { 'Content-Type': 'text/plain; charset=utf-8' }
-            });
-        }
-
-        // Déterminer le locuteur de manière déterministe
-        let resolvedSpeaker: 'therapeut' | 'patient';
-        if (speakerMode === 'therapeut') {
-            resolvedSpeaker = 'therapeut';
-        } else if (speakerMode === 'patient') {
-            resolvedSpeaker = 'patient';
-        } else {
-            resolvedSpeaker = parsed.spokenLanguageIsFrench ? 'therapeut' : 'patient';
-        }
-
-        let transcription = resolvedSpeaker === 'therapeut' ? frenchVersion : foreignVersion;
-        let translation = resolvedSpeaker === 'therapeut' ? foreignVersion : frenchVersion;
-
-        // Filtre anti-hallucination sur les phrases très courtes / parasites
         if (
+            !transcription ||
+            !translation ||
             transcription.length < 2 ||
             HALLUCINATION_PATTERNS.some(rx => rx.test(transcription.trim()))
         ) {
@@ -179,7 +238,6 @@ RÈGLES CRITIQUES ABSOLUES :
             });
         }
 
-        // Filtre anti-écho : si le micro a capté la voix du haut-parleur de la traduction précédente
         if (
             lastSpokenTts &&
             (isEchoOfLastTts(transcription, lastSpokenTts) || isEchoOfLastTts(translation, lastSpokenTts))
@@ -189,58 +247,27 @@ RÈGLES CRITIQUES ABSOLUES :
             });
         }
 
-        // GARDE-FOU ABSOLU : Si le locuteur est le patient (ex: patiente anglaise) et que la traduction
-        // est identique à la transcription (ou non traduite en français), forcer la traduction en Français !
-        if (
-            resolvedSpeaker === 'patient' &&
-            normalizeForComparison(translation) === normalizeForComparison(transcription)
-        ) {
-            const fixRes = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: [
-                    {
-                        role: 'user',
-                        parts: [
-                            {
-                                text: `Traduis immédiatement et uniquement cette phrase médicale de ${targetLanguage} vers le FRANÇAIS (ne réponds que par la traduction française, sans guillemets) :\n"${transcription}"`,
-                            },
-                        ],
-                    },
-                ],
-                config: { temperature: 0.1 },
-            });
-            const fixedFr = (fixRes.text || '').trim();
-            if (fixedFr) {
-                translation = fixedFr;
+        // =========================================================================
+        // 3. SYNTHÈSE VOCALE DIRECTE INTÉGRÉE (Zéro 2e aller-retour réseau !)
+        // =========================================================================
+        const shouldSpeak =
+            ttsMode === 'all' ||
+            (ttsMode === 'patient_only' && resolvedSpeaker === 'therapeut');
+
+        let audioDataUri = '';
+        if (shouldSpeak && translation) {
+            const ttsLangCode = resolvedSpeaker === 'therapeut' ? targetLangCode : 'fr-FR';
+            const ttsResult = await generateWarmTtsAudio(translation, ttsLangCode, resolvedSpeaker, voicePreset);
+            if (ttsResult) {
+                audioDataUri = `data:${ttsResult.mimeType};base64,${ttsResult.buffer.toString('base64')}`;
             }
         }
 
-        // Inversement, si Guillaume parle Français et que la traduction est restée en Français
-        if (
-            resolvedSpeaker === 'therapeut' &&
-            normalizeForComparison(translation) === normalizeForComparison(transcription)
-        ) {
-            const fixRes = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: [
-                    {
-                        role: 'user',
-                        parts: [
-                            {
-                                text: `Translate immediately and only this medical sentence from French into ${targetLanguage} (reply only with the ${targetLanguage} translation, no quotes):\n"${transcription}"`,
-                            },
-                        ],
-                    },
-                ],
-                config: { temperature: 0.1 },
-            });
-            const fixedForeign = (fixRes.text || '').trim();
-            if (fixedForeign) {
-                translation = fixedForeign;
-            }
-        }
-
-        const formattedOutput = `[SPEAKER]\n${resolvedSpeaker}\n[TRANSCRIPTION]\n${transcription}\n[TRANSLATION]\n${translation}`;
+        const formattedOutput =
+            `[SPEAKER]\n${resolvedSpeaker}\n` +
+            `[TRANSCRIPTION]\n${transcription}\n` +
+            `[TRANSLATION]\n${translation}` +
+            (audioDataUri ? `\n[AUDIO_URI]\n${audioDataUri}` : '');
 
         return new Response(formattedOutput, {
             headers: {

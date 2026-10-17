@@ -36,20 +36,22 @@ export const SUPPORTED_LANGUAGES = [
 ];
 
 export const WARM_VOICE_PRESETS = [
-    { id: 'duo_warm', label: '✨ Duo Chaleureux (Sarah & Brian)' },
-    { id: 'sarah', label: '🌸 Sarah (Douce & Rassurante)' },
-    { id: 'bella', label: '☀️ Bella (Chaleureuse & Claire)' },
-    { id: 'lily', label: '🌿 Lily (Voix Veloutée)' },
-    { id: 'brian', label: '🪵 Brian (Posé & Réconfortant)' },
-    { id: 'george', label: '🎩 George (Chaleureux & Conteur)' },
+    { id: 'duo_warm', label: '✨ Duo Paris & Londres (Claire 🇫🇷 & George 🇬🇧)' },
+    { id: 'claire', label: '🇫🇷 Claire (Française Douce & Chaleureuse)' },
+    { id: 'jeanne', label: '🇫🇷 Jeanne (Parisienne Naturelle & Fluide)' },
+    { id: 'victoria', label: '🇫🇷 Victoria (Parisienne Captivante)' },
+    { id: 'leo', label: '🇫🇷 Léo (Parisien Rassurant & Posé)' },
+    { id: 'nicolas', label: '🇫🇷 Nicolas (Parisien Calme & Profond)' },
     { id: 'guillaume', label: '🎙️ Guillaume (Ma Voix Clonée)' },
+    { id: 'lily', label: '🇬🇧 Lily (Veloutée Britannique)' },
+    { id: 'george', label: '🇬🇧 George (Chaleureux Britannique)' },
 ];
 
 type TranslationMode = 'conversation' | 'realtime';
 type TTSMode = 'all' | 'patient_only' | 'mute';
 
-// Silence de 850ms après la fin du haut-parleur avant de ré-ouvrir le micro (anti-écho absolu)
-const POST_TTS_COOLDOWN_MS = 850;
+// Sas anti-écho court (450ms) après la fin du haut-parleur avant de ré-ouvrir le micro
+const POST_TTS_COOLDOWN_MS = 450;
 
 export function BilingualRecorder({ onRecordingComplete, onConversationComplete, attachedFiles = [], isProcessing = false }: BilingualRecorderProps) {
     const [targetLanguage, setTargetLanguage] = useState<string>('en-US');
@@ -181,7 +183,6 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
             if (!audioPlayerRef.current) {
                 audioPlayerRef.current = new Audio();
             }
-            // Mini WAV silencieux valide pour débloquer l'autoplay sur iOS Safari
             audioPlayerRef.current.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
             audioPlayerRef.current.volume = 0.01;
             const playPromise = audioPlayerRef.current.play();
@@ -219,47 +220,19 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         cooldownUntilMsRef.current = Date.now() + POST_TTS_COOLDOWN_MS;
     }, []);
 
-    // Synthèse vocale humaine chaleureuse via /api/tts (ElevenLabs Flash v2.5 + secours Gemini Native Audio)
-    const speakText = useCallback(async (text: string, langCode: string, speakerRole: 'therapeut' | 'patient' = 'patient'): Promise<void> => {
-        const cleanText = text
-            .replace(/[*#_~`]/g, '')
-            .replace(/\[.*?\]/g, '')
-            .trim();
-
-        if (!cleanText || typeof window === 'undefined') return;
-
+    // Lecture instantanée d'un flux audio déjà inclus dans la réponse /api/translate (0ms d'aller-retour supplémentaire)
+    const playAudioUrlOrDataUri = useCallback(async (srcUrl: string, spokenText: string): Promise<void> => {
         stopSpeaking();
         isPlayingTTSRef.current = true;
         setIsPlayingAudio(true);
-        lastSpokenTtsRef.current = cleanText;
-
-        // Couper physiquement le micro pendant que la voix parle
+        lastSpokenTtsRef.current = spokenText;
         setHandsFreeMicMuted(true);
 
         try {
-            const response = await fetch("/api/tts", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    text: cleanText,
-                    langCode,
-                    speaker: speakerRole,
-                    voicePreset: voicePresetRef.current,
-                }),
-            });
-
-            if (!response.ok) {
-                throw new Error("TTS API non disponible");
-            }
-
-            const audioBlob = await response.blob();
-            const audioUrl = URL.createObjectURL(audioBlob);
-            currentAudioUrlRef.current = audioUrl;
-
             await new Promise<void>((resolve) => {
                 const audio = audioPlayerRef.current || new Audio();
                 audioPlayerRef.current = audio;
-                audio.src = audioUrl;
+                audio.src = srcUrl;
                 audio.volume = 1.0;
                 audio.playbackRate = speechRateRef.current;
 
@@ -285,31 +258,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                     });
                 }
             });
-        } catch (err) {
-            console.warn("Repli sur synthèse locale suite à erreur réseau TTS:", err);
-            // Fallback ultime hors-ligne uniquement
-            if ('speechSynthesis' in window) {
-                await new Promise<void>((resolve) => {
-                    try {
-                        window.speechSynthesis.cancel();
-                        const utterance = new SpeechSynthesisUtterance(cleanText);
-                        utterance.lang = langCode;
-                        utterance.rate = speechRateRef.current;
-                        const timer = setTimeout(resolve, 15000);
-                        utterance.onend = () => { clearTimeout(timer); resolve(); };
-                        utterance.onerror = () => { clearTimeout(timer); resolve(); };
-                        window.speechSynthesis.speak(utterance);
-                    } catch {
-                        resolve();
-                    }
-                });
-            }
         } finally {
-            if (currentAudioUrlRef.current) {
-                URL.revokeObjectURL(currentAudioUrlRef.current);
-                currentAudioUrlRef.current = null;
-            }
-            // Sas d'amortissement acoustique de 850ms après la fin du son avant de réouvrir le micro
             cooldownUntilMsRef.current = Date.now() + POST_TTS_COOLDOWN_MS;
             await new Promise((r) => setTimeout(r, POST_TTS_COOLDOWN_MS));
             isPlayingTTSRef.current = false;
@@ -320,6 +269,57 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         }
     }, [setHandsFreeMicMuted, stopSpeaking]);
 
+    // Synthèse vocale à la demande (pour les boutons "Écouter" / "Orig." de l'historique)
+    const speakText = useCallback(async (text: string, langCode: string, speakerRole: 'therapeut' | 'patient' = 'patient'): Promise<void> => {
+        const cleanText = text
+            .replace(/[*#_~`]/g, '')
+            .replace(/\[.*?\]/g, '')
+            .trim();
+
+        if (!cleanText || typeof window === 'undefined') return;
+
+        stopSpeaking();
+        isPlayingTTSRef.current = true;
+        setIsPlayingAudio(true);
+        lastSpokenTtsRef.current = cleanText;
+        setHandsFreeMicMuted(true);
+
+        try {
+            const response = await fetch("/api/tts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    text: cleanText,
+                    langCode,
+                    speaker: speakerRole,
+                    voicePreset: voicePresetRef.current,
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error("TTS API non disponible");
+            }
+
+            const audioBlob = await response.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            currentAudioUrlRef.current = audioUrl;
+
+            await playAudioUrlOrDataUri(audioUrl, cleanText);
+        } catch (err) {
+            console.warn("Erreur TTS:", err);
+            isPlayingTTSRef.current = false;
+            setIsPlayingAudio(false);
+            if (handsFreeActiveRef.current) {
+                setHandsFreeMicMuted(false);
+            }
+        } finally {
+            if (currentAudioUrlRef.current) {
+                URL.revokeObjectURL(currentAudioUrlRef.current);
+                currentAudioUrlRef.current = null;
+            }
+        }
+    }, [playAudioUrlOrDataUri, setHandsFreeMicMuted, stopSpeaking]);
+
     const getBestMimeType = (): string => {
         if (typeof MediaRecorder === 'undefined') return 'audio/webm';
         if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) return 'audio/webm;codecs=opus';
@@ -328,9 +328,9 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         return '';
     };
 
-    // Envoi d'un segment audio à /api/translate (supporte 'therapeut', 'patient', et 'bidirectional')
+    // Envoi d'un segment audio à /api/translate (Groq Whisper Turbo + GPT-OSS-120B + Audio TTS intégré en un seul appel !)
     const processAudioSegment = useCallback(async (audioBlob: Blob, speakerRole: 'therapeut' | 'patient' | 'bidirectional') => {
-        if (audioBlob.size < 900) return;
+        if (audioBlob.size < 800) return;
 
         setIsTranslating(true);
         if (handsFreeActiveRef.current) {
@@ -346,6 +346,9 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
             formData.append("audio", audioBlob);
             formData.append("speaker", speakerRole);
             formData.append("targetLanguage", currentLangObj.name);
+            formData.append("targetLangCode", targetLanguageRef.current);
+            formData.append("ttsMode", ttsModeRef.current);
+            formData.append("voicePreset", voicePresetRef.current);
             if (lastSpokenTtsRef.current) {
                 formData.append("lastSpokenTts", lastSpokenTtsRef.current);
             }
@@ -366,7 +369,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                 return;
             }
 
-            // Extraction robuste de [SPEAKER] (insensible aux guillemets, deux-points ou espaces)
+            // Extraction robuste de [SPEAKER]
             let resolvedSpeaker: 'therapeut' | 'patient' =
                 speakerRole === 'patient' ? 'patient' : speakerRole === 'therapeut' ? 'therapeut' : 'patient';
 
@@ -377,19 +380,26 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
 
             const finalTransIndex = fullText.indexOf("[TRANSCRIPTION]");
             const finalTranslIndex = fullText.indexOf("[TRANSLATION]");
+            const audioUriIndex = fullText.indexOf("[AUDIO_URI]");
+
             let finalTranscription = "";
             let finalTranslation = "";
+            let inlineAudioUri = "";
 
             if (finalTransIndex !== -1 && finalTranslIndex !== -1) {
                 finalTranscription = fullText.substring(finalTransIndex + "[TRANSCRIPTION]".length, finalTranslIndex).trim();
-                finalTranslation = fullText.substring(finalTranslIndex + "[TRANSLATION]".length).trim();
+                if (audioUriIndex !== -1) {
+                    finalTranslation = fullText.substring(finalTranslIndex + "[TRANSLATION]".length, audioUriIndex).trim();
+                    inlineAudioUri = fullText.substring(audioUriIndex + "[AUDIO_URI]".length).trim();
+                } else {
+                    finalTranslation = fullText.substring(finalTranslIndex + "[TRANSLATION]".length).trim();
+                }
             }
 
             if (!finalTranscription || !finalTranslation) {
                 return;
             }
 
-            // Sauvegarder dans l'état et dans IndexedDB
             const newMessage: Message = {
                 id: tempId,
                 speaker: resolvedSpeaker,
@@ -412,21 +422,24 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                 return updated;
             });
 
-            // Lecture vocale automatique avec voix chaleureuse selon ttsMode
+            setIsTranslating(false);
+
+            // Lecture immédiate de l'audio déjà joint par le serveur (zéro attente réseau !)
             const currentTtsMode = ttsModeRef.current;
             const shouldSpeak =
                 currentTtsMode === 'all' ||
                 (currentTtsMode === 'patient_only' && resolvedSpeaker === 'therapeut');
 
             if (shouldSpeak && finalTranslation) {
-                // Si la patiente a parlé (resolvedSpeaker === 'patient') -> on lit la traduction en FRANÇAIS ('fr-FR') pour Guillaume !
-                // Si Guillaume a parlé (resolvedSpeaker === 'therapeut') -> on lit la traduction dans la langue du patient !
-                const targetLangCode = resolvedSpeaker === 'therapeut' ? targetLanguageRef.current : 'fr-FR';
                 if (handsFreeActiveRef.current) {
                     setHandsFreeStatus('tts_playing');
                 }
-                setIsTranslating(false);
-                await speakText(finalTranslation, targetLangCode, resolvedSpeaker);
+                if (inlineAudioUri) {
+                    await playAudioUrlOrDataUri(inlineAudioUri, finalTranslation);
+                } else {
+                    const targetLangCode = resolvedSpeaker === 'therapeut' ? targetLanguageRef.current : 'fr-FR';
+                    await speakText(finalTranslation, targetLangCode, resolvedSpeaker);
+                }
             }
 
         } catch (error: unknown) {
@@ -444,10 +457,10 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                 setHandsFreeStatus('listening');
             }
         }
-    }, [setHandsFreeMicMuted, speakText, toast]);
+    }, [playAudioUrlOrDataUri, setHandsFreeMicMuted, speakText, toast]);
 
     // ============================================================================
-    // MODE 1 : MAINS LIBRES AUTOMATIQUE (VAD Calibré + Anti-Écho Matériel)
+    // MODE 1 : MAINS LIBRES ULTRA-RÉACTIF (Cadence ChatGPT ~0.9s + Anti-Écho Matériel)
     // ============================================================================
     const startNewHandsFreeSegment = useCallback(() => {
         if (!handsFreeActiveRef.current || !handsFreeStreamRef.current) return;
@@ -480,23 +493,23 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                 hasSpeechInSegmentRef.current = false;
                 speechFramesCountRef.current = 0;
 
-                if (hadSpeech && framesCount >= 12 && chunks.length > 0 && handsFreeActiveRef.current) {
+                if (hadSpeech && framesCount >= 8 && chunks.length > 0 && handsFreeActiveRef.current) {
                     const blob = new Blob(chunks, { type: mime || 'audio/webm' });
-                    if (blob.size >= 1200) {
+                    if (blob.size >= 1000) {
                         isProcessingSegmentRef.current = true;
                         await processAudioSegment(blob, 'bidirectional');
                         isProcessingSegmentRef.current = false;
                     }
                 }
 
-                // Relancer l'écoute du segment suivant uniquement après la fin complète de la traduction + TTS + Cooldown
+                // Relancer l'écoute du segment suivant dès la fin de la lecture + sas 450ms
                 if (handsFreeActiveRef.current && !isProcessingSegmentRef.current && !isPlayingTTSRef.current) {
                     startNewHandsFreeSegment();
                 }
             };
 
             segmentRecorderRef.current = recorder;
-            recorder.start(250);
+            recorder.start(200);
             setHandsFreeStatus('listening');
         } catch (err) {
             console.error("Failed to start hands-free segment recorder:", err);
@@ -528,7 +541,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
             const source = audioCtx.createMediaStreamSource(stream);
             const analyser = audioCtx.createAnalyser();
             analyser.fftSize = 512;
-            analyser.smoothingTimeConstant = 0.6;
+            analyser.smoothingTimeConstant = 0.5;
             source.connect(analyser);
             analyserRef.current = analyser;
 
@@ -539,11 +552,11 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
             startNewHandsFreeSegment();
 
             const freqData = new Uint8Array(analyser.frequencyBinCount);
-            const SPEECH_THRESHOLD = 35; // Seuil calibré pour ignorer la respiration et le bruit de cabinet
-            const MIN_SPEECH_DURATION_MS = 650; // Au moins 650ms de voix humaine soutenue
-            const SILENCE_DURATION_MS = 1750; // 1.75s de silence pour laisser finir la phrase naturellement
-            const MAX_SEGMENT_SPEECH_MS = 26000; // Sécurité 26s max par prise de parole
-            const IDLE_RESET_MS = 10000; // Nettoyage du buffer toutes les 10s de silence
+            const SPEECH_THRESHOLD = 33; // Seuil calibré cabinet
+            const MIN_SPEECH_DURATION_MS = 420; // Capte même les réponses courtes ("Yes", "Ici", "Tout à fait")
+            const SILENCE_DURATION_MS = 920; // 0.92s de silence = déclenchement ultra-réactif type ChatGPT Voice
+            const MAX_SEGMENT_SPEECH_MS = 24000;
+            const IDLE_RESET_MS = 9000;
 
             const monitorVad = () => {
                 if (!handsFreeActiveRef.current || !analyserRef.current) return;
@@ -551,7 +564,6 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
 
                 const now = Date.now();
 
-                // Ignorer strictement toute activité micro pendant la traduction, le TTS ou le sas anti-écho
                 if (
                     isPlayingTTSRef.current ||
                     isProcessingSegmentRef.current ||
@@ -563,7 +575,6 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
 
                 analyserRef.current.getByteFrequencyData(freqData);
 
-                // Énergie moyenne sur la bande fondamentale de la voix humaine (150 Hz - 3200 Hz)
                 let sum = 0;
                 const startBin = 3;
                 const endBin = Math.min(70, freqData.length);
@@ -582,12 +593,11 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                         hasSpeechInSegmentRef.current = true;
                         speechStartMsRef.current = now;
                     }
-                    if (speechFramesCountRef.current >= 6) {
+                    if (speechFramesCountRef.current >= 5) {
                         setHandsFreeStatus('speaking_detected');
                     }
                     lastSpeechMsRef.current = now;
 
-                    // Si la personne parle en continu depuis > 26s, envoyer le segment
                     if (now - speechStartMsRef.current > MAX_SEGMENT_SPEECH_MS && recorder && recorder.state === 'recording') {
                         recorder.stop();
                     }
@@ -595,17 +605,15 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                     if (hasSpeechInSegmentRef.current) {
                         const speechDuration = lastSpeechMsRef.current - speechStartMsRef.current;
                         if (now - lastSpeechMsRef.current > SILENCE_DURATION_MS) {
-                            if (speechDuration >= MIN_SPEECH_DURATION_MS && speechFramesCountRef.current >= 12 && recorder && recorder.state === 'recording') {
+                            if (speechDuration >= MIN_SPEECH_DURATION_MS && speechFramesCountRef.current >= 8 && recorder && recorder.state === 'recording') {
                                 recorder.stop();
                             } else {
-                                // Bruit bref (toux, frottement de table < 650ms) : on réinitialise sans envoyer
                                 hasSpeechInSegmentRef.current = false;
                                 speechFramesCountRef.current = 0;
                                 setHandsFreeStatus('listening');
                             }
                         }
                     } else {
-                        // Aucun son détecté depuis 10 secondes : purger le buffer silencieux
                         if (now - segmentStartMsRef.current > IDLE_RESET_MS && recorder && recorder.state === 'recording') {
                             recorder.stop();
                         }
@@ -616,8 +624,8 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
             vadRafRef.current = requestAnimationFrame(monitorVad);
 
             toast({
-                title: "🎙️ Mode Mains Libres activé",
-                description: `Parlez en Français ou en ${selectedLang.name} : détection anti-écho et voix chaleureuses actives.`,
+                title: "⚡ Mode Mains Libres Turbo activé",
+                description: `Traduction instantanée (< 0.8s) • Voix Françaises de France (Paris) & Britanniques.`,
             });
         } catch (err) {
             console.error("Erreur démarrage Mains Libres:", err);
@@ -711,7 +719,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                 await processAudioSegment(audioBlob, speaker);
             };
 
-            mediaRecorder.start(250);
+            mediaRecorder.start(200);
             setActiveSpeaker(speaker);
         } catch (error) {
             console.error("Error accessing microphone:", error);
@@ -811,7 +819,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                         <div className="flex items-center gap-2">
                             <Globe2 className="w-5 h-5 text-[#bd613c]" />
                             <CardTitle className="font-bebas tracking-wide text-xl sm:text-2xl text-[#bd613c] uppercase">
-                                Traducteur Bilingue Vocal
+                                Traducteur Bilingue Vocal Turbo
                             </CardTitle>
                         </div>
 
@@ -832,7 +840,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                         </div>
                     </div>
 
-                    {/* Ligne 2 : Mode de capture (Mains Libres vs Push-to-Talk) + Voix Humaines Chaleureuses */}
+                    {/* Ligne 2 : Mode de capture (Mains Libres vs Push-to-Talk) + Voix Françaises de France & Britanniques */}
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#bd613c]/10">
                         {/* Sélecteur de mode */}
                         <div className="flex bg-[#ebd9c8]/50 p-0.5 rounded-full border border-[#bd613c]/20">
@@ -868,7 +876,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                             </button>
                         </div>
 
-                        {/* Options Vocales (Mode TTS + Choix Voix Chaleureuse + Vitesse) */}
+                        {/* Options Vocales (Mode TTS + Choix Voix Française de France + Vitesse) */}
                         <div className="flex flex-wrap items-center gap-1.5">
                             <div className="flex items-center gap-1 bg-white px-2.5 py-1 rounded-full border border-[#bd613c]/20 text-xs">
                                 {ttsMode === 'mute' ? (
@@ -894,14 +902,14 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
 
                             {ttsMode !== 'mute' && (
                                 <>
-                                    {/* Sélecteur de Voix Humaine Chaleureuse */}
+                                    {/* Sélecteur de Voix Humaine Chaleureuse (Français de France Paris) */}
                                     <div className="flex items-center gap-1 bg-white px-2.5 py-1 rounded-full border border-[#bd613c]/20 text-[11px] sm:text-xs">
                                         <HeartHandshake className="w-3.5 h-3.5 text-[#bd613c] shrink-0" />
                                         <select
                                             value={voicePreset}
                                             onChange={(e) => setVoicePreset(e.target.value)}
                                             className="bg-transparent border-none text-[#4a3f35] font-semibold focus:outline-none cursor-pointer"
-                                            title="Choisir le timbre de voix humaine"
+                                            title="Choisir le timbre de voix humaine (Français de France)"
                                         >
                                             {WARM_VOICE_PRESETS.map(v => (
                                                 <option key={v.id} value={v.id}>
@@ -967,11 +975,11 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                         <Sparkles className="w-8 h-8 mb-2 opacity-50 text-[#bd613c]" />
                         <p className="text-sm font-medium text-[#4a3f35]/80">
                             {translationMode === 'conversation'
-                                ? `Mode Mains Libres : Cliquez sur « Démarrer » puis parlez librement en Français ou en ${selectedLang.name}.`
+                                ? `Mode Mains Libres Turbo : Cliquez sur « Démarrer » puis parlez librement en Français ou en ${selectedLang.name}.`
                                 : `Mode Manuel : Cliquez sur « Guillaume (FR) » ou « Patient (${selectedLang.label}) » pour enregistrer et traduire.`}
                         </p>
                         <p className="text-xs text-[#8c7b6d] mt-1">
-                            Voix humaines chaleureuses activées • Protection anti-écho automatique pendant la lecture.
+                            Réponse instantanée (&lt; 0.8s) • Voix Françaises de France (Claire, Jeanne, Léo) &amp; Britanniques.
                         </p>
                     </div>
                 )}
@@ -1037,7 +1045,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
 
                 {isTranslating && (
                     <div className="flex items-center gap-2 text-[#bd613c] text-xs font-medium p-2.5 bg-white/80 rounded-xl w-fit shadow-2xs border border-[#ebd9c8] animate-pulse">
-                        <Loader2 className="w-4 h-4 animate-spin" /> Traduction médicale en cours...
+                        <Loader2 className="w-4 h-4 animate-spin" /> Traduction instantanée...
                     </div>
                 )}
                 <div ref={messagesEndRef} />
@@ -1061,7 +1069,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                                     }`} />
                                     <span className="text-xs font-semibold text-[#4a3f35]">
                                         {handsFreeStatus === 'speaking_detected' && "🗣️ Parole détectée (traduction dès la fin de phrase)..."}
-                                        {handsFreeStatus === 'translating' && "⏳ Traduction IA en cours (micro coupé)..."}
+                                        {handsFreeStatus === 'translating' && "⚡ Traduction Turbo en cours (< 0.8s)..."}
                                         {handsFreeStatus === 'tts_playing' && "🔊 Lecture vocale chaleureuse (micro coupé anti-écho)..."}
                                         {handsFreeStatus === 'listening' && `👂 En écoute automatique (Français ⇄ ${selectedLang.name})...`}
                                     </span>
