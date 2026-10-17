@@ -36,12 +36,13 @@ export const SUPPORTED_LANGUAGES = [
 ];
 
 export const WARM_VOICE_PRESETS = [
-    { id: 'duo_warm', label: '✨ Duo Paris & Londres (Claire 🇫🇷 & George 🇬🇧)' },
-    { id: 'claire', label: '🇫🇷 Claire (Française Douce & Chaleureuse)' },
+    { id: 'duo_warm', label: '✨ Duo Studio Paris & Londres (Victoria 🇫🇷 & George 🇬🇧)' },
+    { id: 'victoria', label: '🇫🇷 Victoria (Parisienne Studio Pure & Douce)' },
+    { id: 'lucie', label: '🇫🇷 Lucie (Française Studio Chaleureuse)' },
+    { id: 'nicolas', label: '🇫🇷 Nicolas (Parisien Studio Calme & Posé)' },
     { id: 'jeanne', label: '🇫🇷 Jeanne (Parisienne Naturelle & Fluide)' },
-    { id: 'victoria', label: '🇫🇷 Victoria (Parisienne Captivante)' },
-    { id: 'leo', label: '🇫🇷 Léo (Parisien Rassurant & Posé)' },
-    { id: 'nicolas', label: '🇫🇷 Nicolas (Parisien Calme & Profond)' },
+    { id: 'leo', label: '🇫🇷 Léo (Parisien Rassurant)' },
+    { id: 'claire', label: '🇫🇷 Claire (Française Douce)' },
     { id: 'guillaume', label: '🎙️ Guillaume (Ma Voix Clonée)' },
     { id: 'lily', label: '🇬🇧 Lily (Veloutée Britannique)' },
     { id: 'george', label: '🇬🇧 George (Chaleureux Britannique)' },
@@ -50,8 +51,8 @@ export const WARM_VOICE_PRESETS = [
 type TranslationMode = 'conversation' | 'realtime';
 type TTSMode = 'all' | 'patient_only' | 'mute';
 
-// Sas anti-écho court (450ms) après la fin du haut-parleur avant de ré-ouvrir le micro
-const POST_TTS_COOLDOWN_MS = 450;
+// Sas anti-écho court (350ms) après la fin du haut-parleur avant de ré-ouvrir le micro
+const POST_TTS_COOLDOWN_MS = 350;
 
 export function BilingualRecorder({ onRecordingComplete, onConversationComplete, attachedFiles = [], isProcessing = false }: BilingualRecorderProps) {
     const [targetLanguage, setTargetLanguage] = useState<string>('en-US');
@@ -97,6 +98,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
     const cooldownUntilMsRef = useRef<number>(0);
     const lastSpokenTtsRef = useRef<string>('');
     const mimeTypeRef = useRef<string>('audio/webm');
+    const acquireHandsFreeMicRef = useRef<(() => Promise<void>) | null>(null);
 
     // Lecteur Audio HTML5 partagé (déverrouillé au clic pour iOS/Safari/Chrome)
     const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
@@ -167,16 +169,62 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         });
     };
 
-    // Coupe ou réactive physiquement les pistes du microphone Mains Libres (bouclier anti-écho matériel)
-    const setHandsFreeMicMuted = useCallback((muted: boolean) => {
+    // Coupe totalement le matériel micro et bascule iOS hors du mode PlayAndRecord (VoiceProcessingIO)
+    // pour éliminer 100% des grésillements de rééchantillonnage 48kHz/44.1kHz sur iPhone Safari
+    const teardownMicAndSwitchToPlayback = useCallback(async () => {
+        if (vadRafRef.current) {
+            cancelAnimationFrame(vadRafRef.current);
+            vadRafRef.current = null;
+        }
+        setVadLevel(0);
+
+        if (segmentRecorderRef.current && segmentRecorderRef.current.state !== 'inactive') {
+            hasSpeechInSegmentRef.current = false;
+            speechFramesCountRef.current = 0;
+            try { segmentRecorderRef.current.stop(); } catch { /* ignore */ }
+        }
+        segmentRecorderRef.current = null;
+
         if (handsFreeStreamRef.current) {
-            handsFreeStreamRef.current.getAudioTracks().forEach((track) => {
-                track.enabled = !muted;
+            handsFreeStreamRef.current.getTracks().forEach((t) => {
+                try { t.stop(); } catch { /* ignore */ }
             });
+            handsFreeStreamRef.current = null;
+        }
+
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach((t) => {
+                try { t.stop(); } catch { /* ignore */ }
+            });
+            streamRef.current = null;
+        }
+
+        analyserRef.current = null;
+        if (audioContextRef.current) {
+            const ctx = audioContextRef.current;
+            audioContextRef.current = null;
+            try {
+                await ctx.close();
+            } catch {
+                // ignore
+            }
+        }
+
+        // Force iOS 16.4+ / 17 / 18 Safari à quitter PlayAndRecord et utiliser le haut-parleur média Hi-Fi pur
+        if (typeof navigator !== 'undefined') {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const nav = navigator as any;
+            if (nav.audioSession) {
+                try {
+                    nav.audioSession.type = 'playback';
+                } catch {
+                    // ignore
+                }
+            }
         }
     }, []);
 
-    // Préparation propre de l'élément Audio HTML5 pour iOS / Safari lors du clic utilisateur (sans WAV 11kHz parasite)
+    // Préparation propre de l'élément Audio HTML5 pour iOS / Safari lors du clic utilisateur
     const unlockAudioPlayback = () => {
         if (typeof window === 'undefined') return;
         try {
@@ -185,9 +233,6 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                 audio.setAttribute('playsinline', 'true');
                 audio.preload = 'auto';
                 audioPlayerRef.current = audio;
-            }
-            if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-                audioContextRef.current.resume().catch(() => {});
             }
         } catch {
             // ignore
@@ -215,13 +260,15 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         cooldownUntilMsRef.current = Date.now() + POST_TTS_COOLDOWN_MS;
     }, []);
 
-    // Lecture instantanée d'un flux audio (convertit le base64 en Blob binaire natif pour éliminer tout grésillement sur iPhone iOS)
+    // Lecture instantanée d'un flux audio en mode Playback Hi-Fi pur (zéro grésillement iPhone iOS)
     const playAudioUrlOrDataUri = useCallback(async (srcUrl: string, spokenText: string): Promise<void> => {
         stopSpeaking();
         isPlayingTTSRef.current = true;
         setIsPlayingAudio(true);
         lastSpokenTtsRef.current = spokenText;
-        setHandsFreeMicMuted(true);
+
+        // S'assurer que tout micro et AudioContext sont fermés avant de jouer le MP3
+        await teardownMicAndSwitchToPlayback();
 
         let objectUrlToRevoke: string | null = null;
 
@@ -248,15 +295,17 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                 const audio = audioPlayerRef.current || new Audio();
                 audio.setAttribute('playsinline', 'true');
                 audioPlayerRef.current = audio;
+
+                // Purge du pipeline WebKit iOS (évite que l'élément <audio> reste calé sur l'horloge 48kHz PlayAndRecord)
+                audio.pause();
+                audio.src = '';
+                audio.load();
+
                 audio.src = finalPlayUrl;
-                // Volume à 0.88 (-1.1 dB) pour éviter la saturation du limiteur matériel iPhone en mode PlayAndRecord
-                audio.volume = 0.88;
-                // Ne modifier playbackRate que si != 1.0 pour éviter l'activation du vocodeur temporel iOS qui grésille
                 if (Math.abs(speechRateRef.current - 1.0) > 0.01) {
                     audio.playbackRate = speechRateRef.current;
-                } else {
-                    audio.defaultPlaybackRate = 1.0;
                 }
+                audio.load();
 
                 const safetyTimeout = setTimeout(() => {
                     resolve();
@@ -291,11 +340,13 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
             await new Promise((r) => setTimeout(r, POST_TTS_COOLDOWN_MS));
             isPlayingTTSRef.current = false;
             setIsPlayingAudio(false);
-            if (handsFreeActiveRef.current) {
-                setHandsFreeMicMuted(false);
+
+            // Si on n'est pas au milieu de processAudioSegment (ex: clic sur bouton "Écouter"), réactiver le micro Mains Libres
+            if (handsFreeActiveRef.current && !isProcessingSegmentRef.current && acquireHandsFreeMicRef.current) {
+                await acquireHandsFreeMicRef.current();
             }
         }
-    }, [setHandsFreeMicMuted, stopSpeaking]);
+    }, [stopSpeaking, teardownMicAndSwitchToPlayback]);
 
     // Synthèse vocale à la demande (pour les boutons "Écouter" / "Orig." de l'historique)
     const speakText = useCallback(async (text: string, langCode: string, speakerRole: 'therapeut' | 'patient' = 'patient'): Promise<void> => {
@@ -310,7 +361,8 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         isPlayingTTSRef.current = true;
         setIsPlayingAudio(true);
         lastSpokenTtsRef.current = cleanText;
-        setHandsFreeMicMuted(true);
+
+        await teardownMicAndSwitchToPlayback();
 
         try {
             const response = await fetch("/api/tts", {
@@ -337,8 +389,8 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
             console.warn("Erreur TTS:", err);
             isPlayingTTSRef.current = false;
             setIsPlayingAudio(false);
-            if (handsFreeActiveRef.current) {
-                setHandsFreeMicMuted(false);
+            if (handsFreeActiveRef.current && !isProcessingSegmentRef.current && acquireHandsFreeMicRef.current) {
+                await acquireHandsFreeMicRef.current();
             }
         } finally {
             if (currentAudioUrlRef.current) {
@@ -346,7 +398,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                 currentAudioUrlRef.current = null;
             }
         }
-    }, [playAudioUrlOrDataUri, setHandsFreeMicMuted, stopSpeaking]);
+    }, [playAudioUrlOrDataUri, stopSpeaking, teardownMicAndSwitchToPlayback]);
 
     const getBestMimeType = (): string => {
         if (typeof MediaRecorder === 'undefined') return 'audio/webm';
@@ -356,15 +408,18 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         return '';
     };
 
-    // Envoi d'un segment audio à /api/translate (Groq Whisper Turbo + GPT-OSS-120B + Audio TTS intégré en un seul appel !)
+    // Envoi d'un segment audio à /api/translate (Groq Whisper Turbo + GPT-OSS-120B + Audio TTS Studio intégré en un seul appel !)
     const processAudioSegment = useCallback(async (audioBlob: Blob, speakerRole: 'therapeut' | 'patient' | 'bidirectional') => {
         if (audioBlob.size < 800) return;
 
         setIsTranslating(true);
         if (handsFreeActiveRef.current) {
             setHandsFreeStatus('translating');
-            setHandsFreeMicMuted(true);
         }
+
+        // Coupe immédiatement le micro matériel pendant l'appel réseau (~550ms)
+        // pour laisser à iOS le temps de basculer proprement en mode Playback Hi-Fi avant que le MP3 n'arrive
+        await teardownMicAndSwitchToPlayback();
 
         const currentLangObj = SUPPORTED_LANGUAGES.find(l => l.code === targetLanguageRef.current) || SUPPORTED_LANGUAGES[0];
         const tempId = Date.now().toString() + "_" + Math.random().toString(36).substring(2, 6);
@@ -480,15 +535,11 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
             });
         } finally {
             setIsTranslating(false);
-            if (handsFreeActiveRef.current) {
-                setHandsFreeMicMuted(false);
-                setHandsFreeStatus('listening');
-            }
         }
-    }, [playAudioUrlOrDataUri, setHandsFreeMicMuted, speakText, toast]);
+    }, [playAudioUrlOrDataUri, speakText, teardownMicAndSwitchToPlayback, toast]);
 
     // ============================================================================
-    // MODE 1 : MAINS LIBRES ULTRA-RÉACTIF (Cadence ChatGPT ~0.9s + Anti-Écho Matériel)
+    // MODE 1 : MAINS LIBRES ULTRA-RÉACTIF (Cadence ChatGPT ~0.8s + Zéro Grésillement iOS)
     // ============================================================================
     const startNewHandsFreeSegment = useCallback(() => {
         if (!handsFreeActiveRef.current || !handsFreeStreamRef.current) return;
@@ -498,7 +549,6 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         }
 
         try {
-            setHandsFreeMicMuted(false);
             const mime = mimeTypeRef.current;
             const options: MediaRecorderOptions = mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : {};
             const recorder = new MediaRecorder(handsFreeStreamRef.current, options);
@@ -527,11 +577,17 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                         isProcessingSegmentRef.current = true;
                         await processAudioSegment(blob, 'bidirectional');
                         isProcessingSegmentRef.current = false;
+
+                        // Ré-ouvre le micro matériel une fois que la traduction et la voix TTS sont terminées
+                        if (handsFreeActiveRef.current && !isPlayingTTSRef.current && acquireHandsFreeMicRef.current) {
+                            await acquireHandsFreeMicRef.current();
+                        }
+                        return;
                     }
                 }
 
-                // Relancer l'écoute du segment suivant dès la fin de la lecture + sas 450ms
-                if (handsFreeActiveRef.current && !isProcessingSegmentRef.current && !isPlayingTTSRef.current) {
+                // Si c'était un simple reset de silence (9s sans parole), le flux micro est toujours actif
+                if (handsFreeActiveRef.current && !isProcessingSegmentRef.current && !isPlayingTTSRef.current && handsFreeStreamRef.current) {
                     startNewHandsFreeSegment();
                 }
             };
@@ -542,29 +598,55 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         } catch (err) {
             console.error("Failed to start hands-free segment recorder:", err);
         }
-    }, [processAudioSegment, setHandsFreeMicMuted]);
+    }, [processAudioSegment]);
 
-    const startHandsFreeSession = async () => {
+    const acquireHandsFreeMicAndListen = useCallback(async () => {
+        if (!handsFreeActiveRef.current || isProcessingSegmentRef.current || isPlayingTTSRef.current) return;
+        if (handsFreeStreamRef.current) return;
+
         try {
-            unlockAudioPlayback();
+            if (typeof navigator !== 'undefined') {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const nav = navigator as any;
+                if (nav.audioSession) {
+                    try { nav.audioSession.type = 'auto'; } catch { /* ignore */ }
+                }
+            }
 
+            // echoCancellation: false car le micro est physiquement coupé pendant le TTS :
+            // évite le filtre téléphonique iOS VoiceProcessingIO qui étouffe et fait grésiller le son !
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: false,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                }
+            });
+
+            if (!handsFreeActiveRef.current) {
+                stream.getTracks().forEach(t => t.stop());
+                return;
+            }
+
+            if (typeof navigator !== 'undefined') {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const nav = navigator as any;
+                if (nav.audioSession) {
+                    try { nav.audioSession.type = 'play-and-record'; } catch { /* ignore */ }
+                }
+            }
+
+            handsFreeStreamRef.current = stream;
+            mimeTypeRef.current = getBestMimeType();
+
+            // Instancier AudioContext APRÈS getUserMedia pour qu'il adopte la fréquence matérielle exacte du micro
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
             const audioCtx = new AudioContextClass();
             audioContextRef.current = audioCtx;
             if (audioCtx.state === 'suspended') {
-                await audioCtx.resume().catch(console.error);
+                await audioCtx.resume().catch(() => {});
             }
-
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                }
-            });
-            handsFreeStreamRef.current = stream;
-            mimeTypeRef.current = getBestMimeType();
 
             const source = audioCtx.createMediaStreamSource(stream);
             const analyser = audioCtx.createAnalyser();
@@ -573,16 +655,13 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
             source.connect(analyser);
             analyserRef.current = analyser;
 
-            handsFreeActiveRef.current = true;
-            setIsHandsFreeActive(true);
             setHandsFreeStatus('listening');
-
             startNewHandsFreeSegment();
 
             const freqData = new Uint8Array(analyser.frequencyBinCount);
-            const SPEECH_THRESHOLD = 33; // Seuil calibré cabinet
-            const MIN_SPEECH_DURATION_MS = 420; // Capte même les réponses courtes ("Yes", "Ici", "Tout à fait")
-            const SILENCE_DURATION_MS = 920; // 0.92s de silence = déclenchement ultra-réactif type ChatGPT Voice
+            const SPEECH_THRESHOLD = 32;
+            const MIN_SPEECH_DURATION_MS = 400;
+            const SILENCE_DURATION_MS = 900;
             const MAX_SEGMENT_SPEECH_MS = 24000;
             const IDLE_RESET_MS = 9000;
 
@@ -650,19 +729,35 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
             };
 
             vadRafRef.current = requestAnimationFrame(monitorVad);
-
-            toast({
-                title: "⚡ Mode Mains Libres Turbo activé",
-                description: `Traduction instantanée (< 0.8s) • Voix Françaises de France (Paris) & Britanniques.`,
-            });
         } catch (err) {
-            console.error("Erreur démarrage Mains Libres:", err);
+            console.error("Erreur acquisition micro Mains Libres:", err);
             toast({
                 title: "Erreur Microphone",
                 description: "Impossible d'accéder au microphone. Vérifiez les autorisations du navigateur.",
                 variant: "destructive",
             });
             stopHandsFreeSession();
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [startNewHandsFreeSegment, toast]);
+
+    useEffect(() => {
+        acquireHandsFreeMicRef.current = acquireHandsFreeMicAndListen;
+    }, [acquireHandsFreeMicAndListen]);
+
+    const startHandsFreeSession = async () => {
+        unlockAudioPlayback();
+        handsFreeActiveRef.current = true;
+        setIsHandsFreeActive(true);
+        setHandsFreeStatus('listening');
+
+        await acquireHandsFreeMicAndListen();
+
+        if (handsFreeActiveRef.current) {
+            toast({
+                title: "⚡ Mode Mains Libres Studio activé",
+                description: `Traduction instantanée (< 0.8s) • Voix Studio Françaises de France (Victoria, Lucie, Nicolas) & Britanniques.`,
+            });
         }
     };
 
@@ -679,29 +774,9 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         setIsHandsFreeActive(false);
         setHandsFreeStatus('idle');
         setVadLevel(0);
-
-        if (vadRafRef.current) {
-            cancelAnimationFrame(vadRafRef.current);
-            vadRafRef.current = null;
-        }
-        if (segmentRecorderRef.current && segmentRecorderRef.current.state !== 'inactive') {
-            hasSpeechInSegmentRef.current = false;
-            speechFramesCountRef.current = 0;
-            try { segmentRecorderRef.current.stop(); } catch { /* ignore */ }
-        }
-        segmentRecorderRef.current = null;
-
-        if (handsFreeStreamRef.current) {
-            handsFreeStreamRef.current.getTracks().forEach(t => t.stop());
-            handsFreeStreamRef.current = null;
-        }
-        if (audioContextRef.current) {
-            audioContextRef.current.close().catch(() => {});
-            audioContextRef.current = null;
-        }
-        analyserRef.current = null;
+        teardownMicAndSwitchToPlayback();
         stopSpeaking();
-    }, [stopSpeaking]);
+    }, [stopSpeaking, teardownMicAndSwitchToPlayback]);
 
     // ============================================================================
     // MODE 2 : MANUEL PUSH-TO-TALK (Guillaume FR / Patient Étranger)
@@ -710,14 +785,19 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         try {
             stopSpeaking();
             unlockAudioPlayback();
+            await teardownMicAndSwitchToPlayback();
 
-            if (streamRef.current) {
-                streamRef.current.getTracks().forEach(track => track.stop());
+            if (typeof navigator !== 'undefined') {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const nav = navigator as any;
+                if (nav.audioSession) {
+                    try { nav.audioSession.type = 'auto'; } catch { /* ignore */ }
+                }
             }
 
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
-                    echoCancellation: true,
+                    echoCancellation: false,
                     noiseSuppression: true,
                     autoGainControl: true,
                 }
@@ -740,10 +820,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
             mediaRecorder.onstop = async () => {
                 const finalMimeType = mime || 'audio/webm';
                 const audioBlob = new Blob(audioChunksRef.current, { type: finalMimeType });
-                if (streamRef.current) {
-                    streamRef.current.getTracks().forEach((track) => track.stop());
-                    streamRef.current = null;
-                }
+                await teardownMicAndSwitchToPlayback();
                 await processAudioSegment(audioBlob, speaker);
             };
 
@@ -1007,7 +1084,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                                 : `Mode Manuel : Cliquez sur « Guillaume (FR) » ou « Patient (${selectedLang.label}) » pour enregistrer et traduire.`}
                         </p>
                         <p className="text-xs text-[#8c7b6d] mt-1">
-                            Réponse instantanée (&lt; 0.8s) • Voix Françaises de France (Claire, Jeanne, Léo) &amp; Britanniques.
+                            Réponse instantanée (&lt; 0.8s) • Voix Studio Françaises de France (Victoria, Lucie, Nicolas) &amp; Britanniques.
                         </p>
                     </div>
                 )}

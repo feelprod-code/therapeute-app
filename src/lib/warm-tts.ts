@@ -1,37 +1,41 @@
 import { GoogleGenAI } from '@google/genai';
 
-// Voix 100% Français de France (Paris) & Britanniques chaleureuses (Zéro accent québécois/américain en FR)
+// Voix Studio Haute Qualité (category=high_quality) 100% Français de France (Paris) & Britanniques (Zéro souffle de micro, zéro accent québécois)
 export const VOICE_CONFIGS: Record<string, { elevenLabsId: string; geminiVoice: string }> = {
+    victoria: {
+        elevenLabsId: 'O31r762Gb3WFygrEOGh0', // Victoria - Parisienne Studio High-Quality (Fluide, Douce & Chaleureuse)
+        geminiVoice: 'Aoede',
+    },
+    lucie: {
+        elevenLabsId: 'YxrwjAKoUKULGd0g8K9Y', // Lucie - Française de France Studio High-Quality (Empathique & Naturelle)
+        geminiVoice: 'Kore',
+    },
+    nicolas: {
+        elevenLabsId: 'aQROLel5sQbj1vuIVi6B', // Nicolas - Parisien Studio High-Quality (Calme, Posé & Rassurant)
+        geminiVoice: 'Charon',
+    },
     claire: {
-        elevenLabsId: '6vTyAgAT8PncODBcLjRf', // Claire - Française de France (Chaleureuse, Douce, Naturelle)
+        elevenLabsId: '6vTyAgAT8PncODBcLjRf', // Claire - Française Chaleureuse
         geminiVoice: 'Aoede',
     },
     jeanne: {
-        elevenLabsId: 'txtf1EDouKke753vN8SL', // Jeanne - Parisienne Naturelle & Fluide
+        elevenLabsId: 'txtf1EDouKke753vN8SL', // Jeanne - Parisienne Naturelle
         geminiVoice: 'Aoede',
     },
-    victoria: {
-        elevenLabsId: 'O31r762Gb3WFygrEOGh0', // Victoria - Parisienne Captivante & Douce
-        geminiVoice: 'Kore',
-    },
     leo: {
-        elevenLabsId: 'AfbuxQ9DVtS4azaxN1W7', // Léo - Parisien Rassurant & Posé
+        elevenLabsId: 'AfbuxQ9DVtS4azaxN1W7', // Léo - Parisien Rassurant
         geminiVoice: 'Charon',
-    },
-    nicolas: {
-        elevenLabsId: 'aQROLel5sQbj1vuIVi6B', // Nicolas - Parisien Calme & Profond
-        geminiVoice: 'Orus',
     },
     guillaume: {
         elevenLabsId: 'wwP8V0shqgoFc7EOufdw', // Guillaume Philippe - Voix Clonée Pro Paris
         geminiVoice: 'Charon',
     },
     lily: {
-        elevenLabsId: 'pFZP5JQG7iQjIQuC4Bku', // Lily - Britannique Veloutée
+        elevenLabsId: 'pFZP5JQG7iQjIQuC4Bku', // Lily - Britannique Studio Veloutée
         geminiVoice: 'Leda',
     },
     george: {
-        elevenLabsId: 'JBFqnCBsd6RMkjVDRZzb', // George - Britannique Chaleureux & Rassurant
+        elevenLabsId: 'JBFqnCBsd6RMkjVDRZzb', // George - Britannique Studio Chaleureux
         geminiVoice: 'Orus',
     },
 };
@@ -40,19 +44,19 @@ export function resolveVoiceConfig(voicePreset: string, langCode: string, speake
     const langPrefix = langCode.split('-')[0].toLowerCase();
 
     if (voicePreset === 'duo_warm' || !VOICE_CONFIGS[voicePreset]) {
-        // Si la phrase à prononcer est en Français (traduction de la patiente pour Guillaume) -> Claire (100% Française de France)
+        // En Français (traduction de la patiente pour Guillaume) -> Victoria (Studio High-Quality Parisienne sans aucun souffle)
         if (langPrefix === 'fr') {
-            return VOICE_CONFIGS.claire;
+            return VOICE_CONFIGS.victoria;
         }
-        // Si la phrase à prononcer est en Anglais/Langue étrangère (traduction de Guillaume pour le patient) -> George (Chaleureux) ou Claire
-        return speaker === 'therapeut' ? VOICE_CONFIGS.george : VOICE_CONFIGS.claire;
+        // En Anglais/Langue étrangère (traduction de Guillaume pour le patient) -> George (Studio Britannique Chaleureux)
+        return speaker === 'therapeut' ? VOICE_CONFIGS.george : VOICE_CONFIGS.victoria;
     }
 
     // Si l'utilisateur a choisi une voix anglaise (george/lily) mais que le texte à lire est en Français,
-    // basculer automatiquement sur l'équivalent Français de France (leo/claire) pour éviter tout accent étranger/québécois !
+    // basculer automatiquement sur l'équivalent Studio Français de France (nicolas/victoria)
     if (langPrefix === 'fr') {
-        if (voicePreset === 'george') return VOICE_CONFIGS.leo;
-        if (voicePreset === 'lily') return VOICE_CONFIGS.claire;
+        if (voicePreset === 'george') return VOICE_CONFIGS.nicolas;
+        if (voicePreset === 'lily') return VOICE_CONFIGS.victoria;
     }
 
     return VOICE_CONFIGS[voicePreset];
@@ -96,7 +100,6 @@ export async function generateWarmTtsAudio(
     const voiceConfig = resolveVoiceConfig(voicePreset, langCode, speaker);
     const langPrefix = langCode.split('-')[0].toLowerCase();
 
-    // 1. ElevenLabs Turbo v2.5 en Haute Définition 128kbps sans saturation (Zéro grésillement sur iPhone)
     const elevenLabsKey =
         process.env.ELEVENLABS_API_KEY ||
         process.env.ELEVEN_LABS_API_KEY;
@@ -108,10 +111,10 @@ export async function generateWarmTtsAudio(
                 text: cleanText,
                 model_id: 'eleven_turbo_v2_5',
                 voice_settings: {
-                    stability: 0.62,
-                    similarity_boost: 0.78,
+                    stability: 0.65,
+                    similarity_boost: 0.75,
                     style: 0.0,
-                    use_speaker_boost: false, // Désactivé pour éviter la saturation et le grésillement sur le haut-parleur iPhone
+                    use_speaker_boost: false,
                 },
             };
 
@@ -119,9 +122,9 @@ export async function generateWarmTtsAudio(
                 payload.language_code = langPrefix;
             }
 
-            // mp3_44100_128 + optimize_streaming_latency=2 : son cristallin sur iOS sans artefacts de quantification
+            // output_format=mp3_44100_128 sans optimize_streaming_latency dégradant : pureté studio 100% (~240ms avec Victoria/Lucie/Nicolas)
             const elResponse = await fetch(
-                `https://api.elevenlabs.io/v1/text-to-speech/${voiceConfig.elevenLabsId}?optimize_streaming_latency=2&output_format=mp3_44100_128`,
+                `https://api.elevenlabs.io/v1/text-to-speech/${voiceConfig.elevenLabsId}?output_format=mp3_44100_128`,
                 {
                     method: 'POST',
                     headers: {
@@ -138,7 +141,7 @@ export async function generateWarmTtsAudio(
                     return {
                         buffer: Buffer.from(audioArrayBuffer),
                         mimeType: 'audio/mpeg',
-                        engine: 'elevenlabs-turbo-v2.5-hd',
+                        engine: 'elevenlabs-turbo-v2.5-studio',
                     };
                 }
             }
@@ -147,7 +150,6 @@ export async function generateWarmTtsAudio(
         }
     }
 
-    // 2. Secours automatique Gemini 2.5 Flash TTS (avec accent Français de France)
     const geminiApiKey = process.env.GEMINI_API_KEY;
     if (!geminiApiKey) return null;
 
