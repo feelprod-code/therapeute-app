@@ -96,7 +96,7 @@ export async function generateWarmTtsAudio(
     const voiceConfig = resolveVoiceConfig(voicePreset, langCode, speaker);
     const langPrefix = langCode.split('-')[0].toLowerCase();
 
-    // 1. ElevenLabs Turbo v2.5 avec optimisation de latence maximale (~300ms) et voix natives de France
+    // 1. ElevenLabs Turbo v2.5 en Haute Définition 128kbps sans saturation (Zéro grésillement sur iPhone)
     const elevenLabsKey =
         process.env.ELEVENLABS_API_KEY ||
         process.env.ELEVEN_LABS_API_KEY;
@@ -108,10 +108,10 @@ export async function generateWarmTtsAudio(
                 text: cleanText,
                 model_id: 'eleven_turbo_v2_5',
                 voice_settings: {
-                    stability: 0.48,
-                    similarity_boost: 0.85,
-                    style: 0.18,
-                    use_speaker_boost: true,
+                    stability: 0.62,
+                    similarity_boost: 0.78,
+                    style: 0.0,
+                    use_speaker_boost: false, // Désactivé pour éviter la saturation et le grésillement sur le haut-parleur iPhone
                 },
             };
 
@@ -119,8 +119,9 @@ export async function generateWarmTtsAudio(
                 payload.language_code = langPrefix;
             }
 
+            // mp3_44100_128 + optimize_streaming_latency=2 : son cristallin sur iOS sans artefacts de quantification
             const elResponse = await fetch(
-                `https://api.elevenlabs.io/v1/text-to-speech/${voiceConfig.elevenLabsId}?optimize_streaming_latency=4&output_format=mp3_44100_64`,
+                `https://api.elevenlabs.io/v1/text-to-speech/${voiceConfig.elevenLabsId}?optimize_streaming_latency=2&output_format=mp3_44100_128`,
                 {
                     method: 'POST',
                     headers: {
@@ -137,7 +138,7 @@ export async function generateWarmTtsAudio(
                     return {
                         buffer: Buffer.from(audioArrayBuffer),
                         mimeType: 'audio/mpeg',
-                        engine: 'elevenlabs-turbo-v2.5',
+                        engine: 'elevenlabs-turbo-v2.5-hd',
                     };
                 }
             }

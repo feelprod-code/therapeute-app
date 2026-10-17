@@ -176,23 +176,18 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         }
     }, []);
 
-    // Déverrouillage synchrone de l'élément Audio HTML5 pour iOS / Safari lors du clic utilisateur
+    // Préparation propre de l'élément Audio HTML5 pour iOS / Safari lors du clic utilisateur (sans WAV 11kHz parasite)
     const unlockAudioPlayback = () => {
         if (typeof window === 'undefined') return;
         try {
             if (!audioPlayerRef.current) {
-                audioPlayerRef.current = new Audio();
+                const audio = new Audio();
+                audio.setAttribute('playsinline', 'true');
+                audio.preload = 'auto';
+                audioPlayerRef.current = audio;
             }
-            audioPlayerRef.current.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
-            audioPlayerRef.current.volume = 0.01;
-            const playPromise = audioPlayerRef.current.play();
-            if (playPromise !== undefined) {
-                playPromise.then(() => {
-                    if (audioPlayerRef.current) {
-                        audioPlayerRef.current.pause();
-                        audioPlayerRef.current.volume = 1.0;
-                    }
-                }).catch(() => {});
+            if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+                audioContextRef.current.resume().catch(() => {});
             }
         } catch {
             // ignore
@@ -220,7 +215,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         cooldownUntilMsRef.current = Date.now() + POST_TTS_COOLDOWN_MS;
     }, []);
 
-    // Lecture instantanée d'un flux audio déjà inclus dans la réponse /api/translate (0ms d'aller-retour supplémentaire)
+    // Lecture instantanée d'un flux audio (convertit le base64 en Blob binaire natif pour éliminer tout grésillement sur iPhone iOS)
     const playAudioUrlOrDataUri = useCallback(async (srcUrl: string, spokenText: string): Promise<void> => {
         stopSpeaking();
         isPlayingTTSRef.current = true;
@@ -228,13 +223,40 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         lastSpokenTtsRef.current = spokenText;
         setHandsFreeMicMuted(true);
 
+        let objectUrlToRevoke: string | null = null;
+
         try {
+            let finalPlayUrl = srcUrl;
+            if (srcUrl.startsWith('data:')) {
+                const commaIdx = srcUrl.indexOf(',');
+                const meta = srcUrl.substring(5, commaIdx);
+                const mime = meta.split(';')[0] || 'audio/mpeg';
+                const base64Data = srcUrl.substring(commaIdx + 1);
+                const binaryStr = window.atob(base64Data);
+                const len = binaryStr.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = binaryStr.charCodeAt(i);
+                }
+                const blob = new Blob([bytes], { type: mime });
+                finalPlayUrl = URL.createObjectURL(blob);
+                objectUrlToRevoke = finalPlayUrl;
+                currentAudioUrlRef.current = finalPlayUrl;
+            }
+
             await new Promise<void>((resolve) => {
                 const audio = audioPlayerRef.current || new Audio();
+                audio.setAttribute('playsinline', 'true');
                 audioPlayerRef.current = audio;
-                audio.src = srcUrl;
-                audio.volume = 1.0;
-                audio.playbackRate = speechRateRef.current;
+                audio.src = finalPlayUrl;
+                // Volume à 0.88 (-1.1 dB) pour éviter la saturation du limiteur matériel iPhone en mode PlayAndRecord
+                audio.volume = 0.88;
+                // Ne modifier playbackRate que si != 1.0 pour éviter l'activation du vocodeur temporel iOS qui grésille
+                if (Math.abs(speechRateRef.current - 1.0) > 0.01) {
+                    audio.playbackRate = speechRateRef.current;
+                } else {
+                    audio.defaultPlaybackRate = 1.0;
+                }
 
                 const safetyTimeout = setTimeout(() => {
                     resolve();
@@ -259,6 +281,12 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                 }
             });
         } finally {
+            if (objectUrlToRevoke) {
+                URL.revokeObjectURL(objectUrlToRevoke);
+                if (currentAudioUrlRef.current === objectUrlToRevoke) {
+                    currentAudioUrlRef.current = null;
+                }
+            }
             cooldownUntilMsRef.current = Date.now() + POST_TTS_COOLDOWN_MS;
             await new Promise((r) => setTimeout(r, POST_TTS_COOLDOWN_MS));
             isPlayingTTSRef.current = false;
