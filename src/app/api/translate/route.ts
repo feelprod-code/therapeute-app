@@ -4,7 +4,7 @@ import { generateWarmTtsAudio } from '@/lib/warm-tts';
 
 export const maxDuration = 60;
 
-// Expressions parasites typiques d'hallucination sur fond sonore / silence
+// Expressions parasites typiques d'hallucination Whisper sur fond sonore / silence
 const HALLUCINATION_PATTERNS = [
     /^thank you\.?$/i,
     /^thanks for watching\.?$/i,
@@ -13,17 +13,30 @@ const HALLUCINATION_PATTERNS = [
     /^amara\.org/i,
     /^you$/i,
     /^bye\.?$/i,
-    /^merci\.?$/i,
     /^merci d'avoir regard/i,
     /^\.+$/,
 ];
+
+// Prompt bilingue natif par langue pour guider le décodeur Whisper-Large-v3-Turbo sur les segments courts (1-2s)
+const WHISPER_BILINGUAL_PROMPTS: Record<string, string> = {
+    en: 'Consultation médicale ostéopathique. Bonjour, où avez-vous mal ? Hello, where does it hurt?',
+    es: 'Consultation médicale ostéopathique. Bonjour, où avez-vous mal ? Hola, ¿dónde le duele exactamente?',
+    de: 'Consultation médicale ostéopathique. Bonjour, où avez-vous mal ? Guten Tag, wo haben Sie Schmerzen?',
+    it: 'Consultation médicale ostéopathique. Bonjour, où avez-vous mal ? Buongiorno, dove sente dolore?',
+    pt: 'Consultation médicale ostéopathique. Bonjour, où avez-vous mal ? Olá, onde sente dor exatamente?',
+    ru: 'Consultation médicale ostéopathique. Bonjour, où avez-vous mal ? Здравствуйте, где именно у вас болит?',
+    zh: 'Consultation médicale ostéopathique. Bonjour, où avez-vous mal ? 您好，请问您哪里觉得疼？',
+    ja: 'Consultation médicale ostéopathique. Bonjour, où avez-vous mal ? こんにちは、どこが痛みますか？',
+    ko: 'Consultation médicale ostéopathique. Bonjour, où avez-vous mal ? 안녕하세요, 어디가 아프신가요?',
+    ar: 'Consultation médicale ostéopathique. Bonjour, où avez-vous mal ? مرحباً، أين تشعر بالألم بالضبط؟',
+};
 
 function normalizeForComparison(str: string): string {
     return str
         .toLowerCase()
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9\s]/g, '')
+        .replace(/[.,!?;:'"()[\]{}«»„“”‘’¿¡\-—_…/\\|`~@#$%^&*+=<>،؛؟。，、！？「」『』（）]/g, '')
         .replace(/\s+/g, ' ')
         .trim();
 }
@@ -34,8 +47,9 @@ function isEchoOfLastTts(text: string, lastTts: string): boolean {
     const normLast = normalizeForComparison(lastTts);
     if (!normText || !normLast) return false;
     if (normText === normLast) return true;
-    if (normText.length >= 6 && normLast.includes(normText)) return true;
-    if (normLast.length >= 6 && normText.includes(normLast)) return true;
+    const minLen = /[\u3040-\u9fff\uac00-\ud7af]/.test(normText) ? 3 : 6;
+    if (normText.length >= minLen && normLast.includes(normText)) return true;
+    if (normLast.length >= minLen && normText.includes(normLast)) return true;
     return false;
 }
 
@@ -66,13 +80,15 @@ export async function POST(req: Request) {
             mimeType = 'audio/mp4';
         }
 
+        const targetLangPrefix = targetLangCode.split('-')[0].toLowerCase();
+
         let resolvedSpeaker: 'therapeut' | 'patient' = 'patient';
         let transcription = '';
         let translation = '';
         let handledByGroq = false;
 
         // =========================================================================
-        // 1. MOTEUR ULTRA-RAPIDE (~500ms) : Groq Whisper-Large-v3-Turbo + GPT-OSS-120B
+        // 1. MOTEUR ULTRA-RAPIDE (~450ms) : Groq Whisper-Large-v3-Turbo + Cascade 3 LLMs
         // =========================================================================
         const groqKey = process.env.GROQ_API_KEY;
 
@@ -83,6 +99,14 @@ export async function POST(req: Request) {
                 whisperForm.append('file', new Blob([arrayBuffer], { type: mimeType }), `speech.${ext}`);
                 whisperForm.append('model', 'whisper-large-v3-turbo');
                 whisperForm.append('response_format', 'verbose_json');
+
+                // Si le bouton explicite "Guillaume (FR)" est pressé, verrouiller Whisper en français
+                if (speakerMode === 'therapeut') {
+                    whisperForm.append('language', 'fr');
+                }
+                // Toujours fournir le prompt bilingue natif pour que Whisper reconnaisse immédiatement les 10 langues même sur 1.5s d'audio
+                const bilingualPrompt = WHISPER_BILINGUAL_PROMPTS[targetLangPrefix] || WHISPER_BILINGUAL_PROMPTS.en;
+                whisperForm.append('prompt', bilingualPrompt);
 
                 const wRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
                     method: 'POST',
@@ -97,58 +121,90 @@ export async function POST(req: Request) {
                     const firstSeg = Array.isArray(wData.segments) && wData.segments[0] ? wData.segments[0] : null;
                     const noSpeechProb = firstSeg && typeof firstSeg.no_speech_prob === 'number' ? firstSeg.no_speech_prob : 0;
 
-                    if (!rawText || noSpeechProb > 0.72 || HALLUCINATION_PATTERNS.some(rx => rx.test(rawText))) {
+                    if (
+                        !rawText ||
+                        noSpeechProb > 0.75 ||
+                        HALLUCINATION_PATTERNS.some(rx => rx.test(rawText)) ||
+                        rawText === bilingualPrompt
+                    ) {
                         return new Response("[SILENCE]", {
                             headers: { 'Content-Type': 'text/plain; charset=utf-8' }
                         });
                     }
 
-                    const isSpokenFrench =
-                        speakerMode === 'therapeut'
-                            ? true
-                            : speakerMode === 'patient'
-                            ? false
-                            : detectedLang === 'french' || detectedLang === 'fr';
-
-                    resolvedSpeaker = isSpokenFrench ? 'therapeut' : 'patient';
                     transcription = rawText;
 
-                    // Filtre anti-écho immédiat avant même d'appeler le LLM
+                    // Filtre anti-écho immédiat avant d'appeler le LLM
                     if (lastSpokenTts && isEchoOfLastTts(transcription, lastSpokenTts)) {
                         return new Response("[SILENCE]", {
                             headers: { 'Content-Type': 'text/plain; charset=utf-8' }
                         });
                     }
 
-                    const translationDirectionPrompt = isSpokenFrench
-                        ? `Translate this French medical consultation sentence into natural, warm, empathetic ${targetLanguage}. Output JSON {"translation": "..."} ONLY.`
-                        : `Traduis cette phrase de consultation médicale (${targetLanguage}) en FRANÇAIS naturel, fluide et précis. Ne répète JAMAIS l'anglais. Réponds UNIQUEMENT en JSON {"translation": "..."}.`;
+                    const systemPrompt = `You are an ultra-fast medical interpreter between a French osteopath (who speaks French) and a foreign patient (who speaks ${targetLanguage}, code: ${targetLangCode}).
+Analyze the input sentence (Whisper detected language hint: "${detectedLang}", button mode: "${speakerMode}"):
+1. Determine if the input sentence is in FRENCH ("isSpokenFrench": true) or in a FOREIGN language ("isSpokenFrench": false).
+   - Note: If the input sentence is clearly written in French (even if button mode is "patient" or "bidirectional"), set "isSpokenFrench": true!
+   - If button mode is "therapeut", ALWAYS set "isSpokenFrench": true.
+2. If "isSpokenFrench" is true:
+   - Translate the French sentence into natural, warm, empathetic ${targetLanguage} (${targetLangCode}).
+   - Use native script for ${targetLanguage} (e.g. Cyrillic for Russian, Simplified Chinese for Mandarin, Kana/Kanji for Japanese, Hangul for Korean, Arabic script for Arabic).
+   - NEVER output French in "translation" when "isSpokenFrench" is true!
+3. If "isSpokenFrench" is false:
+   - Translate the foreign sentence into natural, fluent Metropolitan FRENCH (fr-FR).
+   - NEVER repeat the foreign language in "translation" when "isSpokenFrench" is false!
+Output strictly valid JSON: {"isSpokenFrench": boolean, "translation": "string"}`;
 
-                    const llmRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                        method: 'POST',
-                        headers: {
-                            Authorization: `Bearer ${groqKey}`,
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            model: 'openai/gpt-oss-120b',
-                            temperature: 0.05,
-                            reasoning_effort: 'low',
-                            response_format: { type: 'json_object' },
-                            messages: [
-                                { role: 'system', content: translationDirectionPrompt },
-                                { role: 'user', content: transcription },
-                            ],
-                        }),
-                    });
+                    // Cascade de 3 modèles Groq ultra-rapides (évite tout blocage HTTP 429 Rate Limit lors de tests intensifs multi-langues)
+                    const groqModels = [
+                        'llama-3.3-70b-versatile',
+                        'openai/gpt-oss-120b',
+                        'llama-3.1-8b-instant',
+                    ];
 
-                    if (llmRes.ok) {
-                        const llmData = await llmRes.json();
-                        const content = llmData.choices?.[0]?.message?.content || '{}';
-                        const parsed = JSON.parse(content);
-                        if (parsed.translation && parsed.translation.trim()) {
-                            translation = parsed.translation.trim();
-                            handledByGroq = true;
+                    for (const modelName of groqModels) {
+                        try {
+                            const llmBody: Record<string, unknown> = {
+                                model: modelName,
+                                temperature: 0.05,
+                                response_format: { type: 'json_object' },
+                                messages: [
+                                    { role: 'system', content: systemPrompt },
+                                    { role: 'user', content: transcription },
+                                ],
+                            };
+                            if (modelName === 'openai/gpt-oss-120b') {
+                                llmBody.reasoning_effort = 'low';
+                            }
+
+                            const llmRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                                method: 'POST',
+                                headers: {
+                                    Authorization: `Bearer ${groqKey}`,
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify(llmBody),
+                            });
+
+                            if (llmRes.ok) {
+                                const llmData = await llmRes.json();
+                                const content = llmData.choices?.[0]?.message?.content || '{}';
+                                const parsed = JSON.parse(content);
+                                if (parsed.translation && parsed.translation.trim()) {
+                                    const isFrench =
+                                        speakerMode === 'therapeut'
+                                            ? true
+                                            : typeof parsed.isSpokenFrench === 'boolean'
+                                            ? parsed.isSpokenFrench
+                                            : detectedLang === 'french' || detectedLang === 'fr';
+                                    resolvedSpeaker = isFrench ? 'therapeut' : 'patient';
+                                    translation = parsed.translation.trim();
+                                    handledByGroq = true;
+                                    break;
+                                }
+                            }
+                        } catch (innerErr) {
+                            console.warn(`[API /translate] Model ${modelName} warning:`, innerErr);
                         }
                     }
                 }
@@ -169,11 +225,11 @@ export async function POST(req: Request) {
             const ai = new GoogleGenAI({ apiKey });
             const base64Audio = Buffer.from(arrayBuffer).toString('base64');
 
-            const systemInstruction = `Tu es un interprète médical bilingue ultra-précis entre Guillaume Philippe (praticien qui parle Français) et son patient étranger (qui parle ${targetLanguage}).
+            const systemInstruction = `Tu es un interprète médical bilingue ultra-précis entre Guillaume Philippe (praticien qui parle Français) et son patient étranger (qui parle ${targetLanguage}, code ${targetLangCode}).
 1. Si silence/bruit/souffle -> "isSilence": true.
-2. Si la voix parle Français -> "spokenLanguageIsFrench": true. Si elle parle ${targetLanguage} -> "spokenLanguageIsFrench": false.
+2. Si la voix parle Français -> "spokenLanguageIsFrench": true. Si elle parle ${targetLanguage} (ou une autre langue étrangère) -> "spokenLanguageIsFrench": false.
 3. "frenchVersion" : TOUJOURS EN FRANÇAIS.
-4. "foreignVersion" : TOUJOURS EN ${targetLanguage.toUpperCase()}.`;
+4. "foreignVersion" : TOUJOURS EN ${targetLanguage.toUpperCase()} (${targetLangCode}).`;
 
             const response = await ai.models.generateContent({
                 model: 'gemini-2.5-flash',
@@ -217,8 +273,6 @@ export async function POST(req: Request) {
             resolvedSpeaker =
                 speakerMode === 'therapeut'
                     ? 'therapeut'
-                    : speakerMode === 'patient'
-                    ? 'patient'
                     : parsed.spokenLanguageIsFrench
                     ? 'therapeut'
                     : 'patient';
@@ -227,10 +281,11 @@ export async function POST(req: Request) {
             translation = resolvedSpeaker === 'therapeut' ? foreignVersion : frenchVersion;
         }
 
+        const isCjk = /[\u3040-\u9fff\uac00-\ud7af]/.test(transcription);
         if (
             !transcription ||
             !translation ||
-            transcription.length < 2 ||
+            (!isCjk && transcription.length < 2) ||
             HALLUCINATION_PATTERNS.some(rx => rx.test(transcription.trim()))
         ) {
             return new Response("[SILENCE]", {

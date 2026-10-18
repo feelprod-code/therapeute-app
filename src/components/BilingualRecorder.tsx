@@ -20,6 +20,9 @@ interface Message {
     originalText: string;
     translatedText: string;
     timestamp: Date;
+    langCode?: string;
+    langLabel?: string;
+    langFlag?: string;
 }
 
 export const SUPPORTED_LANGUAGES = [
@@ -489,6 +492,9 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                 originalText: finalTranscription,
                 translatedText: finalTranslation,
                 timestamp: new Date(),
+                langCode: currentLangObj.code,
+                langLabel: currentLangObj.label,
+                langFlag: currentLangObj.flag,
             };
 
             setMessages(prev => {
@@ -919,7 +925,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
         <Card className="w-full max-w-4xl mx-auto border-[#bd613c]/30 shadow-sm bg-white overflow-hidden flex flex-col min-h-[520px]">
             <CardHeader className="bg-[#ebd9c8]/30 border-b border-[#bd613c]/10 pb-3 px-3 sm:px-6">
                 <div className="flex flex-col gap-3">
-                    {/* Ligne 1 : Titre + Sélecteur de Langue */}
+                    {/* Ligne 1 : Titre + Sélecteur de Langue toujours actif */}
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <Globe2 className="w-5 h-5 text-[#bd613c]" />
@@ -933,7 +939,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                             <select
                                 value={targetLanguage}
                                 onChange={(e) => setTargetLanguage(e.target.value)}
-                                disabled={isHandsFreeActive || activeSpeaker !== null || isBusy}
+                                disabled={isBusy}
                                 className="text-xs sm:text-sm bg-transparent border-none text-[#4a3f35] font-semibold focus:outline-none cursor-pointer pr-1"
                             >
                                 {SUPPORTED_LANGUAGES.map(lang => (
@@ -945,7 +951,31 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                         </div>
                     </div>
 
-                    {/* Ligne 2 : Mode de capture (Mains Libres vs Push-to-Talk) + Voix Françaises de France & Britanniques */}
+                    {/* Barre de sélection directe en 1 clic des 10 langues (toujours active même en Mains Libres) */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+                        {SUPPORTED_LANGUAGES.map((lang) => {
+                            const isSelected = targetLanguage === lang.code;
+                            return (
+                                <button
+                                    key={lang.code}
+                                    type="button"
+                                    onClick={() => setTargetLanguage(lang.code)}
+                                    disabled={isBusy}
+                                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 transition-all cursor-pointer ${
+                                        isSelected
+                                            ? 'bg-[#bd613c] text-white shadow-2xs'
+                                            : 'bg-white/80 text-[#4a3f35] border border-[#bd613c]/20 hover:bg-white'
+                                    }`}
+                                    title={`Traduire Français ⇄ ${lang.name}`}
+                                >
+                                    <span>{lang.flag}</span>
+                                    <span>{lang.name}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {/* Ligne 2 : Mode de capture (Mains Libres vs Push-to-Talk) + Voix Françaises de France & Multilingues */}
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#bd613c]/10">
                         {/* Sélecteur de mode */}
                         <div className="flex bg-[#ebd9c8]/50 p-0.5 rounded-full border border-[#bd613c]/20">
@@ -1007,7 +1037,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
 
                             {ttsMode !== 'mute' && (
                                 <>
-                                    {/* Sélecteur de Voix Humaine Chaleureuse (Français de France Paris) */}
+                                    {/* Sélecteur de Voix Humaine Chaleureuse (Français de France Paris & Multilingue) */}
                                     <div className="flex items-center gap-1 bg-white px-2.5 py-1 rounded-full border border-[#bd613c]/20 text-[11px] sm:text-xs">
                                         <HeartHandshake className="w-3.5 h-3.5 text-[#bd613c] shrink-0" />
                                         <select
@@ -1084,15 +1114,18 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                                 : `Mode Manuel : Cliquez sur « Guillaume (FR) » ou « Patient (${selectedLang.label}) » pour enregistrer et traduire.`}
                         </p>
                         <p className="text-xs text-[#8c7b6d] mt-1">
-                            Réponse instantanée (&lt; 0.8s) • Voix Studio Françaises de France (Victoria, Lucie, Nicolas) &amp; Britanniques.
+                            Réponse instantanée (&lt; 0.8s) • 10 langues actives (EN, ES, DE, IT, PT, RU, ZH, JA, KO, AR) • Voix Studio.
                         </p>
                     </div>
                 )}
 
                 {messages.map((msg) => {
                     const isTherapeut = msg.speaker === 'therapeut';
-                    const originalLangCode = isTherapeut ? 'fr-FR' : targetLanguage;
-                    const translatedLangCode = isTherapeut ? targetLanguage : 'fr-FR';
+                    const msgLangCode = msg.langCode || targetLanguage;
+                    const msgLangLabel = msg.langLabel || selectedLang.label;
+                    const msgLangFlag = msg.langFlag || selectedLang.flag;
+                    const originalLangCode = isTherapeut ? 'fr-FR' : msgLangCode;
+                    const translatedLangCode = isTherapeut ? msgLangCode : 'fr-FR';
 
                     return (
                         <div
@@ -1105,7 +1138,7 @@ export function BilingualRecorder({ onRecordingComplete, onConversationComplete,
                         >
                             <div className="flex items-center justify-between gap-3 mb-1 opacity-85 text-[11px] font-bold uppercase tracking-wider">
                                 <span>
-                                    {isTherapeut ? '🇫🇷 Guillaume (FR → ' + selectedLang.label + ')' : `${selectedLang.flag} Patient (${selectedLang.label} → FR)`}
+                                    {isTherapeut ? '🇫🇷 Guillaume (FR → ' + msgLangLabel + ')' : `${msgLangFlag} Patient (${msgLangLabel} → FR)`}
                                 </span>
                                 <div className="flex items-center gap-1.5">
                                     <button

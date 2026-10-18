@@ -1,65 +1,91 @@
 import { GoogleGenAI } from '@google/genai';
 
-// Voix Studio Haute Qualité (category=high_quality) 100% Français de France (Paris) & Britanniques (Zéro souffle de micro, zéro accent québécois)
-export const VOICE_CONFIGS: Record<string, { elevenLabsId: string; geminiVoice: string }> = {
+// Voix Studio Haute Qualité :
+// - Pour le Français (fr) : Voix 100% Français de France (Paris) enregistrées en studio (Victoria, Lucie, Nicolas, Jeanne, Léo, Claire, Guillaume)
+// - Pour les 10 langues étrangères (en, es, de, it, pt, ru, zh, ja, ko, ar) : Voix Studio Multilingues Natives ElevenLabs (George, Lily) qui maîtrisent les 32 langues sans accent français parasite.
+export const VOICE_CONFIGS: Record<
+    string,
+    { elevenLabsId: string; foreignElevenLabsId: string; geminiVoice: string; gender: 'female' | 'male' }
+> = {
     victoria: {
         elevenLabsId: 'O31r762Gb3WFygrEOGh0', // Victoria - Parisienne Studio High-Quality (Fluide, Douce & Chaleureuse)
+        foreignElevenLabsId: 'pFZP5JQG7iQjIQuC4Bku', // Lily - Studio Multilingue Douce (32 langues)
         geminiVoice: 'Aoede',
+        gender: 'female',
     },
     lucie: {
         elevenLabsId: 'YxrwjAKoUKULGd0g8K9Y', // Lucie - Française de France Studio High-Quality (Empathique & Naturelle)
+        foreignElevenLabsId: 'EXAVITQu4vr4xnSDxMaL', // Sarah - Studio Multilingue Rassurante (32 langues)
         geminiVoice: 'Kore',
+        gender: 'female',
     },
     nicolas: {
         elevenLabsId: 'aQROLel5sQbj1vuIVi6B', // Nicolas - Parisien Studio High-Quality (Calme, Posé & Rassurant)
+        foreignElevenLabsId: 'JBFqnCBsd6RMkjVDRZzb', // George - Studio Multilingue Chaleureux (32 langues)
         geminiVoice: 'Charon',
+        gender: 'male',
     },
     claire: {
         elevenLabsId: '6vTyAgAT8PncODBcLjRf', // Claire - Française Chaleureuse
+        foreignElevenLabsId: 'pFZP5JQG7iQjIQuC4Bku', // Lily - Studio Multilingue Douce
         geminiVoice: 'Aoede',
+        gender: 'female',
     },
     jeanne: {
         elevenLabsId: 'txtf1EDouKke753vN8SL', // Jeanne - Parisienne Naturelle
+        foreignElevenLabsId: 'pFZP5JQG7iQjIQuC4Bku', // Lily - Studio Multilingue Douce
         geminiVoice: 'Aoede',
+        gender: 'female',
     },
     leo: {
         elevenLabsId: 'AfbuxQ9DVtS4azaxN1W7', // Léo - Parisien Rassurant
+        foreignElevenLabsId: 'JBFqnCBsd6RMkjVDRZzb', // George - Studio Multilingue Chaleureux
         geminiVoice: 'Charon',
+        gender: 'male',
     },
     guillaume: {
         elevenLabsId: 'wwP8V0shqgoFc7EOufdw', // Guillaume Philippe - Voix Clonée Pro Paris
+        foreignElevenLabsId: 'JBFqnCBsd6RMkjVDRZzb', // George - Studio Multilingue Chaleureux pour les langues étrangères
         geminiVoice: 'Charon',
+        gender: 'male',
     },
     lily: {
-        elevenLabsId: 'pFZP5JQG7iQjIQuC4Bku', // Lily - Britannique Studio Veloutée
+        elevenLabsId: 'O31r762Gb3WFygrEOGh0', // En Français -> Victoria (évite l'accent anglophone en français)
+        foreignElevenLabsId: 'pFZP5JQG7iQjIQuC4Bku', // Lily - Studio Multilingue Veloutée (32 langues)
         geminiVoice: 'Leda',
+        gender: 'female',
     },
     george: {
-        elevenLabsId: 'JBFqnCBsd6RMkjVDRZzb', // George - Britannique Studio Chaleureux
+        elevenLabsId: 'aQROLel5sQbj1vuIVi6B', // En Français -> Nicolas (évite l'accent anglophone en français)
+        foreignElevenLabsId: 'JBFqnCBsd6RMkjVDRZzb', // George - Studio Multilingue Chaleureux (32 langues)
         geminiVoice: 'Orus',
+        gender: 'male',
     },
 };
 
-export function resolveVoiceConfig(voicePreset: string, langCode: string, speaker: string) {
-    const langPrefix = langCode.split('-')[0].toLowerCase();
+export function resolveVoiceConfig(voicePreset: string, langCode: string, _speaker: string) {
+    const langPrefix = (langCode || 'fr-FR').split('-')[0].toLowerCase();
+    const isFrenchTarget = langPrefix === 'fr';
 
     if (voicePreset === 'duo_warm' || !VOICE_CONFIGS[voicePreset]) {
-        // En Français (traduction de la patiente pour Guillaume) -> Victoria (Studio High-Quality Parisienne sans aucun souffle)
-        if (langPrefix === 'fr') {
-            return VOICE_CONFIGS.victoria;
-        }
-        // En Anglais/Langue étrangère (traduction de Guillaume pour le patient) -> George (Studio Britannique Chaleureux)
-        return speaker === 'therapeut' ? VOICE_CONFIGS.george : VOICE_CONFIGS.victoria;
+        // En Français -> Victoria (Studio Parisienne)
+        // Dans toutes les langues étrangères (EN, ES, DE, IT, PT, RU, ZH, JA, KO, AR) -> George (Studio Multilingue 32 langues)
+        return {
+            elevenLabsId: isFrenchTarget
+                ? VOICE_CONFIGS.victoria.elevenLabsId
+                : VOICE_CONFIGS.george.foreignElevenLabsId,
+            geminiVoice: isFrenchTarget ? 'Aoede' : 'Orus',
+        };
     }
 
-    // Si l'utilisateur a choisi une voix anglaise (george/lily) mais que le texte à lire est en Français,
-    // basculer automatiquement sur l'équivalent Studio Français de France (nicolas/victoria)
-    if (langPrefix === 'fr') {
-        if (voicePreset === 'george') return VOICE_CONFIGS.nicolas;
-        if (voicePreset === 'lily') return VOICE_CONFIGS.victoria;
-    }
-
-    return VOICE_CONFIGS[voicePreset];
+    const chosen = VOICE_CONFIGS[voicePreset];
+    return {
+        // CRITIQUE : Les voix françaises dédiées (Victoria, Lucie, Nicolas, Claire, Jeanne, Léo, Guillaume) sont utilisées en Français,
+        // et basculent automatiquement sur leur homologue Studio Multilingue (George/Lily/Sarah) dès qu'il faut parler
+        // Anglais, Espagnol, Allemand, Italien, Portugais, Russe, Chinois, Japonais, Coréen ou Arabe !
+        elevenLabsId: isFrenchTarget ? chosen.elevenLabsId : chosen.foreignElevenLabsId,
+        geminiVoice: chosen.geminiVoice,
+    };
 }
 
 export function pcm16ToWavBuffer(pcmBuffer: Buffer, sampleRate = 24000, numChannels = 1): Buffer {
@@ -98,7 +124,7 @@ export async function generateWarmTtsAudio(
     if (!cleanText) return null;
 
     const voiceConfig = resolveVoiceConfig(voicePreset, langCode, speaker);
-    const langPrefix = langCode.split('-')[0].toLowerCase();
+    const langPrefix = (langCode || 'fr-FR').split('-')[0].toLowerCase();
 
     const elevenLabsKey =
         process.env.ELEVENLABS_API_KEY ||
@@ -122,7 +148,6 @@ export async function generateWarmTtsAudio(
                 payload.language_code = langPrefix;
             }
 
-            // output_format=mp3_44100_128 sans optimize_streaming_latency dégradant : pureté studio 100% (~240ms avec Victoria/Lucie/Nicolas)
             const elResponse = await fetch(
                 `https://api.elevenlabs.io/v1/text-to-speech/${voiceConfig.elevenLabsId}?output_format=mp3_44100_128`,
                 {
